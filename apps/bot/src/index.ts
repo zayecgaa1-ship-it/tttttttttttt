@@ -890,15 +890,15 @@ if (!token) {
     const lineMarkup = lines.map((line, index) => `<text x="800" y="${promptStart + index * 90}" text-anchor="middle" class="prompt">${escapeXml(line)}</text>`).join("");
     const mediaFrame = media
       ? `<rect x="370" y="330" width="860" height="440" rx="36" fill="#080808" stroke="#ff2029" stroke-width="7"/><rect x="395" y="355" width="810" height="390" rx="24" fill="#151515"/>`
-      : `<circle cx="800" cy="650" r="145" fill="#19080a" stroke="#ff2029" stroke-width="6"/><text x="800" y="695" text-anchor="middle" style="font:900 130px Arial,sans-serif;fill:#fff">${escapeXml(gameEmoji(match.gameSlug))}</text>`;
+      : `<circle cx="800" cy="650" r="145" fill="#19080a" stroke="#ff2029" stroke-width="6"/><text x="800" y="695" text-anchor="middle" style="font:900 130px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff">${escapeXml(gameEmoji(match.gameSlug))}</text>`;
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="shade"><stop stop-color="#020202" stop-opacity=".28"/><stop offset="1" stop-color="#020202" stop-opacity=".94"/></linearGradient></defs>
       <rect width="1600" height="900" fill="url(#shade)"/>
-      <style>.prompt{font:900 68px Arial,sans-serif;fill:#fff}.tag{font:900 23px Arial,sans-serif;fill:#fff;letter-spacing:5px}</style>
+      <style>.prompt{font:900 68px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff}.tag{font:900 23px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff;letter-spacing:5px}</style>
       <rect x="630" y="48" width="340" height="58" rx="12" fill="#ed1c24"/><text x="800" y="87" text-anchor="middle" class="tag">ZARK GAME</text>
-      <text x="800" y="170" text-anchor="middle" style="font:900 78px Arial,sans-serif;fill:#fff">${escapeXml(visualLabel)}</text>
+      <text x="800" y="170" text-anchor="middle" style="font:900 78px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff">${escapeXml(visualLabel)}</text>
       ${lineMarkup}${mediaFrame}
-      <text x="800" y="850" text-anchor="middle" style="font:800 31px Arial,sans-serif;fill:#ddd">${daily ? "تحدي اليوم · أول إجابة صحيحة تفوز" : "أول إجابة صحيحة تفوز · النقاط حسب السرعة والدقة"}</text>
+      <text x="800" y="850" text-anchor="middle" style="font:800 31px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#ddd">${daily ? "تحدي اليوم · أول إجابة صحيحة تفوز" : "أول إجابة صحيحة تفوز · النقاط حسب السرعة والدقة"}</text>
     </svg>`);
     const base = sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" });
     const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
