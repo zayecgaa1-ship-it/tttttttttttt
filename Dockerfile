@@ -1,5 +1,7 @@
 ﻿FROM node:20-slim
 
+ENV PRISMA_HIDE_UPDATE_MESSAGE=1
+
 # Install Prisma runtime requirements and Arabic fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openssl \
