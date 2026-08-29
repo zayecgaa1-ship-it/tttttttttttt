@@ -139,3 +139,30 @@ npm audit --omit=dev
 - Prisma migrations فعلية بدل `db push` قبل Production.
 
 هذه الميزات يجب إضافتها تدريجيًا بعد اختبار PostgreSQL وRedis وDiscord فعليًا.
+
+## النشر على v0.app وتشغيل البوت
+
+موقع v0/Vercel مناسب لواجهة الموقع والـ API القصير، لكنه لا يشغّل Discord Gateway bot كعملية دائمة؛ البوت يحتاج Worker يعمل 24/7. لذلك استخدم نفس المستودع بخدمتين منفصلتين:
+
+1. **Web/API service:** شغّل `Dockerfile.api` واربطه بـ Neon Postgres وRedis، ثم اجعل `PUBLIC_API_URL` عنوان هذه الخدمة.
+2. **Bot worker:** شغّل `Dockerfile.bot` على خدمة Worker دائمة، واضبط `PUBLIC_API_URL` على عنوان الـ API نفسه.
+3. **v0.app:** استخدمه لتعديل الموقع ومعاينته وربطه بالمستودع؛ لا تضع `DISCORD_TOKEN` أو `INTERNAL_API_KEY` داخل كود الواجهة أو Git.
+
+متغيرات الإنتاج المطلوبة للخدمتين:
+
+```text
+DATABASE_URL        # رابط Neon الحقيقي، وليس localhost
+REDIS_URL           # رابط Redis مستضاف
+PUBLIC_API_URL      # عنوان API العام مع https
+PUBLIC_SITE_ORIGINS # عنوان الموقع المسموح به
+INTERNAL_API_KEY    # نفس القيمة الطويلة في API والبوت
+DISCORD_TOKEN       # للبوت فقط
+DISCORD_GUILD_ID
+DISCORD_CLIENT_ID
+DISCORD_CLIENT_SECRET
+DISCORD_REDIRECT_URI
+SESSION_SECRET
+ADMIN_ROLE_IDS
+```
+
+بعد تشغيل الخدمتين، تحقق من `GET /health` ثم راقب سجل البوت حتى يظهر أنه متصل ويسجل أوامر Zark. لا يمكن تشغيل البوت بشكل موثوق من دالة Vercel Serverless لأنها قد تتوقف بعد انتهاء الطلب أو تدخل في sleep.
