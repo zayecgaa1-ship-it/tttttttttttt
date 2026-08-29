@@ -19,10 +19,12 @@ export async function getSupportStatus(userId: string) {
   const settings = await getGuildRuntimeSettings();
   const usage = await db.aiUsageDaily.findUnique({ where: { userId_dayKey: { userId, dayKey: dayKey() } } });
   const usedTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0) + (usage?.reservedTokens ?? 0);
-  const aiConnected = Boolean(process.env.OPENAI_API_KEY);
+  const provider = configuredAiProvider();
+  const aiConnected = Boolean(provider);
   return {
     enabled: settings.aiChatEnabled,
     mode: aiConnected ? "AI" : "SMART_LOCAL",
+    provider,
     dailyTokenBudget: settings.aiDailyTokenBudgetPerUser,
     usedTokens: aiConnected ? usedTokens : 0,
     remainingTokens: aiConnected ? Math.max(0, settings.aiDailyTokenBudgetPerUser - usedTokens) : settings.aiDailyTokenBudgetPerUser,
@@ -41,36 +43,93 @@ export async function askSupport(input: { userId: string; displayName: string; m
   await reserveDailyRequest(input.userId, settings.aiDailyMessagesPerUser, settings.aiGlobalDailyMessages);
   const context = await liveContext(message);
   const localAnswer = smartLocalAnswer(message, context);
-  if (!process.env.OPENAI_API_KEY) return { answer: localAnswer, mode: "SMART_LOCAL", remainingTokens: settings.aiDailyTokenBudgetPerUser, tokenBudget: settings.aiDailyTokenBudgetPerUser, suggestions: context.suggestions };
+  const provider = configuredAiProvider();
+  if (!provider) return { answer: localAnswer, mode: "SMART_LOCAL", provider: null, remainingTokens: settings.aiDailyTokenBudgetPerUser, tokenBudget: settings.aiDailyTokenBudgetPerUser, suggestions: context.suggestions };
 
-  const reservation = await reserveDailyTokens(input.userId, settings.aiDailyTokenBudgetPerUser, settings.aiGlobalDailyTokenBudget, settings.aiMaxOutputTokens, message);
+  let reservation: Awaited<ReturnType<typeof reserveDailyTokens>>;
+  try {
+    reservation = await reserveDailyTokens(input.userId, settings.aiDailyTokenBudgetPerUser, settings.aiGlobalDailyTokenBudget, settings.aiMaxOutputTokens, message);
+  } catch (error) {
+    if (!(error instanceof AiBudgetError)) throw error;
+    const status = await getSupportStatus(input.userId);
+    return { answer: localAnswer, mode: "SMART_LOCAL", provider, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+  }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? "gpt-5-mini",
-        store: false,
-        max_output_tokens: reservation.maxOutputTokens,
-        instructions: "أنت مساعد دعم عربي مختصر لنظام Zark LFG System. أجب فقط عن استخدام البوت والموقع والعثور على اللاعبين. لا تطلب أسرارًا أو Tokens، ولا تخترع خصائص غير موجودة. إذا كان السؤال شكوى، وجّه المستخدم لنموذج البلاغ.",
-        input: `السؤال: ${message}\n\nالحالة الحية الآمنة:\n${context.summary}\n\nإجابة الدعم المحلية المقترحة:\n${localAnswer}`,
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!response.ok) throw new Error(`OpenAI ${response.status}`);
-    const body = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }>; usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
-    const answer = body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text?.trim();
+    const result = provider === "GEMINI"
+      ? await askGemini(message, context.summary, localAnswer, reservation.maxOutputTokens)
+      : await askOpenAi(message, context.summary, localAnswer, reservation.maxOutputTokens);
+    const answer = result.answer;
     if (!answer) throw new Error("empty AI response");
-    await settleReservedTokens(input.userId, reservation.reservedTokens, body.usage?.input_tokens ?? 0, body.usage?.output_tokens ?? 0);
+    await settleReservedTokens(input.userId, reservation.reservedTokens, result.inputTokens, result.outputTokens);
     const status = await getSupportStatus(input.userId);
-    return { answer, mode: "AI", remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    return { answer, mode: "AI", provider, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
   } catch (error) {
     await settleReservedTokens(input.userId, reservation.reservedTokens, 0, 0).catch(() => undefined);
     console.error("Zark AI support fallback", error);
     const status = await getSupportStatus(input.userId);
-    return { answer: localAnswer, mode: "SMART_LOCAL", remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    return { answer: localAnswer, mode: "SMART_LOCAL", provider, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
   }
+}
+
+const supportInstructions = "أنت مساعد دعم عربي مختصر لنظام Zark LFG System. أجب فقط عن استخدام البوت والموقع والعثور على اللاعبين. لا تطلب أسرارًا أو Tokens، ولا تخترع خصائص غير موجودة. إذا كان السؤال شكوى، وجّه المستخدم لنموذج البلاغ.";
+
+function configuredAiProvider(): "GEMINI" | "OPENAI" | undefined {
+  if (process.env.GEMINI_API_KEY?.trim()) return "GEMINI";
+  if (process.env.OPENAI_API_KEY?.trim()) return "OPENAI";
+  return undefined;
+}
+
+async function askGemini(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    method: "POST",
+    headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!.trim(), "content-type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+      store: false,
+      system_instruction: supportInstructions,
+      input: supportPrompt(message, summary, localAnswer),
+      generation_config: { max_output_tokens: maxOutputTokens, thinking_level: "minimal" },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`Gemini ${response.status}`);
+  const body = await response.json() as {
+    steps?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+    usage?: { total_input_tokens?: number; total_output_tokens?: number };
+  };
+  const answer = body.steps
+    ?.filter((step) => step.type === "model_output")
+    .flatMap((step) => step.content ?? [])
+    .filter((item) => item.type === "text" && item.text)
+    .map((item) => item.text!.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return { answer, inputTokens: body.usage?.total_input_tokens ?? 0, outputTokens: body.usage?.total_output_tokens ?? 0 };
+}
+
+async function askOpenAi(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL ?? "gpt-5-mini",
+      store: false,
+      max_output_tokens: maxOutputTokens,
+      instructions: supportInstructions,
+      input: supportPrompt(message, summary, localAnswer),
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`OpenAI ${response.status}`);
+  const body = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }>; usage?: { input_tokens?: number; output_tokens?: number } };
+  const answer = body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text?.trim();
+  return { answer, inputTokens: body.usage?.input_tokens ?? 0, outputTokens: body.usage?.output_tokens ?? 0 };
+}
+
+function supportPrompt(message: string, summary: string, localAnswer: string) {
+  return `السؤال: ${message}\n\nالحالة الحية الآمنة:\n${summary}\n\nإجابة الدعم المحلية المقترحة:\n${localAnswer}`;
 }
 
 async function reserveDailyTokens(userId: string, userLimit: number, globalLimit: number, maxOutputTokens: number, message: string) {
@@ -80,14 +139,16 @@ async function reserveDailyTokens(userId: string, userLimit: number, globalLimit
     const inputEstimate = Math.max(250, Math.ceil(message.length / 3) + 350);
     const reservedTokens = inputEstimate + maxOutputTokens;
     const used = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0) + (usage?.reservedTokens ?? 0);
-    if (used + reservedTokens > userLimit) throw new Error(`رصيد مساعد Zark اليومي غير كافٍ لهذا الرد. المتبقي ${Math.max(0, userLimit - used)} Token.`);
+    if (used + reservedTokens > userLimit) throw new AiBudgetError(`رصيد مساعد Zark اليومي غير كافٍ لهذا الرد. المتبقي ${Math.max(0, userLimit - used)} Token.`);
     const global = await tx.aiUsageDaily.aggregate({ where: { dayKey: key }, _sum: { inputTokens: true, outputTokens: true, reservedTokens: true } });
     const globalUsed = (global._sum.inputTokens ?? 0) + (global._sum.outputTokens ?? 0) + (global._sum.reservedTokens ?? 0);
-    if (globalUsed + reservedTokens > globalLimit) throw new Error("وصل مساعد Zark إلى ميزانية Tokens العامة اليوم. الدعم المحلي ما زال متاحًا.");
+    if (globalUsed + reservedTokens > globalLimit) throw new AiBudgetError("وصل مساعد Zark إلى ميزانية Tokens العامة اليوم. الدعم المحلي ما زال متاحًا.");
     await tx.aiUsageDaily.update({ where: { userId_dayKey: { userId, dayKey: key } }, data: { reservedTokens: { increment: reservedTokens } } });
     return { reservedTokens, maxOutputTokens };
   });
 }
+
+class AiBudgetError extends Error {}
 
 async function reserveDailyRequest(userId: string, userLimit: number, globalLimit: number) {
   await serializable(async (tx) => {

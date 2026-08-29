@@ -100,6 +100,8 @@ INTERNAL_API_KEY
 ADMIN_ROLE_IDS
 OPENAI_API_KEY (اختياري)
 OPENAI_MODEL (اختياري)
+GEMINI_API_KEY (اختياري، وله الأولوية عند ضبطه)
+GEMINI_MODEL (اختياري)
 ```
 
 في Discord Developer Portal أضف Redirect URI نفسه الموجود في `DISCORD_REDIRECT_URI`، وفعل scopes:
