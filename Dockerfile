@@ -16,5 +16,6 @@ COPY package*.json ./
 COPY packages/db/prisma ./packages/db/prisma
 RUN npm ci
 COPY . .
+RUN npm run build
 
 CMD ["npm", "start"]

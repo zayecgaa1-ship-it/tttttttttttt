@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const services = [
-  spawn(npm, ["run", "dev:api"], { stdio: "inherit", env: process.env }),
-  spawn(npm, ["run", "dev:bot"], { stdio: "inherit", env: process.env }),
+  spawn(process.execPath, ["dist/apps/api/src/index.js"], { stdio: "inherit", env: process.env }),
+  spawn(process.execPath, ["dist/apps/bot/src/index.js"], { stdio: "inherit", env: process.env }),
 ];
 let stopping = false;
 
