@@ -1,7 +1,9 @@
 ﻿FROM node:20-slim
 
-# Install Arabic fonts
+# Install Prisma runtime requirements and Arabic fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl \
+    ca-certificates \
     fontconfig \
     fonts-dejavu-core \
     fonts-noto-core \
