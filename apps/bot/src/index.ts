@@ -5,6 +5,7 @@ import {
 } from "discord.js";
 import { createClient } from "redis";
 import path from "node:path";
+import fs from "node:fs";
 import sharp from "sharp";
 import { apiGet, apiSend } from "./api/client.js";
 
@@ -16,6 +17,14 @@ const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/asse
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
 const brand = { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل", color: 0xe50914 };
+
+// تضمين خط عربي مباشرة في الكود لضمان العمل على أي سيرفر بدون خطوط نظام
+const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansArabic.ttf");
+const arabicFontB64 = fs.existsSync(arabicFontPath) ? fs.readFileSync(arabicFontPath).toString("base64") : "";
+const fontFaceStyle = arabicFontB64
+  ? `@font-face{font-family:'NotoArabic';src:url('data:font/truetype;base64,${arabicFontB64}') format('truetype');font-weight:100 900;}`
+  : "";
+const arabicFont = arabicFontB64 ? "'NotoArabic','DejaVu Sans',sans-serif" : "'DejaVu Sans',sans-serif";
 let runtimeSettings: GuildRuntimeSettings = {
   guildId: guildId ?? "default",
   botName: brand.name,
@@ -890,15 +899,15 @@ if (!token) {
     const lineMarkup = lines.map((line, index) => `<text x="800" y="${promptStart + index * 90}" text-anchor="middle" class="prompt">${escapeXml(line)}</text>`).join("");
     const mediaFrame = media
       ? `<rect x="370" y="330" width="860" height="440" rx="36" fill="#080808" stroke="#ff2029" stroke-width="7"/><rect x="395" y="355" width="810" height="390" rx="24" fill="#151515"/>`
-      : `<circle cx="800" cy="650" r="145" fill="#19080a" stroke="#ff2029" stroke-width="6"/><text x="800" y="695" text-anchor="middle" style="font:900 130px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff">${escapeXml(gameEmoji(match.gameSlug))}</text>`;
+      : `<circle cx="800" cy="650" r="145" fill="#19080a" stroke="#ff2029" stroke-width="6"/><text x="800" y="695" text-anchor="middle" style="font:900 130px ${arabicFont};fill:#fff">${escapeXml(gameEmoji(match.gameSlug))}</text>`;
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="shade"><stop stop-color="#020202" stop-opacity=".28"/><stop offset="1" stop-color="#020202" stop-opacity=".94"/></linearGradient></defs>
       <rect width="1600" height="900" fill="url(#shade)"/>
-      <style>.prompt{font:900 68px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff}.tag{font:900 23px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff;letter-spacing:5px}</style>
+      <style>${fontFaceStyle}.prompt{font:900 68px ${arabicFont};fill:#fff}.tag{font:900 23px ${arabicFont};fill:#fff;letter-spacing:5px}</style>
       <rect x="630" y="48" width="340" height="58" rx="12" fill="#ed1c24"/><text x="800" y="87" text-anchor="middle" class="tag">ZARK GAME</text>
-      <text x="800" y="170" text-anchor="middle" style="font:900 78px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#fff">${escapeXml(visualLabel)}</text>
+      <text x="800" y="170" text-anchor="middle" style="font:900 78px ${arabicFont};fill:#fff">${escapeXml(visualLabel)}</text>
       ${lineMarkup}${mediaFrame}
-      <text x="800" y="850" text-anchor="middle" style="font:800 31px 'DejaVu Sans','Noto Sans Arabic',Arial,sans-serif;fill:#ddd">${daily ? "تحدي اليوم · أول إجابة صحيحة تفوز" : "أول إجابة صحيحة تفوز · النقاط حسب السرعة والدقة"}</text>
+      <text x="800" y="850" text-anchor="middle" style="font:800 31px ${arabicFont};fill:#ddd">${daily ? "تحدي اليوم · أول إجابة صحيحة تفوز" : "أول إجابة صحيحة تفوز · النقاط حسب السرعة والدقة"}</text>
     </svg>`);
     const base = sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" });
     const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
@@ -912,13 +921,14 @@ if (!token) {
   async function renderWinnerVisual(name: string, points: number, elapsedMs: number, typoCount: number) {
     const seconds = Math.max(0.1, elapsedMs / 1000).toFixed(1);
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
+      <style>${fontFaceStyle}</style>
       <rect width="1600" height="900" fill="#020202" fill-opacity=".72"/>
       <circle cx="800" cy="430" r="255" fill="#260608" stroke="#ff2029" stroke-width="10"/>
-      <text x="800" y="235" text-anchor="middle" style="font:900 40px Arial,sans-serif;fill:#ff2630;letter-spacing:7px">FIRST WINNER</text>
-      <text x="800" y="425" text-anchor="middle" style="font:900 92px Arial,sans-serif;fill:#fff">${escapeXml(trimText(name, 22))}</text>
-      <text x="800" y="545" text-anchor="middle" style="font:900 68px Arial,sans-serif;fill:#fff">${points} XP</text>
-      <text x="800" y="635" text-anchor="middle" style="font:800 34px Arial,sans-serif;fill:#ddd">${seconds} ثانية · ${typoCount ? `${typoCount} خطأ إملائي مقبول` : "إجابة دقيقة"}</text>
-      <text x="800" y="820" text-anchor="middle" style="font:900 32px Arial,sans-serif;fill:#fff">ZARK LFG SYSTEM</text>
+      <text x="800" y="235" text-anchor="middle" style="font:900 40px ${arabicFont};fill:#ff2630;letter-spacing:7px">FIRST WINNER</text>
+      <text x="800" y="425" text-anchor="middle" style="font:900 92px ${arabicFont};fill:#fff">${escapeXml(trimText(name, 22))}</text>
+      <text x="800" y="545" text-anchor="middle" style="font:900 68px ${arabicFont};fill:#fff">${points} XP</text>
+      <text x="800" y="635" text-anchor="middle" style="font:800 34px ${arabicFont};fill:#ddd">${seconds} ثانية · ${typoCount ? `${typoCount} خطأ إملائي مقبول` : "إجابة دقيقة"}</text>
+      <text x="800" y="820" text-anchor="middle" style="font:900 32px ${arabicFont};fill:#fff">ZARK LFG SYSTEM</text>
     </svg>`);
     return sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" }).composite([{ input: svg }]).png().toBuffer();
   }
@@ -929,17 +939,17 @@ if (!token) {
     const favorite = data.lfg.favoriteGames[0];
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <rect width="1600" height="900" fill="#020202" fill-opacity=".78"/>
-      <style>.label{font:800 28px Arial,sans-serif;fill:#aaa}.value{font:900 56px Arial,sans-serif;fill:#fff}.small{font:800 32px Arial,sans-serif;fill:#ddd}</style>
-      <rect x="1120" y="58" width="330" height="58" rx="12" fill="#ed1c24"/><text x="1285" y="97" text-anchor="middle" style="font:900 21px Arial;fill:#fff;letter-spacing:4px">ZARK PROFILE</text>
+      <style>${fontFaceStyle}.label{font:800 28px ${arabicFont};fill:#aaa}.value{font:900 56px ${arabicFont};fill:#fff}.small{font:800 32px ${arabicFont};fill:#ddd}</style>
+      <rect x="1120" y="58" width="330" height="58" rx="12" fill="#ed1c24"/><text x="1285" y="97" text-anchor="middle" style="font:900 21px ${arabicFont};fill:#fff;letter-spacing:4px">ZARK PROFILE</text>
       <circle cx="340" cy="385" r="205" fill="#111" stroke="#ed1c24" stroke-width="10"/>
-      ${avatar ? "" : `<text x="340" y="430" text-anchor="middle" style="font:900 145px Arial;fill:#fff">${escapeXml(data.displayName.slice(0, 1).toUpperCase())}</text>`}
-      <text x="1040" y="230" text-anchor="middle" style="font:900 90px Arial,sans-serif;fill:#fff">${escapeXml(trimText(data.displayName, 22))}</text>
+      ${avatar ? "" : `<text x="340" y="430" text-anchor="middle" style="font:900 145px ${arabicFont};fill:#fff">${escapeXml(data.displayName.slice(0, 1).toUpperCase())}</text>`}
+      <text x="1040" y="230" text-anchor="middle" style="font:900 90px ${arabicFont};fill:#fff">${escapeXml(trimText(data.displayName, 22))}</text>
       <text x="1040" y="300" text-anchor="middle" class="small">Zark Level ${data.zark.level} · ${escapeXml(rating)}</text>
       <rect x="590" y="360" width="900" height="235" rx="30" fill="#0d0d0d" stroke="#3a3a3a" stroke-width="3"/>
       ${profileStat(700, "Zark XP", data.zark.xp.toLocaleString())}${profileStat(925, "الفوز", String(data.zark.wins))}${profileStat(1150, "التفاعل", String(data.lfg.engagement))}${profileStat(1375, "وقت Voice", formatDuration(data.lfg.voiceSeconds))}
       <text x="1040" y="690" text-anchor="middle" class="small">${data.lfg.completedSessions} جلسة مكتملة · لعب مع ${data.lfg.uniqueTeammates} عضو مختلف</text>
       <text x="1040" y="755" text-anchor="middle" class="small">${favorite ? `أكثر لعبة: ${escapeXml(favorite.name)} · ${favorite.sessions} جلسة` : "ابدأ أول جلسة LFG وسجّل إنجازك"}</text>
-      <text x="340" y="650" text-anchor="middle" style="font:900 36px Arial;fill:#fff">ZARK LEVEL ${data.zark.level}</text>
+      <text x="340" y="650" text-anchor="middle" style="font:900 36px ${arabicFont};fill:#fff">ZARK LEVEL ${data.zark.level}</text>
     </svg>`);
     const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
     if (avatar) {
@@ -1008,14 +1018,14 @@ if (!token) {
       return `<clipPath id="avatar-${index}"><circle cx="${x}" cy="717" r="62"/></clipPath>${image}<circle cx="${x}" cy="717" r="64" fill="none" stroke="${member.id === room.hostId ? "#ff2530" : member.voiceActive ? "#31db8b" : "#ffffff"}" stroke-opacity=".9" stroke-width="5"/><text x="${x}" y="825" text-anchor="middle" class="member">${escapeXml(trimText(member.displayName, 12))} ${crown}</text>`;
     }).join("");
     const extra = Math.max(0, room.members.length - visibleMembers.length);
-    const hostVisual = hostAvatar ? `<clipPath id="host-avatar"><circle cx="330" cy="390" r="190"/></clipPath><image href="${hostAvatar}" x="140" y="200" width="380" height="380" preserveAspectRatio="xMidYMid slice" clip-path="url(#host-avatar)"/>` : `<circle cx="330" cy="390" r="190" fill="#161616"/><text x="330" y="440" text-anchor="middle" style="font:900 145px Arial;fill:#fff">${escapeXml(room.hostName.slice(0, 1).toUpperCase())}</text>`;
+    const hostVisual = hostAvatar ? `<clipPath id="host-avatar"><circle cx="330" cy="390" r="190"/></clipPath><image href="${hostAvatar}" x="140" y="200" width="380" height="380" preserveAspectRatio="xMidYMid slice" clip-path="url(#host-avatar)"/>` : `<circle cx="330" cy="390" r="190" fill="#161616"/><text x="330" y="440" text-anchor="middle" style="font:900 145px ${arabicFont};fill:#fff">${escapeXml(room.hostName.slice(0, 1).toUpperCase())}</text>`;
     const detail = trimText(room.mapName ? `الماب: ${room.mapName}` : room.gameMode ? `النمط: ${room.gameMode}` : room.description ?? "جاهزون للتجمع واللعب", 42);
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="shade" x1="0" x2="1"><stop offset="0" stop-color="#000" stop-opacity=".28"/><stop offset=".42" stop-color="#000" stop-opacity=".48"/><stop offset="1" stop-color="#050505" stop-opacity=".94"/></linearGradient></defs>
       <rect width="1600" height="900" fill="url(#shade)"/>
-      <style>.title{font:900 82px Arial,sans-serif;fill:#fff}.eyebrow{font:900 25px Arial,sans-serif;letter-spacing:5px;fill:#ff2029}.meta{font:800 39px Arial,sans-serif;fill:#fff}.sub{font:700 31px Arial,sans-serif;fill:#d2d2d2}.member{font:800 24px Arial,sans-serif;fill:#fff}.initial{font:900 54px Arial,sans-serif;fill:#fff}.count{font:900 76px Arial,sans-serif;fill:#fff}</style>
+      <style>${fontFaceStyle}.title{font:900 82px ${arabicFont};fill:#fff}.eyebrow{font:900 25px ${arabicFont};letter-spacing:5px;fill:#ff2029}.meta{font:800 39px ${arabicFont};fill:#fff}.sub{font:700 31px ${arabicFont};fill:#d2d2d2}.member{font:800 24px ${arabicFont};fill:#fff}.initial{font:900 54px ${arabicFont};fill:#fff}.count{font:900 76px ${arabicFont};fill:#fff}</style>
       <rect x="1140" y="55" width="310" height="60" rx="12" fill="#ed1c24"/>
-      <text x="1295" y="96" text-anchor="middle" style="font:900 22px Arial,sans-serif;letter-spacing:5px;fill:#fff">ZARK LFG</text>
+      <text x="1295" y="96" text-anchor="middle" style="font:900 22px ${arabicFont};letter-spacing:5px;fill:#fff">ZARK LFG</text>
       <text x="330" y="120" text-anchor="middle" class="eyebrow">ROOM HOST</text>
       ${hostVisual}<circle cx="330" cy="390" r="195" fill="none" stroke="#ff2029" stroke-width="10"/>
       <text x="330" y="650" text-anchor="middle" class="meta">${escapeXml(trimText(room.hostName, 18))}</text>

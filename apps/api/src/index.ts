@@ -1,5 +1,6 @@
 import "dotenv/config";
 import path from "node:path";
+import fs from "node:fs";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
@@ -16,6 +17,8 @@ import { askSupport, getSupportStatus } from "./modules/support/service.js";
 import { getWebUser, isWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true });
+const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansArabic.ttf");
+const arabicFont = fs.existsSync(arabicFontPath) ? fs.readFileSync(arabicFontPath) : undefined;
 const roomUpdateSchema = z.object({
   title: z.string().max(80).nullable().optional(),
   description: z.string().max(500).nullable().optional(),
@@ -36,6 +39,13 @@ await app.register(fastifyStatic, { root: path.resolve(process.cwd(), "apps/web/
 await registerDiscordAuth(app);
 
 app.get("/health", async () => ({ ok: true, service: "zark-api" }));
+app.get("/assets/fonts/zark-arabic.ttf", async (_request, reply) => {
+  if (!arabicFont) return reply.code(404).send({ error: "Arabic font asset is unavailable" });
+  return reply
+    .header("Cache-Control", "public, max-age=31536000, immutable")
+    .type("font/ttf")
+    .send(arabicFont);
+});
 app.get("/api/me", async (request) => {
   const user = await getWebUser(request);
   return { user: user ? { ...user, isAdmin: isWebAdmin(user) } : null };
