@@ -1,6 +1,7 @@
 ﻿FROM node:20-slim
 
 ENV PRISMA_HIDE_UPDATE_MESSAGE=1
+ENV PORT=8080
 
 # Install Prisma runtime requirements and Arabic fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,5 +20,7 @@ COPY packages/db/prisma ./packages/db/prisma
 RUN npm ci
 COPY . .
 RUN npm run build
+
+EXPOSE 8080
 
 CMD ["npm", "start"]
