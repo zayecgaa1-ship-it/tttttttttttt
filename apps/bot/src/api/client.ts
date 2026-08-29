@@ -1,4 +1,6 @@
-const apiUrl = process.env.PUBLIC_API_URL ?? "http://localhost:3000";
+const localApiUrl = `http://127.0.0.1:${process.env.PORT ?? process.env.API_PORT ?? "3000"}`;
+const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_PROJECT_ID);
+const apiUrl = (process.env.INTERNAL_API_URL?.trim() || (isRailway ? localApiUrl : process.env.PUBLIC_API_URL?.trim()) || localApiUrl).replace(/\/+$/, "");
 const serviceKey = process.env.INTERNAL_API_KEY ?? "";
 
 export async function apiGet<T>(path: string, internal = false): Promise<T> {

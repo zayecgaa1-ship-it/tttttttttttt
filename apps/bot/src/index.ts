@@ -94,7 +94,7 @@ if (!token) {
     const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
-    const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces(), 30_000);
+    const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces().catch((error) => console.error("LFG cleanup cycle failed", error)), 30_000);
     heartbeatTimer.unref();
     cleanupTimer.unref();
   });
@@ -869,7 +869,7 @@ if (!token) {
   }
 
   function activateRace(channelId: string, match: ZarkMatch, messageId: string, channel: any) {
-    const timeout = setTimeout(() => void expireActiveRace(channelId, match.id, channel), Math.max(500, new Date(match.endsAt).getTime() - Date.now()));
+    const timeout = setTimeout(() => void expireActiveRace(channelId, match.id, channel).catch((error) => console.error("Race expiration failed", error)), Math.max(500, new Date(match.endsAt).getTime() - Date.now()));
     timeout.unref();
     activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout });
   }

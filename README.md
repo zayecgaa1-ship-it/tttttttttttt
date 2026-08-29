@@ -87,6 +87,7 @@ Website ─────┘             │
 DATABASE_URL
 REDIS_URL
 PUBLIC_API_URL
+INTERNAL_API_URL (optional private/internal bot-to-API URL)
 PUBLIC_SITE_ORIGINS
 DISCORD_TOKEN
 DISCORD_GUILD_ID
