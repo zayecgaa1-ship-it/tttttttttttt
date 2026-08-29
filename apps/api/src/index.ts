@@ -1,20 +1,22 @@
 import "dotenv/config";
+import { timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import cookie from "@fastify/cookie";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
-import { initEvents, subscribe } from "./events.js";
+import { closeEvents, initEvents, subscribe } from "./events.js";
 import { answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { getMyReports, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer } from "./modules/feedback/service.js";
 import { addGameQuestion, createLfgCategory, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, recordServiceHeartbeat, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, getSupportStatus } from "./modules/support/service.js";
-import { getWebUser, isWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
+import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true });
 const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansArabic.ttf");
@@ -35,6 +37,21 @@ await initEvents();
 await app.register(cookie);
 const siteOrigins = (process.env.PUBLIC_SITE_ORIGINS ?? "http://localhost:3000").split(",").map((origin) => origin.trim()).filter(Boolean);
 await app.register(cors, { origin: siteOrigins, credentials: true });
+app.addHook("onSend", async (_request, reply) => {
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.header("X-Frame-Options", "DENY");
+  reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  reply.header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+});
+app.addHook("preHandler", async (request) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return;
+  if (!request.url.startsWith("/api/me/") && !request.url.startsWith("/api/web-admin/")) return;
+  const origin = request.headers.origin;
+  if (!origin) return;
+  const sameHost = (() => { try { return new URL(origin).host === request.headers.host; } catch { return false; } })();
+  if (!sameHost && !siteOrigins.includes(origin)) throw new HttpError("تعذر التحقق من مصدر الطلب", 403);
+});
 await app.register(fastifyStatic, { root: path.resolve(process.cwd(), "apps/web/public") });
 await registerDiscordAuth(app);
 
@@ -48,7 +65,9 @@ app.get("/assets/fonts/zark-arabic.ttf", async (_request, reply) => {
 });
 app.get("/api/me", async (request) => {
   const user = await getWebUser(request);
-  return { user: user ? { ...user, isAdmin: isWebAdmin(user) } : null };
+  if (!user) return { user: null };
+  const isAdmin = await isCurrentWebAdmin(user).catch((error) => { app.log.warn(error, "Live Discord role check failed for /api/me"); return false; });
+  return { user: { userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, isAdmin } };
 });
 app.get("/api/me/profile", async (request) => getUnifiedProfile((await requireWebUser(request)).userId, true));
 app.put("/api/me/profile/settings", async (request) => {
@@ -229,7 +248,7 @@ app.post("/api/daily/answer", { preHandler: requireServiceKey }, async (request,
   return reply.send(await answerDaily(body));
 });
 app.get("/api/zark-games", listZarkGames);
-app.post("/api/play/start", async (request) => {
+app.post("/api/play/start", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ gameSlug: z.string().optional() }).parse(request.body ?? {});
   return startZarkRace(body.gameSlug);
 });
@@ -321,7 +340,7 @@ app.post("/api/lfg/:id/notifications/:userId/status", { preHandler: requireServi
   const body = z.object({ status: z.enum(["SENT", "IGNORED", "FAILED"]) }).parse(request.body);
   return markNotificationDelivery(params.id, params.userId, body.status);
 });
-app.get("/api/users/:id/lfg-preferences", async (request) => {
+app.get("/api/users/:id/lfg-preferences", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
   return getUserPreferences(params.id);
 });
@@ -410,7 +429,7 @@ app.post("/api/bot/heartbeat", { preHandler: requireServiceKey }, async (request
 });
 app.get("/api/stream", async (request, reply) => {
   reply.hijack();
-  reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "Access-Control-Allow-Origin": "*" });
+  reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   reply.raw.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
   subscribe(reply.raw);
 });
@@ -418,18 +437,44 @@ app.get("/api/stream", async (request, reply) => {
 app.setErrorHandler((error, _request, reply) => {
   app.log.error(error);
   const declaredStatus = (error as { statusCode?: unknown }).statusCode;
-  const status = error instanceof z.ZodError ? 400 : typeof declaredStatus === "number" ? declaredStatus : 409;
+  if (error instanceof z.ZodError) return reply.status(400).send({ error: "بيانات الطلب غير صحيحة أو ناقصة" });
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2025") return reply.status(404).send({ error: "العنصر المطلوب غير موجود" });
+    if (error.code === "P2002") return reply.status(409).send({ error: "تم تنفيذ هذا الإجراء مسبقًا" });
+    return reply.status(500).send({ error: "تعذر تنفيذ عملية قاعدة البيانات" });
+  }
+  const status = typeof declaredStatus === "number" ? declaredStatus : 409;
   reply.status(status).send({ error: error instanceof Error ? error.message : "تعذر تنفيذ الطلب" });
 });
 
 async function requireServiceKey(request: { headers: Record<string, string | string[] | undefined> }, reply: { status(code: number): { send(payload: unknown): unknown } }) {
   const expected = process.env.INTERNAL_API_KEY;
-  if (!expected || request.headers["x-zark-service-key"] !== expected) return reply.status(401).send({ error: "هذا الإجراء يتطلب هوية خدمة موثوقة" });
+  const supplied = request.headers["x-zark-service-key"];
+  const valid = expected && typeof supplied === "string" && safeEqual(supplied, expected);
+  if (!valid) return reply.status(401).send({ error: "هذا الإجراء يتطلب هوية خدمة موثوقة" });
 }
 
-const port = Number(process.env.API_PORT ?? 3000);
+function safeEqual(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
 await app.listen({ port, host: "0.0.0.0" });
 console.log(`Zark API listening on http://localhost:${port}`);
 void processDueLfgRooms().catch((error) => app.log.error(error));
 const roomLifecycleTimer = setInterval(() => void processDueLfgRooms().catch((error) => app.log.error(error)), 30_000);
 roomLifecycleTimer.unref();
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  app.log.info({ signal }, "Shutting down Zark API");
+  clearInterval(roomLifecycleTimer);
+  await closeEvents();
+  await app.close();
+  await db.$disconnect();
+}
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+process.once("SIGINT", () => void shutdown("SIGINT"));

@@ -1,5 +1,6 @@
 import { db } from "../../../../../packages/db/src/client.js";
 import { serializable } from "../../db-transaction.js";
+import { enforceRateLimit } from "../../events.js";
 import { getGuildRuntimeSettings } from "../admin/service.js";
 
 const knowledge = [
@@ -26,15 +27,18 @@ export async function getSupportStatus(userId: string) {
     usedTokens: aiConnected ? usedTokens : 0,
     remainingTokens: aiConnected ? Math.max(0, settings.aiDailyTokenBudgetPerUser - usedTokens) : settings.aiDailyTokenBudgetPerUser,
     requestsToday: usage?.requestCount ?? 0,
+    remainingMessages: Math.max(0, settings.aiDailyMessagesPerUser - (usage?.requestCount ?? 0)),
   };
 }
 
 export async function askSupport(input: { userId: string; displayName: string; message: string }) {
+  await enforceRateLimit("support-chat", input.userId, 15, 60);
   const settings = await getGuildRuntimeSettings();
   if (!settings.aiChatEnabled) throw new Error("مساعد Zark متوقف مؤقتًا من الإدارة");
   const message = input.message.trim().slice(0, 500);
   if (message.length < 2) throw new Error("اكتب سؤالك بشكل أوضح");
   await db.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName }, create: { id: input.userId, displayName: input.displayName } });
+  await reserveDailyRequest(input.userId, settings.aiDailyMessagesPerUser, settings.aiGlobalDailyMessages);
   const context = await liveContext(message);
   const localAnswer = smartLocalAnswer(message, context);
   if (!process.env.OPENAI_API_KEY) return { answer: localAnswer, mode: "SMART_LOCAL", remainingTokens: settings.aiDailyTokenBudgetPerUser, tokenBudget: settings.aiDailyTokenBudgetPerUser, suggestions: context.suggestions };
@@ -52,6 +56,7 @@ export async function askSupport(input: { userId: string; displayName: string; m
         instructions: "أنت مساعد دعم عربي مختصر لنظام Zark LFG System. أجب فقط عن استخدام البوت والموقع والعثور على اللاعبين. لا تطلب أسرارًا أو Tokens، ولا تخترع خصائص غير موجودة. إذا كان السؤال شكوى، وجّه المستخدم لنموذج البلاغ.",
         input: `السؤال: ${message}\n\nالحالة الحية الآمنة:\n${context.summary}\n\nإجابة الدعم المحلية المقترحة:\n${localAnswer}`,
       }),
+      signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) throw new Error(`OpenAI ${response.status}`);
     const body = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }>; usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
@@ -79,12 +84,23 @@ async function reserveDailyTokens(userId: string, userLimit: number, globalLimit
     const global = await tx.aiUsageDaily.aggregate({ where: { dayKey: key }, _sum: { inputTokens: true, outputTokens: true, reservedTokens: true } });
     const globalUsed = (global._sum.inputTokens ?? 0) + (global._sum.outputTokens ?? 0) + (global._sum.reservedTokens ?? 0);
     if (globalUsed + reservedTokens > globalLimit) throw new Error("وصل مساعد Zark إلى ميزانية Tokens العامة اليوم. الدعم المحلي ما زال متاحًا.");
+    await tx.aiUsageDaily.update({ where: { userId_dayKey: { userId, dayKey: key } }, data: { reservedTokens: { increment: reservedTokens } } });
+    return { reservedTokens, maxOutputTokens };
+  });
+}
+
+async function reserveDailyRequest(userId: string, userLimit: number, globalLimit: number) {
+  await serializable(async (tx) => {
+    const key = dayKey();
+    const usage = await tx.aiUsageDaily.findUnique({ where: { userId_dayKey: { userId, dayKey: key } } });
+    if ((usage?.requestCount ?? 0) >= userLimit) throw new Error("وصلت إلى الحد اليومي لرسائل مساعد Zark");
+    const global = await tx.aiUsageDaily.aggregate({ where: { dayKey: key }, _sum: { requestCount: true } });
+    if ((global._sum.requestCount ?? 0) >= globalLimit) throw new Error("وصل مساعد Zark إلى الحد العام اليوم؛ حاول غدًا");
     await tx.aiUsageDaily.upsert({
       where: { userId_dayKey: { userId, dayKey: key } },
-      update: { requestCount: { increment: 1 }, reservedTokens: { increment: reservedTokens } },
-      create: { userId, dayKey: key, requestCount: 1, reservedTokens },
+      update: { requestCount: { increment: 1 } },
+      create: { userId, dayKey: key, requestCount: 1 },
     });
-    return { reservedTokens, maxOutputTokens };
   });
 }
 

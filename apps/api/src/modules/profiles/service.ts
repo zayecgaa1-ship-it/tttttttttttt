@@ -6,26 +6,26 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
   const user = await db.user.findUnique({
     where: { id: userId },
     include: {
-      points: true,
       gameProfiles: { include: { game: true }, orderBy: { xp: "desc" } },
       preferences: { where: { interestStatus: "INTERESTED" }, include: { game: true } },
       weeklyAvailability: { orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] },
-      memberships: { include: { room: { include: { lfgGame: true, members: true } } }, orderBy: { joinedAt: "desc" }, take: 50 },
     },
   });
   if (!user) throw new Error("الملف الشخصي غير موجود");
-  const [rating, tags] = await Promise.all([
+  const [rating, tags, engagement, completed, activeMemberships, voiceMemberships, teammateRows, hostedCompleted] = await Promise.all([
     db.rating.aggregate({ where: { ratedId: userId }, _avg: { stars: true }, _count: true }),
     db.rating.findMany({ where: { ratedId: userId }, select: { tags: true } }),
+    db.engagementPoint.aggregate({ where: { userId }, _sum: { points: true } }),
+    db.lfgMember.findMany({ where: { userId, status: "COMPLETED" }, select: { room: { select: { lfgGameId: true, lfgGame: { select: { name: true, icon: true } } } } } }),
+    db.lfgMember.findMany({ where: { userId, status: "ACTIVE", room: { status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } } }, select: { room: { select: { id: true, status: true, hostId: true, lfgGame: { select: { name: true, icon: true } } } } } }),
+    db.lfgMember.findMany({ where: { userId }, select: { voiceSeconds: true, voiceJoinedAt: true } }),
+    db.lfgMember.findMany({ where: { userId: { not: userId }, status: "COMPLETED", room: { members: { some: { userId, status: "COMPLETED" } } } }, distinct: ["userId"], select: { userId: true } }),
+    db.lfgRoom.count({ where: { hostId: userId, status: "COMPLETED" } }),
   ]);
-  const completed = user.memberships.filter((membership) => membership.status === "COMPLETED");
-  const activeMemberships = user.memberships.filter((membership) => membership.status === "ACTIVE" && ["OPEN", "FULL", "ACTIVE"].includes(membership.room.status));
-  const voiceSeconds = user.memberships.reduce((sum, membership) => sum + membership.voiceSeconds, 0);
-  const hostedCompleted = completed.filter((membership) => membership.room.hostId === userId).length;
-  const teammates = new Set<string>();
+  const now = Date.now();
+  const voiceSeconds = voiceMemberships.reduce((sum, membership) => sum + membership.voiceSeconds + (membership.voiceJoinedAt ? Math.max(0, Math.floor((now - membership.voiceJoinedAt.getTime()) / 1000)) : 0), 0);
   const gameCounts = new Map<string, { name: string; icon?: string; sessions: number }>();
   for (const membership of completed) {
-    for (const teammate of membership.room.members) if (teammate.userId !== userId && teammate.status === "COMPLETED") teammates.add(teammate.userId);
     const current = gameCounts.get(membership.room.lfgGameId) ?? { name: membership.room.lfgGame.name, icon: membership.room.lfgGame.icon ?? undefined, sessions: 0 };
     current.sessions += 1;
     gameCounts.set(membership.room.lfgGameId, current);
@@ -49,10 +49,10 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
     },
     zark: { xp: user.xp, wins: user.wins, streak: user.streak, level: levelFromXp(user.xp), games: user.gameProfiles.map((profile) => ({ slug: profile.game.slug, name: profile.game.name, xp: profile.xp, wins: profile.wins, losses: profile.losses, streak: profile.streak })) },
     lfg: {
-      engagement: user.points.reduce((sum, point) => sum + point.points, 0),
+      engagement: engagement._sum.points ?? 0,
       completedSessions: completed.length,
       hostedCompleted,
-      uniqueTeammates: teammates.size,
+      uniqueTeammates: teammateRows.length,
       voiceSeconds,
       activeRooms: (includePrivate || user.activityVisible ? activeMemberships : []).map((membership) => ({
         id: membership.room.id,
@@ -128,11 +128,15 @@ export async function updateProfileSettings(userId: string, input: { bio?: strin
 }
 
 export async function getTopLfgPlayers(metric: "engagement" | "sessions" | "rating" = "engagement", limit = 10) {
-  const users = await db.user.findMany({ include: { points: true, memberships: { where: { status: "COMPLETED" } } } });
-  const rows = await Promise.all(users.map(async (user) => {
-    const rating = await db.rating.aggregate({ where: { ratedId: user.id }, _avg: { stars: true }, _count: true });
-    return { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, engagement: user.points.reduce((sum, point) => sum + point.points, 0), completedSessions: user.memberships.length, rating: rating._avg.stars ?? 0, ratingCount: rating._count };
-  }));
+  const [users, ratings] = await Promise.all([
+    db.user.findMany({ include: { points: true, memberships: { where: { status: "COMPLETED" }, select: { roomId: true } } } }),
+    db.rating.groupBy({ by: ["ratedId"], _avg: { stars: true }, _count: { _all: true } }),
+  ]);
+  const ratingsByUser = new Map(ratings.map((rating) => [rating.ratedId, rating]));
+  const rows = users.map((user) => {
+    const rating = ratingsByUser.get(user.id);
+    return { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, engagement: user.points.reduce((sum, point) => sum + point.points, 0), completedSessions: user.memberships.length, rating: rating?._avg.stars ?? 0, ratingCount: rating?._count._all ?? 0 };
+  });
   const score = (row: typeof rows[number]) => metric === "sessions" ? row.completedSessions : metric === "rating" ? (row.ratingCount >= 2 ? row.rating : 0) : row.engagement;
   return rows.sort((a, b) => score(b) - score(a)).slice(0, Math.min(50, limit));
 }

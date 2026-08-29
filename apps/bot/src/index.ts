@@ -74,6 +74,7 @@ if (!token) {
   const notifiedRooms = new Set<string>();
   const ratingRequestsInFlight = new Set<string>();
   const roomByVoiceChannel = new Map<string, string>();
+  let botEventSubscriber: ReturnType<typeof createClient> | undefined;
 
   if (guildId && clientId) {
     await new REST({ version: "10" }).setToken(token).put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
@@ -81,16 +82,17 @@ if (!token) {
   }
 
   client.once(Events.ClientReady, async (ready) => {
-    runtimeSettings = await apiGet<GuildRuntimeSettings>("/api/settings", true);
-    brand.name = runtimeSettings.botName;
-    brand.tagline = runtimeSettings.tagline;
+    try {
+      runtimeSettings = await apiGet<GuildRuntimeSettings>("/api/settings", true);
+      brand.name = runtimeSettings.botName;
+      brand.tagline = runtimeSettings.tagline;
+    } catch (error) {
+      console.error("Bot settings load failed; using environment defaults", error);
+    }
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
-    await startEventSubscriber();
-    await reconcileRoomListings();
-    await reconcileRoomSpaces();
-    await deliverPendingRatingRequests();
-    await cleanupFinishedRoomSpaces();
-    await sendHeartbeat();
+    await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
+    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat()]);
+    for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
     const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces(), 30_000);
     heartbeatTimer.unref();
@@ -185,12 +187,13 @@ if (!token) {
 
   async function handleSelect(interaction: any) {
     if (interaction.customId.startsWith("lfg:rating-player:")) {
+      await interaction.deferUpdate();
       const roomId = interaction.customId.split(":")[3];
       const ratedId = interaction.values[0];
       const room = await apiGet<LiveRoom>(`/api/lfg/${roomId}`);
       const player = room.members.find((member) => member.id === ratedId);
-      if (!player) return interaction.update({ content: "هذا اللاعب لم يعد ضمن الجلسة.", embeds: [], components: [] });
-      return interaction.update({
+      if (!player) return interaction.editReply({ content: "هذا اللاعب لم يعد ضمن الجلسة.", embeds: [], components: [] });
+      return interaction.editReply({
         content: `كم نجمة تعطي **${player.displayName}**؟`,
         embeds: [],
         components: [ratingStarsRow(`lfg:rating-player-stars:${roomId}:${ratedId}`), new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`lfg:rating-open:${roomId}`).setLabel("رجوع").setEmoji("↩️").setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId(`lfg:rating-skip:${roomId}`).setLabel("إنهاء").setStyle(ButtonStyle.Secondary))],
@@ -244,8 +247,9 @@ if (!token) {
     const parts = interaction.customId.split(":");
     if (interaction.customId === "zark_play_now") return play(interaction);
     if (parts[0] === "lfg" && parts[1] === "rating-open") {
+      await interaction.deferUpdate();
       const room = await apiGet<LiveRoom>(`/api/lfg/${parts[2]}`);
-      return interaction.update(ratingPanelPayload(room, interaction.user.id));
+      return interaction.editReply(ratingPanelPayload(room, interaction.user.id));
     }
     if (parts[0] === "lfg" && parts[1] === "rating-skip") return interaction.update({ content: "تم إغلاق التقييم. شكرًا لمشاركتك مع Zark ❤️", embeds: [], components: [] });
     if (parts[0] === "lfg" && parts[1] === "rating-player-stars") {
@@ -296,8 +300,9 @@ if (!token) {
       return interaction.editReply({ content: `${message} **${room.gameName}**` });
     }
     if (parts[1] === "ignore") {
+      await interaction.deferUpdate();
       await apiSend(`/api/lfg/${parts[2]}/notifications/${interaction.user.id}/status`, "POST", { status: "IGNORED" });
-      return interaction.update({ content: "تم تجاهل هذه الدعوة فقط. اهتمامك باللعبة لم يتغير.", embeds: [], components: [] });
+      return interaction.editReply({ content: "تم تجاهل هذه الدعوة فقط. اهتمامك باللعبة لم يتغير.", embeds: [], components: [] });
     }
     if (parts[1] === "interest-on") return setInterest(interaction, parts[2], true, true);
     if (parts[1] === "interest-off") return setInterest(interaction, parts[2], false, false);
@@ -331,33 +336,37 @@ if (!token) {
     if (parts[1] === "report") {
       const reason = interaction.fields.getTextInputValue("reason");
       const description = interaction.fields.getTextInputValue("description");
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await apiSend("/api/reports/player", "POST", { reporterId: interaction.user.id, reporterName: displayName(interaction), reportedId: parts[2], reason, description });
-      return interaction.reply({ content: "✅ تم إرسال البلاغ للإدارة بسرية.", flags: MessageFlags.Ephemeral });
+      return interaction.editReply({ content: "✅ تم إرسال البلاغ للإدارة بسرية." });
     }
     if (parts[1] === "bug") {
       const title = interaction.fields.getTextInputValue("title");
       const description = interaction.fields.getTextInputValue("description");
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await apiSend("/api/reports/bug", "POST", { reporterId: interaction.user.id, reporterName: displayName(interaction), title, description, context: "Discord Bot" });
-      return interaction.reply({ content: "✅ وصل تقرير الخطأ. شكرًا لمساعدتك في تحسين Zark.", flags: MessageFlags.Ephemeral });
+      return interaction.editReply({ content: "✅ وصل تقرير الخطأ. شكرًا لمساعدتك في تحسين Zark." });
     }
   }
 
   async function daily(interaction: any) {
+    await interaction.deferReply();
     const challenge = await apiGet<{ id: string; gameSlug: string; prompt: string; gameName: string; endsAt: string }>("/api/daily");
     const previous = activeRaceChannels.get(interaction.channelId);
     if (previous) clearActiveRace(interaction.channelId, previous.matchId);
     const payload = await gameMessagePayload({ id: challenge.id, gameSlug: challenge.gameSlug, gameName: `تحدي اليوم · ${challenge.gameName}`, prompt: challenge.prompt, endsAt: challenge.endsAt }, true);
-    await interaction.reply({ ...payload, components: [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("zark_play_now").setLabel("لعبة سريعة").setEmoji("⚡").setStyle(ButtonStyle.Danger))] });
+    await interaction.editReply({ ...payload, components: [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("zark_play_now").setLabel("لعبة سريعة").setEmoji("⚡").setStyle(ButtonStyle.Danger))] });
     const sent = await interaction.fetchReply();
     activeDailyChannels.set(interaction.channelId, { messageId: sent.id, challengeId: challenge.id });
   }
 
   async function play(interaction: any, gameSlug?: string) {
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
     const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug });
     const previous = activeRaceChannels.get(interaction.channelId);
     if (previous) clearActiveRace(interaction.channelId, previous.matchId);
     activeDailyChannels.delete(interaction.channelId);
-    await interaction.reply(await gameMessagePayload(match));
+    await interaction.editReply(await gameMessagePayload(match));
     const sent = await interaction.fetchReply();
     activateRace(interaction.channelId, match, sent.id, interaction.channel);
   }
@@ -371,10 +380,11 @@ if (!token) {
   }
 
   async function showLfgGamePicker(interaction: any) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const catalog = await apiGet<Array<{ name: string; icon?: string; games: Array<{ slug: string; name: string; icon?: string; description?: string }> }>>("/api/lfg/catalog");
     const games = catalog.flatMap((category) => category.games).slice(0, 25);
     const menu = new StringSelectMenuBuilder().setCustomId("lfg:create:game").setPlaceholder("اختر اللعبة الخارجية").addOptions(games.map((game) => ({ label: game.name, value: game.slug, emoji: game.icon, description: game.description?.slice(0, 100) })));
-    await interaction.reply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل للمهتمين فقط.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل للمهتمين فقط.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
   }
 
   async function createRoomFromInteraction(interaction: any, gameSlug: string, maxPlayers: number, durationMinutes: number, needsVoice: boolean, description?: string, gameMode?: string, scheduledFor?: string, mapName?: string) {
@@ -387,11 +397,11 @@ if (!token) {
   }
 
   async function startEventSubscriber() {
-    if (!process.env.REDIS_URL) return;
-    const subscriber = createClient({ url: process.env.REDIS_URL });
-    subscriber.on("error", (error) => console.error("Redis bot subscriber error", error));
-    await subscriber.connect();
-    await subscriber.subscribe("zark:events", (raw) => {
+    if (!process.env.REDIS_URL || botEventSubscriber?.isOpen) return;
+    botEventSubscriber = createClient({ url: process.env.REDIS_URL, socket: { connectTimeout: 5_000 } });
+    botEventSubscriber.on("error", (error) => console.error("Redis bot subscriber error", error));
+    await botEventSubscriber.connect();
+    await botEventSubscriber.subscribe("zark:events", (raw) => {
       void handleDomainEvent(raw).catch((error) => console.error("LFG realtime event failed", error));
     });
   }
@@ -613,7 +623,7 @@ if (!token) {
       const text = await client.channels.fetch(room.textChannelId).catch(() => null);
       if (text && "delete" in text) await text.delete(`Zark ${room.status.toLowerCase()} ${room.id}`).catch(() => undefined);
     }
-    await apiSend(`/api/lfg/${room.id}/channels-deleted`, "POST", {}).catch(() => undefined);
+    await apiSend(`/api/lfg/${room.id}/channels-deleted`, "POST", {}).catch((error) => console.error("Failed to persist room channel cleanup", error));
   }
 
   async function cleanupFinishedRoomSpaces() {
@@ -629,7 +639,8 @@ if (!token) {
   async function notifyInterestedPlayers(room: LiveRoom) {
     if (notifiedRooms.has(room.id)) return;
     notifiedRooms.add(room.id);
-    await sendRoomInvites(room);
+    try { await sendRoomInvites(room); }
+    catch (error) { notifiedRooms.delete(room.id); throw error; }
   }
 
   async function sendRoomInvites(room: LiveRoom) {
@@ -707,11 +718,12 @@ if (!token) {
   }
 
   async function profile(interaction: any, userId: string) {
+    await interaction.deferReply();
     const data = await apiGet<UnifiedProfile>(`/api/profiles/${userId}`);
     const filename = `zark-profile-${userId}.png`;
     const image = await renderProfileVisual(data);
     const embed = baseEmbed().setTitle(`👤 ملف ${data.displayName}`).setDescription(`Level ${data.zark.level} · ${data.zark.xp.toLocaleString()} XP · ${data.zark.wins} فوز`).setImage(`attachment://${filename}`);
-    await interaction.reply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
+    await interaction.editReply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
   }
 
   async function help(interaction: any) {
@@ -726,19 +738,22 @@ if (!token) {
   }
 
   async function availability(interaction: any) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const current = await apiGet<UserAvailability>(`/api/users/${interaction.user.id}/availability`, true);
-    return interaction.reply({ ...availabilityPanelPayload(current), flags: MessageFlags.Ephemeral });
+    return interaction.editReply(availabilityPanelPayload(current));
   }
 
   async function lfgTop(interaction: any, metric: string) {
+    await interaction.deferReply();
     const rows = await apiGet<Array<{ displayName: string; engagement: number; completedSessions: number; rating: number; ratingCount: number }>>(`/api/lfg/top?metric=${metric}`);
     const value = (row: typeof rows[number]) => metric === "rating" ? `${row.rating.toFixed(1)} ⭐` : metric === "sessions" ? `${row.completedSessions} جلسة` : `${row.engagement} نقطة`;
-    await interaction.reply({ embeds: [baseEmbed().setTitle("🏆 أفضل لاعبي LFG").setDescription(rows.length ? rows.map((row, index) => `${medal(index)} **${row.displayName}** — ${value(row)}`).join("\n") : "لا توجد بيانات كافية بعد")] });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("🏆 أفضل لاعبي LFG").setDescription(rows.length ? rows.map((row, index) => `${medal(index)} **${row.displayName}** — ${value(row)}`).join("\n") : "لا توجد بيانات كافية بعد")] });
   }
 
   async function lfgRooms(interaction: any) {
+    await interaction.deferReply();
     const rooms = await apiGet<LiveRoom[]>("/api/lfg");
-    if (!rooms.length) return interaction.reply({ embeds: [baseEmbed().setTitle("🔥 غرف LFG").setDescription("لا توجد غرف الآن. استخدم `/lfg create` وابدأ أول تجمع!")] });
+    if (!rooms.length) return interaction.editReply({ embeds: [baseEmbed().setTitle("🔥 غرف LFG").setDescription("لا توجد غرف الآن. استخدم `/lfg create` وابدأ أول تجمع!")] });
     const menu = new StringSelectMenuBuilder()
       .setCustomId("lfg:rooms:select")
       .setPlaceholder("اختر غرفة لعرضها والانضمام")
@@ -748,28 +763,31 @@ if (!token) {
         value: room.id,
         emoji: room.gameIcon ?? "🎮",
       })));
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [baseEmbed().setTitle("🔥 اختر غرفة وانضم").setDescription(`يوجد **${rooms.length}** تجمع متاح. اختر غرفة من القائمة لتظهر لك صور اللاعبين وزر الدخول.`)],
       components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
     });
   }
 
   async function showInterests(interaction: any) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const catalog = await apiGet<Array<{ games: Array<{ slug: string; name: string; icon?: string }> }>>("/api/lfg/catalog");
     const games = catalog.flatMap((category) => category.games).slice(0, 25);
     const menu = new StringSelectMenuBuilder().setCustomId("lfg:interest:select").setPlaceholder("اختر لعبة لتعديل اهتمامك").addOptions(games.map((game) => ({ label: game.name, value: game.slug, emoji: game.icon })));
-    await interaction.reply({ embeds: [baseEmbed().setTitle("❤️ اهتمامات LFG").setDescription("Zark يرسل لك فقط عندما توجد فرصة لعب حقيقية للعبة مهتم بها.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("❤️ اهتمامات LFG").setDescription("Zark يرسل لك فقط عندما توجد فرصة لعب حقيقية للعبة مهتم بها.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
   }
 
   async function setInterest(interaction: any, gameSlug: string, interested: boolean, notificationsEnabled: boolean) {
+    await interaction.deferUpdate();
     await apiSend(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}`, "PUT", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), interested, notificationsEnabled });
     const message = interested ? "❤️ أضفت اللعبة لاهتماماتك والإشعارات مفعلة." : "🚫 لن تصلك اقتراحات أو إشعارات لهذه اللعبة.";
-    return interaction.update({ content: message, embeds: [], components: [] });
+    return interaction.editReply({ content: message, embeds: [], components: [] });
   }
 
   async function muteInterest(interaction: any, gameSlug: string) {
+    await interaction.deferUpdate();
     await apiSend(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}/mute`, "POST", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }) });
-    return interaction.update({ content: "🔕 بقيت اللعبة ضمن اهتماماتك، لكن تم إيقاف رسائلها الخاصة.", embeds: [], components: [] });
+    return interaction.editReply({ content: "🔕 بقيت اللعبة ضمن اهتماماتك، لكن تم إيقاف رسائلها الخاصة.", embeds: [], components: [] });
   }
 
   async function showSnoozeOptions(interaction: any, gameSlug: string) {
@@ -782,14 +800,16 @@ if (!token) {
   }
 
   async function snoozeInterest(interaction: any, gameSlug: string, minutes: number) {
+    await interaction.deferUpdate();
     const preference = await apiSend<{ mutedUntil: string }>(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}/snooze`, "POST", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), minutes });
-    return interaction.update({ content: `😴 تم إيقاف رسائل اللعبة حتى <t:${Math.floor(new Date(preference.mutedUntil).getTime() / 1000)}:R>. سيعود الإشعار تلقائيًا.`, components: [], embeds: [] });
+    return interaction.editReply({ content: `😴 تم إيقاف رسائل اللعبة حتى <t:${Math.floor(new Date(preference.mutedUntil).getTime() / 1000)}:R>. سيعود الإشعار تلقائيًا.`, components: [], embeds: [] });
   }
 
   async function gameLeaderboard(interaction: any, metric: string) {
+    await interaction.deferReply();
     const rows = await apiGet<Array<{ displayName: string; gamePoints: number; engagementPoints: number }>>(`/api/leaderboard?period=daily&metric=${metric}`);
     const key = metric === "engagement" ? "engagementPoints" : "gamePoints";
-    await interaction.reply({ embeds: [baseEmbed().setTitle(metric === "engagement" ? "🤝 الأكثر تفاعلًا اليوم" : "🔥 متصدرو ألعاب Zark").setDescription(rows.length ? rows.map((row, index) => `${medal(index)} **${row.displayName}** — ${row[key]}`).join("\n") : "ابدأ أول منافسة اليوم!")] });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle(metric === "engagement" ? "🤝 الأكثر تفاعلًا اليوم" : "🔥 متصدرو ألعاب Zark").setDescription(rows.length ? rows.map((row, index) => `${medal(index)} **${row.displayName}** — ${row[key]}`).join("\n") : "ابدأ أول منافسة اليوم!")] });
   }
 
   function showPlayerReportModal(interaction: any, targetId: string) {
@@ -843,8 +863,9 @@ if (!token) {
     const target = interaction.options.getUser("user", true);
     const roomId = interaction.options.getString("room", true);
     const stars = interaction.options.getInteger("stars", true);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await apiSend(`/api/lfg/${roomId}/ratings`, "POST", { raterId: interaction.user.id, raterName: displayName(interaction), ratedId: target.id, stars, tags: [] });
-    await interaction.reply({ content: `⭐ تم تقييم ${target} بـ${stars}/5.`, flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ content: `⭐ تم تقييم ${target} بـ${stars}/5.` });
   }
 
   function activateRace(channelId: string, match: ZarkMatch, messageId: string, channel: any) {
@@ -965,7 +986,7 @@ if (!token) {
   }
 
   async function remoteImage(url: string) {
-    try { const response = await fetch(url); return response.ok ? Buffer.from(await response.arrayBuffer()) : undefined; } catch { return undefined; }
+    try { const response = await fetch(url, { signal: AbortSignal.timeout(8_000) }); return response.ok ? Buffer.from(await response.arrayBuffer()) : undefined; } catch { return undefined; }
   }
 
   function countryCodeFromFlag(value: string) {
@@ -1043,7 +1064,7 @@ if (!token) {
   async function avatarData(userId: string, knownUrl?: string) {
     try {
       const url = knownUrl ?? (await client.users.fetch(userId)).displayAvatarURL({ extension: "png", size: 256 });
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(8_000) });
       if (!response.ok) return undefined;
       const contentType = response.headers.get("content-type") ?? "image/png";
       return `data:${contentType};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
@@ -1120,6 +1141,16 @@ if (!token) {
     if (Number.isNaN(date.getTime()) || date.getTime() < Date.now() + 2 * 60_000) throw new Error("اختر موعدًا صحيحًا بعد دقيقتين على الأقل");
     return date.toISOString();
   }
+
+  async function shutdownBot(signal: string) {
+    console.log(`Zark bot shutting down (${signal})`);
+    for (const race of activeRaceChannels.values()) clearTimeout(race.timeout);
+    activeRaceChannels.clear();
+    if (botEventSubscriber?.isOpen) await botEventSubscriber.close().catch((error) => console.error("Redis bot subscriber close failed", error));
+    client.destroy();
+  }
+  process.once("SIGTERM", () => void shutdownBot("SIGTERM"));
+  process.once("SIGINT", () => void shutdownBot("SIGINT"));
 }
 
 function buildCommands() {

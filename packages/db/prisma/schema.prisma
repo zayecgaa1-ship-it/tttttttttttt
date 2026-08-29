@@ -401,6 +401,7 @@ model LfgRoom {
   @@index([status, autoDeleteAt])
   @@index([status, scheduledFor])
   @@index([status, playEndsAt])
+  @@index([status, ratingRequestedAt, completedAt])
 }
 
 model LfgMember {
@@ -456,6 +457,7 @@ model Rating {
 
   @@unique([raterId, sessionId, ratedId])
   @@index([ratedId, createdAt])
+  @@index([sessionId, ratedId])
 }
 
 model LfgRoomRating {
@@ -485,6 +487,7 @@ model Report {
 
   @@index([reportedId, status, createdAt])
   @@index([reporterId, createdAt])
+  @@index([sessionId, reporterId])
 }
 
 model BugReport {

@@ -1,40 +1,29 @@
+import { Prisma } from "@prisma/client";
 import { db } from "../../../packages/db/src/client.js";
 import { calculateWinnerPoints, evaluateAnswer, raceGames, seededRandom } from "../../../packages/games/src/index.js";
-import type { DailyChallenge, LeaderboardRow, LfgGameSummary, ZarkGameSummary } from "../../../packages/shared/src/index.js";
-import { publish } from "./events.js";
-
-const externalGames = [
-  { slug: "minecraft", name: "Minecraft", icon: "⛏️", category: "Sandbox" },
-  { slug: "valorant", name: "Valorant", icon: "🎯", category: "FPS" },
-  { slug: "fortnite", name: "Fortnite", icon: "🏝️", category: "Battle Royale" },
-  { slug: "gta-v", name: "GTA V", icon: "🚗", category: "Open World" },
-  { slug: "rust", name: "Rust", icon: "🛠️", category: "Survival" },
-] as const;
+import type { DailyChallenge, LeaderboardRow, ZarkGameSummary } from "../../../packages/shared/src/index.js";
+import { enforceRateLimit, publish } from "./events.js";
+import { serializable } from "./db-transaction.js";
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const splitAnswers = (answer: string) => answer.split("|||");
+let systemDataPromise: Promise<void> | undefined;
 
 export async function ensureSystemData() {
-  await Promise.all([
-    ...Array.from(raceGames.values()).map((game) => db.zarkGame.upsert({
+  if (!systemDataPromise) systemDataPromise = Promise.all(
+    Array.from(raceGames.values()).map((game) => db.zarkGame.upsert({
       where: { slug: game.slug },
       update: { name: game.name, description: game.description, kind: "RACE", basePoints: game.basePoints, category: game.category ?? "RACE", aliases: [...(game.aliases ?? [])] },
       create: { slug: game.slug, name: game.name, description: game.description, kind: "RACE", basePoints: game.basePoints, category: game.category ?? "RACE", aliases: [...(game.aliases ?? [])] },
     })),
-    ...externalGames.map((game) => db.lfgGameCatalog.upsert({ where: { slug: game.slug }, update: game, create: game })),
-  ]);
+  ).then(() => undefined).catch((error) => { systemDataPromise = undefined; throw error; });
+  return systemDataPromise;
 }
 
 export async function listZarkGames(): Promise<ZarkGameSummary[]> {
   await ensureSystemData();
   const games = await db.zarkGame.findMany({ where: { enabled: true }, select: { slug: true, name: true, description: true, kind: true, enabled: true, icon: true, category: true, aliases: true }, orderBy: { name: "asc" } });
   return games.map((game) => ({ ...game, description: game.description ?? undefined, icon: game.icon ?? undefined }));
-}
-
-export async function listLfgGames(): Promise<LfgGameSummary[]> {
-  await ensureSystemData();
-  const games = await db.lfgGameCatalog.findMany({ where: { enabled: true }, orderBy: { name: "asc" } });
-  return games.map((game) => ({ id: game.id, slug: game.slug, name: game.name, icon: game.icon ?? undefined, category: game.category ?? undefined }));
 }
 
 export async function getOrCreateDaily(): Promise<DailyChallenge> {
@@ -51,14 +40,20 @@ export async function getOrCreateDaily(): Promise<DailyChallenge> {
   const startedAt = new Date();
   const endsAt = new Date(startedAt);
   endsAt.setUTCHours(24, 0, 0, 0);
-  const created = await db.dailyChallenge.create({
-    data: { dayKey: key, gameId: game.id, prompt: prompt.prompt, answer: prompt.answers.join("|||"), basePoints: module.basePoints, durationMs: module.durationMs, startedAt, endsAt },
-    include: { game: true },
-  });
-  return publicDaily(created);
+  try {
+    const created = await db.dailyChallenge.create({
+      data: { dayKey: key, gameId: game.id, prompt: prompt.prompt, answer: prompt.answers.join("|||"), basePoints: module.basePoints, durationMs: module.durationMs, startedAt, endsAt },
+      include: { game: true },
+    });
+    return publicDaily(created);
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+    return publicDaily(await db.dailyChallenge.findUniqueOrThrow({ where: { dayKey: key }, include: { game: true } }));
+  }
 }
 
 export async function answerDaily(input: { userId: string; displayName: string; answer: string }) {
+  await enforceRateLimit("daily-answer", input.userId, 30, 10);
   await getOrCreateDaily();
   const challenge = await db.dailyChallenge.findUniqueOrThrow({ where: { dayKey: dayKey() }, include: { game: true } });
   const now = new Date();
@@ -66,25 +61,32 @@ export async function answerDaily(input: { userId: string; displayName: string; 
   const evaluation = evaluateAnswer(input.answer, splitAnswers(challenge.answer));
   if (!evaluation.correct) return { correct: false as const, points: 0 };
 
-  const result = await db.$transaction(async (tx) => {
-    const existing = await tx.dailyAnswer.findUnique({ where: { challengeId_userId: { challengeId: challenge.id, userId: input.userId } } });
-    if (existing) return { duplicate: true as const, points: existing.points, rank: existing.rank };
-    const winners = await tx.dailyAnswer.count({ where: { challengeId: challenge.id } });
-    if (winners >= 1) return { capped: true as const, points: 0 };
+  let result;
+  try {
+    result = await serializable(async (tx) => {
+      const existing = await tx.dailyAnswer.findUnique({ where: { challengeId_userId: { challengeId: challenge.id, userId: input.userId } } });
+      if (existing) return { duplicate: true as const, points: existing.points, rank: existing.rank };
+      const winners = await tx.dailyAnswer.count({ where: { challengeId: challenge.id } });
+      if (winners >= 1) return { capped: true as const, points: 0 };
 
-    const rank = 1;
-    const elapsedMs = Math.max(0, now.getTime() - challenge.startedAt.getTime());
-    const points = calculateWinnerPoints({ basePoints: challenge.basePoints, elapsedMs, durationMs: challenge.durationMs, typoCount: evaluation.typoCount, daily: true });
-    await tx.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName }, create: { id: input.userId, displayName: input.displayName } });
-    await tx.dailyAnswer.create({ data: { challengeId: challenge.id, userId: input.userId, rank, elapsedMs, points } });
-    await tx.user.update({ where: { id: input.userId }, data: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 } } });
-    await tx.gameProfile.upsert({
-      where: { userId_gameId: { userId: input.userId, gameId: challenge.gameId } },
-      update: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 }, losses: { increment: rank === 1 ? 0 : 1 }, streak: rank === 1 ? { increment: 1 } : 0 },
-      create: { userId: input.userId, gameId: challenge.gameId, xp: points, wins: rank === 1 ? 1 : 0, losses: rank === 1 ? 0 : 1, streak: rank === 1 ? 1 : 0 },
+      const rank = 1;
+      const elapsedMs = Math.max(0, now.getTime() - challenge.startedAt.getTime());
+      const points = calculateWinnerPoints({ basePoints: challenge.basePoints, elapsedMs, durationMs: challenge.durationMs, typoCount: evaluation.typoCount, daily: true });
+      await tx.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName }, create: { id: input.userId, displayName: input.displayName } });
+      await tx.dailyAnswer.create({ data: { challengeId: challenge.id, userId: input.userId, rank, elapsedMs, points } });
+      await tx.user.update({ where: { id: input.userId }, data: { xp: { increment: points }, wins: { increment: 1 } } });
+      await tx.gameProfile.upsert({
+        where: { userId_gameId: { userId: input.userId, gameId: challenge.gameId } },
+        update: { xp: { increment: points }, wins: { increment: 1 }, streak: { increment: 1 } },
+        create: { userId: input.userId, gameId: challenge.gameId, xp: points, wins: 1, streak: 1 },
+      });
+      return { duplicate: false as const, points, rank, typoCount: evaluation.typoCount, elapsedMs };
     });
-    return { duplicate: false as const, points, rank, typoCount: evaluation.typoCount, elapsedMs };
-  }, { isolationLevel: "Serializable" });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+    const existing = await db.dailyAnswer.findUnique({ where: { challengeId_userId: { challengeId: challenge.id, userId: input.userId } } });
+    result = existing ? { duplicate: true as const, points: existing.points, rank: existing.rank } : { capped: true as const, points: 0 };
+  }
 
   if ("capped" in result) return { correct: true as const, ...result };
   if (!result.duplicate) {
@@ -120,6 +122,7 @@ export async function startZarkRace(gameSlug?: string) {
 }
 
 export async function answerZarkRace(matchId: string, input: { userId: string; displayName: string; answer: string }) {
+  await enforceRateLimit("race-answer", input.userId, 30, 10);
   const match = await db.zarkMatch.findUnique({ where: { id: matchId }, include: { game: true } });
   if (!match || new Date() > match.endsAt) return { correct: false as const, expired: true as const, points: 0 };
   if (match.status !== "OPEN") return { correct: false as const, capped: true as const, points: 0 };
@@ -160,20 +163,28 @@ export async function expireZarkRace(matchId: string) {
 
 export async function leaderboard(period: "daily" | "weekly" | "monthly" | "all" = "daily", metric: "game" | "engagement" = "game"): Promise<LeaderboardRow[]> {
   const from = periodStart(period);
-  const users = await db.user.findMany({ include: {
-    points: from ? { where: { createdAt: { gte: from } } } : true,
-    answers: from ? { where: { answeredAt: { gte: from } } } : true,
-    matchResults: from ? { where: { createdAt: { gte: from } } } : true,
-  } });
-  return users.map((user) => ({
-    userId: user.id,
-    displayName: user.displayName,
-    avatarUrl: user.avatarUrl ?? undefined,
-    gamePoints: [...user.answers, ...user.matchResults].reduce((sum, item) => sum + item.points, 0),
-    engagementPoints: user.points.reduce((sum, item) => sum + item.points, 0),
-    xp: user.xp,
-    wins: user.wins,
-  })).sort((a, b) => metric === "game" ? b.gamePoints - a.gamePoints : b.engagementPoints - a.engagementPoints).slice(0, 10);
+  const [engagementRows, dailyRows, matchRows] = await Promise.all([
+    db.engagementPoint.groupBy({ by: ["userId"], where: from ? { createdAt: { gte: from } } : undefined, _sum: { points: true } }),
+    db.dailyAnswer.groupBy({ by: ["userId"], where: from ? { answeredAt: { gte: from } } : undefined, _sum: { points: true } }),
+    db.zarkMatchResult.groupBy({ by: ["userId"], where: from ? { createdAt: { gte: from } } : undefined, _sum: { points: true } }),
+  ]);
+  const scores = new Map<string, { gamePoints: number; engagementPoints: number }>();
+  const scoreFor = (userId: string) => {
+    const current = scores.get(userId) ?? { gamePoints: 0, engagementPoints: 0 };
+    scores.set(userId, current);
+    return current;
+  };
+  for (const row of engagementRows) scoreFor(row.userId).engagementPoints = row._sum.points ?? 0;
+  for (const row of dailyRows) scoreFor(row.userId).gamePoints += row._sum.points ?? 0;
+  for (const row of matchRows) scoreFor(row.userId).gamePoints += row._sum.points ?? 0;
+  const ranked = [...scores.entries()].sort(([, a], [, b]) => metric === "game" ? b.gamePoints - a.gamePoints : b.engagementPoints - a.engagementPoints).slice(0, 10);
+  if (!ranked.length) return [];
+  const users = await db.user.findMany({ where: { id: { in: ranked.map(([userId]) => userId) } }, select: { id: true, displayName: true, avatarUrl: true, xp: true, wins: true } });
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  return ranked.flatMap(([userId, score]) => {
+    const user = usersById.get(userId);
+    return user ? [{ userId, displayName: user.displayName, avatarUrl: user.avatarUrl ?? undefined, ...score, xp: user.xp, wins: user.wins }] : [];
+  });
 }
 
 function publicDaily(challenge: { id: string; prompt: string; basePoints: number; durationMs: number; startedAt: Date; endsAt: Date; game: { slug: string; name: string } }): DailyChallenge {

@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../../../../../packages/db/src/client.js";
 import type { LiveRoom } from "../../../../../packages/shared/src/index.js";
-import { publish } from "../../events.js";
+import { enforceRateLimit, publish } from "../../events.js";
 import { serializable } from "../../db-transaction.js";
 import { getGuildRuntimeSettings } from "../admin/service.js";
 
@@ -44,18 +44,26 @@ const catalog = [
   { slug: "fall-guys", name: "Fall Guys", icon: "🎉", category: "party", minPlayers: 2, maxPlayers: 8 },
 ] as const;
 
+let catalogSeedPromise: Promise<void> | undefined;
+
 export async function seedLfgCatalog() {
-  for (const category of categories) {
-    await db.lfgGameCategory.upsert({ where: { slug: category.slug }, update: category, create: category });
-  }
-  for (const item of catalog) {
-    const category = await db.lfgGameCategory.findUniqueOrThrow({ where: { slug: item.category } });
-    await db.lfgGameCatalog.upsert({
+  if (!catalogSeedPromise) catalogSeedPromise = seedDefaultCatalog().catch((error) => { catalogSeedPromise = undefined; throw error; });
+  return catalogSeedPromise;
+}
+
+async function seedDefaultCatalog() {
+  await db.$transaction(categories.map((category) => db.lfgGameCategory.upsert({ where: { slug: category.slug }, update: {}, create: category })));
+  const storedCategories = await db.lfgGameCategory.findMany({ where: { slug: { in: categories.map((category) => category.slug) } } });
+  const categoryBySlug = new Map(storedCategories.map((category) => [category.slug, category]));
+  await db.$transaction(catalog.map((item) => {
+    const category = categoryBySlug.get(item.category);
+    if (!category) throw new Error(`تعذر تهيئة تصنيف ${item.category}`);
+    return db.lfgGameCatalog.upsert({
       where: { slug: item.slug },
-      update: { name: item.name, icon: item.icon, category: category.name, categoryId: category.id, minPlayers: item.minPlayers, maxPlayers: item.maxPlayers },
+      update: {},
       create: { slug: item.slug, name: item.name, icon: item.icon, category: category.name, categoryId: category.id, minPlayers: item.minPlayers, maxPlayers: item.maxPlayers },
     });
-  }
+  }));
 }
 
 export async function getLfgCatalog() {
@@ -123,6 +131,7 @@ export async function snoozeGameNotifications(input: { userId: string; displayNa
 }
 
 export async function createLfgRoom(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug: string; maxPlayers: number; durationMinutes?: number; scheduledFor?: Date; title?: string; description?: string; gameMode?: string; mapName?: string; needsVoice?: boolean; roomEmoji?: string; accentColor?: string }) {
+  await enforceRateLimit("lfg-create", input.userId, 5, 10 * 60);
   await seedLfgCatalog();
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: input.gameSlug } });
   if (!game.enabled) throw new Error("هذه اللعبة غير متاحة في LFG حاليًا");
@@ -177,6 +186,7 @@ export async function quickMatchLfg(input: { userId: string; displayName: string
 }
 
 export async function joinLfgRoom(roomId: string, input: { userId: string; displayName: string; avatarUrl?: string }) {
+  await enforceRateLimit("lfg-membership", input.userId, 30, 60);
   const settings = await getGuildRuntimeSettings();
   await upsertActor(input);
   await serializable(async (tx) => {
@@ -206,6 +216,7 @@ export async function joinLfgRoom(roomId: string, input: { userId: string; displ
 }
 
 export async function leaveLfgRoom(roomId: string, userId: string) {
+  await enforceRateLimit("lfg-membership", userId, 30, 60);
   const settings = await getGuildRuntimeSettings();
   const hostChange = await serializable(async (tx) => {
     const room = await tx.lfgRoom.findUnique({ where: { id: roomId } });
@@ -247,7 +258,8 @@ export async function completeLfgRoom(roomId: string, actorId?: string) {
     const room = await tx.lfgRoom.findUnique({ where: { id: roomId }, include: { members: { where: { status: "ACTIVE" } } } });
     if (!room || !["FULL", "ACTIVE", "OPEN"].includes(room.status)) throw new Error("لا يمكن إكمال هذه الغرفة");
     const now = new Date();
-    const eligible = room.members.filter((member) => !room.needsVoice || member.played || member.voiceJoinedAt || member.voiceSeconds >= 60);
+    const effectiveVoiceSeconds = new Map(room.members.map((member) => [member.userId, member.voiceSeconds + (member.voiceJoinedAt ? Math.max(0, Math.floor((now.getTime() - member.voiceJoinedAt.getTime()) / 1000)) : 0)]));
+    const eligible = room.members.filter((member) => !room.needsVoice ? member.played : member.played && (effectiveVoiceSeconds.get(member.userId) ?? 0) >= 60);
     if (eligible.length < 2) throw new Error("يجب أن يلعب عضوان فعليًا على الأقل قبل إنهاء الجلسة");
     const transition = await tx.lfgRoom.updateMany({ where: { id: roomId, status: { in: ["OPEN", "FULL", "ACTIVE"] } }, data: { status: "COMPLETED", completedAt: now, memberCount: eligible.length, emptySince: null, autoDeleteAt: null, version: { increment: 1 } } });
     if (transition.count !== 1) throw new Error("تم إكمال الغرفة مسبقًا");
@@ -479,7 +491,10 @@ export async function processDueLfgRooms() {
   for (const room of due) {
     if (room.startedAt) {
       try { await completeLfgRoom(room.id); }
-      catch { await closeLfgRoom(room.id); }
+      catch (error) {
+        console.error(`Automatic completion failed for LFG room ${room.id}; closing safely`, error);
+        await closeLfgRoom(room.id);
+      }
     } else {
       await closeLfgRoom(room.id);
     }
@@ -607,7 +622,7 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     controlMessageId: room.controlMessageId ?? undefined,
     listingChannelId: room.listingChannelId ?? undefined,
     listingMessageId: room.listingMessageId ?? undefined,
-    members: activeMembers.map((member) => ({ id: member.user.id, displayName: member.user.displayName, avatarUrl: member.user.avatarUrl ?? undefined, voiceActive: Boolean(member.voiceJoinedAt), voiceSeconds: member.voiceSeconds })),
+    members: activeMembers.map((member) => ({ id: member.user.id, displayName: member.user.displayName, avatarUrl: member.user.avatarUrl ?? undefined, voiceActive: Boolean(member.voiceJoinedAt), voiceSeconds: member.voiceSeconds + (member.voiceJoinedAt ? Math.max(0, Math.floor((Date.now() - member.voiceJoinedAt.getTime()) / 1000)) : 0) })),
   };
 }
 

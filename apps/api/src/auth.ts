@@ -29,16 +29,17 @@ export async function registerDiscordAuth(app: FastifyInstance) {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ client_id: required("DISCORD_CLIENT_ID"), client_secret: required("DISCORD_CLIENT_SECRET"), grant_type: "authorization_code", code: query.code, redirect_uri: required("DISCORD_REDIRECT_URI") }),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!tokenResponse.ok) throw new HttpError("تعذر تسجيل الدخول عبر Discord", 502);
     const token = await tokenResponse.json() as { access_token: string };
-    const userResponse = await fetch("https://discord.com/api/v10/users/@me", { headers: { authorization: `Bearer ${token.access_token}` } });
+    const userResponse = await fetch("https://discord.com/api/v10/users/@me", { headers: { authorization: `Bearer ${token.access_token}` }, signal: AbortSignal.timeout(10_000) });
     if (!userResponse.ok) throw new HttpError("تعذر قراءة حساب Discord", 502);
     const discord = await userResponse.json() as { id: string; username: string; global_name?: string | null; avatar?: string | null };
     const guildId = process.env.DISCORD_GUILD_ID;
     let roles: string[] = [];
     if (guildId) {
-      const memberResponse = await fetch(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, { headers: { authorization: `Bearer ${token.access_token}` } });
+      const memberResponse = await fetch(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, { headers: { authorization: `Bearer ${token.access_token}` }, signal: AbortSignal.timeout(10_000) });
       if (!memberResponse.ok) throw new HttpError("يجب أن تكون عضوًا في سيرفر Zark لاستخدام الموقع", 403);
       const member = await memberResponse.json() as { roles?: string[] };
       roles = member.roles ?? [];
@@ -78,13 +79,33 @@ export async function requireWebUser(request: FastifyRequest): Promise<WebUser> 
 
 export async function requireWebAdmin(request: FastifyRequest): Promise<WebUser> {
   const user = await requireWebUser(request);
-  if (!isWebAdmin(user)) throw new HttpError("هذه الصفحة متاحة لإدارة Zark فقط", 403);
+  if (!(await isCurrentWebAdmin(user))) throw new HttpError("هذه الصفحة متاحة لإدارة Zark فقط", 403);
   return user;
 }
 
 export function isWebAdmin(user: WebUser) {
   const allowed = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter(Boolean);
   return allowed.length > 0 && user.roles.some((role) => allowed.includes(role));
+}
+
+export async function isCurrentWebAdmin(user: WebUser) {
+  const allowed = adminRoleIds();
+  if (!allowed.length) return false;
+  const guildId = process.env.DISCORD_GUILD_ID;
+  const botToken = process.env.DISCORD_TOKEN;
+  if (!guildId || !botToken) return process.env.NODE_ENV !== "production" && isWebAdmin(user);
+  const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}/members/${user.userId}`, {
+    headers: { authorization: `Bot ${botToken}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (response.status === 404) return false;
+  if (!response.ok) throw new HttpError("تعذر التحقق من رتبتك في Discord حاليًا", 503);
+  const member = await response.json() as { roles?: string[] };
+  return (member.roles ?? []).some((role) => allowed.includes(role));
+}
+
+function adminRoleIds() {
+  return (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter(Boolean);
 }
 
 function sessionKey() {

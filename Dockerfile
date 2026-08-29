@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+COPY packages/db/prisma ./packages/db/prisma
+RUN npm ci
 COPY . .
-RUN npx prisma generate --schema packages/db/prisma/schema.prisma
 
-CMD ["sh", "-c", "npx prisma db push --schema packages/db/prisma/schema.prisma && (npm run dev:bot & npm run dev:api)"]
+CMD ["npm", "start"]

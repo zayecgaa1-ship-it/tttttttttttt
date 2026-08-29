@@ -28,7 +28,7 @@ async function boot() {
   let timer;
   stream.onmessage = () => {
     clearTimeout(timer);
-    timer = setTimeout(async () => { state = await api('/api/state'); await renderPage(true); }, 120);
+    timer = setTimeout(async () => { try{state = await api('/api/state');await renderPage(true);}catch(error){console.error('Realtime refresh failed',error)} }, 500);
   };
 }
 
@@ -80,7 +80,7 @@ async function renderLfg(realtime) {
     bindCreateRoom();
   }
   renderRoomList();
-  await renderInterests(games);
+  if(!realtime)await renderInterests(games);
 }
 
 function renderRoomList() {
@@ -98,8 +98,8 @@ function renderRoomList() {
     const remaining=formatRoomTiming(room);
     return `<article class="room-card detailed" style="--room-accent:${escapeHtml(room.accentColor||'#e50914')}"><div><div class="room-top"><span class="game-icon">${escapeHtml(room.roomEmoji||room.gameIcon||'🎮')}</span><span class="room-status status-${room.status.toLowerCase()}">${status}</span></div><h3>${escapeHtml(room.title||room.gameName)}</h3><div class="room-meta host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')}<span>${escapeHtml(room.gameName)} · Host: <b>${escapeHtml(room.hostName)}</b> · ${room.needsVoice?'🎙️ Voice':'💬 Text'} ${room.mapName?`· 🗺️ ${escapeHtml(room.mapName)}`:''} ${room.gameMode?`· ${escapeHtml(room.gameMode)}`:''}</span></div><div class="room-players">${players}</div><div class="room-progress"><i style="width:${Math.min(100,room.currentPlayers/room.maxPlayers*100)}%"></i></div><div class="room-bottom"><span>${room.currentPlayers}/${room.maxPlayers} لاعبين</span><span>⏱️ ${remaining}</span></div></div><div class="room-actions"><button class="button primary small" data-join="${room.id}" ${finished||room.locked||room.currentPlayers>=room.maxPlayers?'disabled':''}>${room.status==='SCHEDULED'?'تسجيل':'دخول'}</button><button class="button ghost small" data-leave="${room.id}" ${finished?'disabled':''}>${room.status==='SCHEDULED'?'إلغاء التسجيل':'خروج'}</button>${room.voiceChannelId&&state.guildId?`<a class="button ghost small" href="https://discord.com/channels/${escapeHtml(state.guildId)}/${escapeHtml(room.voiceChannelId)}" target="_blank" rel="noreferrer">Voice</a>`:''}${me?.userId===room.hostId&&!finished?`<button class="button ghost small" data-manage="${room.id}">إدارة</button>`:''}</div></article>`;
   }).join('') : empty(roomSearch?'لا توجد نتيجة مطابقة للبحث.':'لا توجد غرف ضمن هذا التصنيف.');
-  document.querySelectorAll('[data-join]').forEach(button => button.onclick = () => roomAction(button.dataset.join,'join'));
-  document.querySelectorAll('[data-leave]').forEach(button => button.onclick = () => roomAction(button.dataset.leave,'leave'));
+  document.querySelectorAll('[data-join]').forEach(button => button.onclick = () => roomAction(button.dataset.join,'join',button));
+  document.querySelectorAll('[data-leave]').forEach(button => button.onclick = () => roomAction(button.dataset.leave,'leave',button));
   document.querySelectorAll('[data-manage]').forEach(button => button.onclick = () => openRoomManager(button.dataset.manage));
 }
 
@@ -110,12 +110,13 @@ function bindCreateRoom() {
   $('room-when').onchange=updateSchedule;$('room-schedule-hour').onchange=updateSchedule;$('room-schedule-period').onchange=updateSchedule;updateSchedule();
   $('create-room-form').onsubmit = async event => {
     event.preventDefault();
+    const submit=event.submitter||$('create-room-form').querySelector('button[type="submit"]');if(submit?.disabled)return;if(submit)submit.disabled=true;
     const result = $('create-room-result'); result.textContent='جارِ إنشاء التجمع...';
     try {
       const scheduledFor=$('room-when').value==='later'?nextScheduledDate(Number($('room-schedule-hour').value),$('room-schedule-period').value).toISOString():undefined;
       const room = await api('/api/me/lfg/rooms',{method:'POST',body:{gameSlug:$('room-game').value,maxPlayers:Number($('room-size').value),durationMinutes:Number($('room-duration').value),scheduledFor,mapName:$('room-game').value==='roblox'?$('room-map').value||undefined:undefined,gameMode:$('room-mode').value||undefined,description:$('room-description').value||undefined,needsVoice:$('room-voice').checked}});
       result.textContent=`تم إنشاء غرفة ${room.gameName} بنجاح.`; state.rooms.unshift(room); renderRoomList();
-    } catch(error){result.textContent=error.message;}
+    } catch(error){result.textContent=error.message;}finally{if(submit)submit.disabled=false;}
   };
 }
 
@@ -123,10 +124,11 @@ function nextScheduledDate(hour,period){let hours=hour%12;if(period==='PM')hours
 
 function updateRobloxMapField(){const roblox=$('room-game').value==='roblox';$('room-map-label').hidden=!roblox;$('room-map').required=roblox;if(!roblox)$('room-map').value='';}
 
-async function roomAction(roomId, action) {
+async function roomAction(roomId, action, button) {
   if (!me) { location.href='/auth/discord'; return; }
+  if(button?.disabled)return;const original=button?.textContent;if(button){button.disabled=true;button.textContent='جارِ التنفيذ...';}
   try { await api(`/api/me/lfg/${roomId}/${action}`,{method:'POST'}); state=await api('/api/state'); renderRoomList(); }
-  catch(error){alert(error.message);}
+  catch(error){alert(error.message);if(button){button.disabled=false;button.textContent=original;}}
 }
 
 function openRoomManager(roomId) {
@@ -146,13 +148,13 @@ async function renderInterests(games) {
   const prefs = me ? await api('/api/me/lfg-preferences') : [];
   const map = new Map(prefs.map(pref=>[pref.game.slug,pref]));
   $('interest-games').innerHTML = games.map(game=>{const pref=map.get(game.slug);const interested=pref?.interestStatus==='INTERESTED';const sleeping=pref?.mutedUntil&&new Date(pref.mutedUntil)>new Date();return `<article class="interest-card"><header><span>${escapeHtml(game.icon||'🎮')}</span><h3>${escapeHtml(game.name)}</h3></header>${sleeping?`<small class="snooze-status">😴 غفوة حتى ${new Date(pref.mutedUntil).toLocaleString('ar',{timeStyle:'short',dateStyle:'short'})}</small>`:''}<div class="interest-actions"><button class="${interested?'on':''}" data-interest="${game.slug}" data-interested="${interested}">❤️ ${interested?'إلغاء الاهتمام':'مهتم'}</button><button class="${pref?.notificationsEnabled?'on':''}" data-notify="${game.slug}">${pref?.notificationsEnabled?'🔔 إيقاف الإشعار':'🔕 تشغيل الإشعار'}</button></div><div class="snooze-actions"><select data-snooze-select="${game.slug}"><option value="60">ساعة</option><option value="480">8 ساعات</option><option value="1440">يوم</option><option value="10080">أسبوع</option></select><button data-snooze="${game.slug}">😴 غفوة</button></div></article>`}).join('');
-  document.querySelectorAll('[data-interest]').forEach(button=>button.onclick=()=>{const next=button.dataset.interested!=='true';setWebPreference(button.dataset.interest,next,next)});
-  document.querySelectorAll('[data-notify]').forEach(button=>button.onclick=()=>setWebPreference(button.dataset.notify,true,!map.get(button.dataset.notify)?.notificationsEnabled));
-  document.querySelectorAll('[data-snooze]').forEach(button=>button.onclick=()=>snoozeWebPreference(button.dataset.snooze,Number(document.querySelector(`[data-snooze-select="${button.dataset.snooze}"]`).value)));
+  document.querySelectorAll('[data-interest]').forEach(button=>button.onclick=()=>{const next=button.dataset.interested!=='true';setWebPreference(button.dataset.interest,next,next,button)});
+  document.querySelectorAll('[data-notify]').forEach(button=>button.onclick=()=>setWebPreference(button.dataset.notify,true,!map.get(button.dataset.notify)?.notificationsEnabled,button));
+  document.querySelectorAll('[data-snooze]').forEach(button=>button.onclick=()=>snoozeWebPreference(button.dataset.snooze,Number(document.querySelector(`[data-snooze-select="${button.dataset.snooze}"]`).value),button));
 }
 
-async function setWebPreference(gameSlug,interested,notificationsEnabled){if(!me){location.href='/auth/discord';return;}await api(`/api/me/lfg-preferences/${gameSlug}`,{method:'PUT',body:{interested,notificationsEnabled}});await renderInterests(state.lfgGames||[]);}
-async function snoozeWebPreference(gameSlug,minutes){if(!me){location.href='/auth/discord';return;}await api(`/api/me/lfg-preferences/${gameSlug}/snooze`,{method:'POST',body:{minutes}});await renderInterests(state.lfgGames||[]);}
+async function setWebPreference(gameSlug,interested,notificationsEnabled,button){if(!me){location.href='/auth/discord';return;}if(button?.disabled)return;if(button)button.disabled=true;try{await api(`/api/me/lfg-preferences/${gameSlug}`,{method:'PUT',body:{interested,notificationsEnabled}});await renderInterests(state.lfgGames||[]);}catch(error){alert(error.message);if(button)button.disabled=false;}}
+async function snoozeWebPreference(gameSlug,minutes,button){if(!me){location.href='/auth/discord';return;}if(button?.disabled)return;if(button)button.disabled=true;try{await api(`/api/me/lfg-preferences/${gameSlug}/snooze`,{method:'POST',body:{minutes}});await renderInterests(state.lfgGames||[]);}catch(error){alert(error.message);if(button)button.disabled=false;}}
 
 function renderGames() {
   $('zark-games').innerHTML = (state.zarkGames||[]).map(game=>`<button class="game-tile" data-game="${escapeHtml(game.slug)}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>أول إجابة تفوز</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>5–15 XP</span><span>.${escapeHtml(game.aliases?.[0]||game.name)}</span></footer></button>`).join('');
@@ -160,7 +162,7 @@ function renderGames() {
   $('play-zark').onclick=()=>startRace();
 }
 
-async function startRace(gameSlug){try{const match=await api('/api/play/start',{method:'POST',body:{gameSlug}});$('race-title').textContent=match.gameName;$('race-prompt').textContent=match.prompt;$('race-note').textContent=match.mediaUrl?'تم تحميل الصورة — أجب داخل Discord.':'بدأت الجولة داخل النظام. أجب في قناة Discord.';}catch(error){$('race-note').textContent=error.message;}}
+async function startRace(gameSlug){const game=(state.zarkGames||[]).find(item=>item.slug===gameSlug);$('race-title').textContent=game?.name||'لعبة Zark سريعة';$('race-prompt').textContent='ابدأ الجولة داخل Discord حتى تظهر للجميع ويستطيع Zark احتساب أول فائز.';$('race-note').textContent='استخدم /play أو الأمر العربي المختصر داخل قناة الألعاب.';}
 
 async function renderProfile(){
   if(!me)return;
