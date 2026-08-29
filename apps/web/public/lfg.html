@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>غرف LFG — Zark LFG System</title>
+  <meta name="description" content="ابحث بذكاء عن لاعبين وانضم لغرف الألعاب الحية.">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="lfg">
+  <header id="site-nav"></header>
+  <main class="shell page-main">
+    <section class="page-hero"><span class="eyebrow">LOOKING FOR GROUP</span><h1>لاقِ فريقك <em>الآن.</em></h1><p>اختر اللعبة والمدة، وZark ينشئ مساحة Text وVoice ويتابع الجلسة حتى تنتهي.</p></section>
+    <section class="lfg-layout">
+      <aside class="create-panel">
+        <div class="panel-title"><span>⚡</span><div><h2>أنشئ تجمعًا</h2><p>خطوات قليلة، فريق أسرع.</p></div></div>
+        <form id="create-room-form">
+          <label>اللعبة<select id="room-game" required><option>جارِ التحميل...</option></select></label>
+          <div class="form-row"><label>عدد اللاعبين<select id="room-size"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option></select></label><label>متى؟<select id="room-when"><option value="now">🟢 الآن</option><option value="later">🕐 لاحقًا</option></select></label></div>
+          <div id="room-schedule-label" class="simple-schedule" hidden>
+            <label>الساعة<select id="room-schedule-hour"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9" selected>9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></label>
+            <label>الفترة<select id="room-schedule-period"><option value="PM" selected>PM — مساءً</option><option value="AM">AM — صباحًا</option></select></label>
+            <small id="room-schedule-preview">سيختار Zark أقرب موعد قادم تلقائيًا.</small>
+          </div>
+          <label id="room-map-label" hidden>اسم ماب Roblox<input id="room-map" maxlength="100" placeholder="Brookhaven / Blox Fruits / Adopt Me..."></label>
+          <label class="switch-line"><input id="room-voice" type="checkbox" checked><span>إنشاء Voice Channel خاص</span></label>
+          <details class="advanced-options"><summary>⚙️ خيارات إضافية (اختيارية)</summary>
+            <label>مدة اللعب<select id="room-duration"><option value="30">30 دقيقة</option><option value="60" selected>ساعة</option><option value="90">ساعة ونصف</option><option value="120">ساعتان</option><option value="180">3 ساعات</option></select></label>
+            <label>Game Mode<input id="room-mode" maxlength="80" placeholder="Survival / Ranked"></label>
+            <label>وصف اختياري<textarea id="room-description" maxlength="500" placeholder="السيرفر، المستوى، أو أي تفاصيل مهمة"></textarea></label>
+          </details>
+          <button class="button primary full" type="submit">⚡ أنشئ التجمع</button><p id="create-room-result" class="form-result"></p>
+        </form>
+        <div id="login-hint" class="login-hint">سجّل عبر Discord حتى تنشئ وتنضم للغرف.</div>
+      </aside>
+      <section class="rooms-area">
+        <div class="section-heading"><div><span class="eyebrow">LIVE ROOMS</span><h2>الغرف المباشرة</h2></div><span id="room-count" class="live-chip">0 LIVE</span></div>
+        <label class="smart-search"><span>⌕</span><input id="room-search" type="search" maxlength="100" placeholder="بحث ذكي بأي لغة: ماينكرافت، Minecraft، माइनक्राफ्ट..."></label>
+        <div id="lfg-filters" class="filter-row"></div><div id="rooms" class="room-list"></div>
+      </section>
+    </section>
+    <section id="room-manager" class="section" hidden>
+      <div class="section-heading"><div><span class="eyebrow">HOST CONTROLS</span><h2>إدارة غرفتي</h2></div><button id="close-room-manager" class="button ghost small" type="button">إغلاق اللوحة</button></div>
+      <form id="room-manager-form" class="surface room-manager-form">
+        <input id="manage-room-id" type="hidden">
+        <div class="settings-grid three">
+          <label>عنوان الغرفة<input id="manage-room-title" maxlength="80"></label><label>رمز الغرفة<input id="manage-room-emoji" maxlength="12"></label><label>لون الغرفة<input id="manage-room-color" type="color" value="#e50914"></label>
+          <label>Game Mode<input id="manage-room-mode" maxlength="80"></label><label id="manage-room-map-label" hidden>اسم ماب Roblox<input id="manage-room-map" maxlength="100"></label><label>عدد اللاعبين<input id="manage-room-size" type="number" min="2" max="50"></label><label>المدة بالدقائق<input id="manage-room-duration" type="number" min="15" max="360"></label>
+        </div>
+        <label>الوصف<textarea id="manage-room-description" maxlength="500"></textarea></label>
+        <div class="toggle-grid two"><label class="toggle-card"><input id="manage-room-voice" type="checkbox"><span><b>Voice خاص</b><small>مساحة صوت مرتبطة بالجلسة</small></span></label><label class="toggle-card"><input id="manage-room-locked" type="checkbox"><span><b>قفل الدخول</b><small>يمنع أعضاء جدد من الانضمام</small></span></label></div>
+        <div class="room-manager-actions"><button class="button primary" type="submit">حفظ الشكل والإعدادات</button><button class="button ghost" data-host-action="start" type="button">▶️ بدء اللعب</button><button class="button ghost" data-host-action="complete" type="button">✅ إنهاء ناجح</button><button class="button danger" data-host-action="close" type="button">🛑 إغلاق الغرفة</button></div>
+        <p id="room-manager-result" class="form-result"></p>
+      </form>
+    </section>
+    <section class="section interest-section"><div class="section-heading"><div><span class="eyebrow">SMART NOTIFICATIONS</span><h2>اهتماماتك وإشعاراتك</h2></div></div><p class="section-copy">اختر الألعاب التي تهمك. يمكنك إبقاء اللعبة ضمن اهتماماتك وإيقاف الرسائل الخاصة وحدها.</p><div id="interest-games" class="interest-grid"></div></section>
+  </main>
+  <footer id="site-footer"></footer><script src="/app.js"></script>
+</body>
+</html>

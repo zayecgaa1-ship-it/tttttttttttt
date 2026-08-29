@@ -1,0 +1,514 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomStatus {
+  SCHEDULED
+  OPEN
+  FULL
+  ACTIVE
+  COMPLETED
+  CLOSED
+}
+
+enum ZarkGameKind {
+  RACE
+  DUEL
+  CHAIN
+  POLL
+}
+
+enum MatchStatus {
+  OPEN
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  REJECTED
+  DISMISSED
+}
+
+enum LfgMemberStatus {
+  ACTIVE
+  LEFT
+  COMPLETED
+  KICKED
+}
+
+enum GameInterestStatus {
+  INTERESTED
+  NOT_INTERESTED
+}
+
+enum BugReportStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum QuestionMediaType {
+  TEXT
+  IMAGE
+}
+
+enum NotificationDeliveryStatus {
+  RESERVED
+  SENT
+  IGNORED
+  FAILED
+}
+
+enum AvailabilityActivity {
+  FREE
+  PLAYING
+  STUDYING
+  WORKING
+  BUSY
+  AWAY
+}
+
+enum MentionPolicy {
+  EVERYONE
+  INTERESTED_ONLY
+  NOBODY
+}
+
+model BotIdentity {
+  id        Int      @id @default(1)
+  name      String   @default("Zark LFG System")
+  tagline   String   @default("Zark LFG System — فريقك أقرب مما تتخيل")
+  updatedAt DateTime @updatedAt
+}
+
+model GuildSettings {
+  guildId                     String   @id
+  lfgChannelId                String?
+  lfgCategoryId               String?
+  publicChannelId             String?
+  dailyChannelId              String?
+  leaderboardChannelId        String?
+  dmNotificationsEnabled      Boolean  @default(true)
+  quickMatchEnabled           Boolean  @default(true)
+  ratingsEnabled              Boolean  @default(true)
+  reportsEnabled              Boolean  @default(true)
+  autoCreateRoomChannels      Boolean  @default(true)
+  maxDmPerDay                 Int      @default(3)
+  notificationCooldownMinutes Int      @default(20)
+  maxActiveRoomsPerUser       Int      @default(1)
+  defaultRoomDurationMinutes  Int      @default(60)
+  roomGraceMinutes            Int      @default(5)
+  aiChatEnabled               Boolean  @default(true)
+  aiDailyMessagesPerUser      Int      @default(5)
+  aiGlobalDailyMessages       Int      @default(100)
+  aiDailyTokenBudgetPerUser   Int      @default(3000)
+  aiGlobalDailyTokenBudget    Int      @default(100000)
+  aiMaxOutputTokens           Int      @default(250)
+  updatedBy                   String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+}
+
+model User {
+  id                        String               @id
+  displayName               String
+  avatarUrl                 String?
+  bio                       String?
+  profileAccent             String               @default("#e50914")
+  activityVisible           Boolean              @default(true)
+  rivalNotificationsEnabled Boolean              @default(true)
+  currentActivity           AvailabilityActivity @default(AWAY)
+  activityUntil             DateTime?
+  activityNote              String?
+  mentionPolicy             MentionPolicy        @default(INTERESTED_ONLY)
+  xp                        Int                  @default(0)
+  wins                      Int                  @default(0)
+  streak                    Int                  @default(0)
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+  points                    EngagementPoint[]
+  trustScore                TrustScore?
+  gameProfiles              GameProfile[]
+  matchResults              ZarkMatchResult[]
+  hostedRooms               LfgRoom[]            @relation("HostRooms")
+  memberships               LfgMember[]
+  answers                   DailyAnswer[]
+  preferences               UserGamePreference[]
+  bugReports                BugReport[]
+  aiUsage                   AiUsageDaily[]
+  weeklyAvailability        UserAvailability[]
+  roomRatings               LfgRoomRating[]
+}
+
+model UserAvailability {
+  id          String               @id @default(cuid())
+  userId      String
+  dayOfWeek   Int
+  startMinute Int
+  endMinute   Int
+  activity    AvailabilityActivity @default(FREE)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayOfWeek, startMinute, endMinute])
+  @@index([dayOfWeek, startMinute, endMinute])
+}
+
+model TrustScore {
+  userId          String   @id
+  score           Float    @default(1)
+  rejectedReports Int      @default(0)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ZarkGame {
+  id          String           @id @default(cuid())
+  slug        String           @unique
+  name        String
+  description String?
+  kind        ZarkGameKind
+  enabled     Boolean          @default(true)
+  basePoints  Int              @default(100)
+  icon        String?
+  category    String           @default("RACE")
+  aliases     String[]         @default([])
+  createdAt   DateTime         @default(now())
+  profiles    GameProfile[]
+  matches     ZarkMatch[]
+  challenges  DailyChallenge[]
+  questions   GameQuestion[]
+}
+
+model GameQuestion {
+  id              String            @id @default(cuid())
+  gameId          String
+  prompt          String
+  acceptedAnswers String[]
+  mediaType       QuestionMediaType @default(TEXT)
+  mediaUrl        String?
+  difficulty      Int               @default(1)
+  enabled         Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  game            ZarkGame          @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, enabled, difficulty])
+}
+
+model GameProfile {
+  id        String   @id @default(cuid())
+  userId    String
+  gameId    String
+  xp        Int      @default(0)
+  wins      Int      @default(0)
+  losses    Int      @default(0)
+  streak    Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game      ZarkGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gameId])
+}
+
+model ZarkMatch {
+  id         String            @id @default(cuid())
+  gameId     String
+  prompt     String
+  answer     String
+  mediaUrl   String?
+  status     MatchStatus       @default(OPEN)
+  durationMs Int               @default(60000)
+  startedAt  DateTime          @default(now())
+  endsAt     DateTime
+  game       ZarkGame          @relation(fields: [gameId], references: [id])
+  results    ZarkMatchResult[]
+
+  @@index([gameId, startedAt])
+}
+
+model ZarkMatchResult {
+  id        String    @id @default(cuid())
+  matchId   String
+  userId    String
+  rank      Int
+  elapsedMs Int
+  points    Int
+  createdAt DateTime  @default(now())
+  match     ZarkMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, userId])
+  @@unique([matchId, rank])
+}
+
+model EngagementPoint {
+  id        String   @id @default(cuid())
+  userId    String
+  points    Int
+  source    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, source])
+  @@index([userId, createdAt])
+}
+
+model DailyChallenge {
+  id         String        @id @default(cuid())
+  dayKey     String        @unique
+  gameId     String
+  prompt     String
+  answer     String
+  basePoints Int           @default(100)
+  durationMs Int           @default(60000)
+  startedAt  DateTime      @default(now())
+  endsAt     DateTime
+  game       ZarkGame      @relation(fields: [gameId], references: [id])
+  answers    DailyAnswer[]
+}
+
+model DailyAnswer {
+  id          String         @id @default(cuid())
+  challengeId String
+  userId      String
+  rank        Int
+  elapsedMs   Int
+  points      Int
+  answeredAt  DateTime       @default(now())
+  challenge   DailyChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@unique([challengeId, rank])
+  @@index([challengeId, answeredAt])
+}
+
+model LfgGameCategory {
+  id        String           @id @default(cuid())
+  slug      String           @unique
+  name      String
+  icon      String?
+  sortOrder Int              @default(0)
+  games     LfgGameCatalog[]
+}
+
+model LfgGameCatalog {
+  id           String               @id @default(cuid())
+  slug         String               @unique
+  name         String
+  description  String?
+  icon         String?
+  category     String?
+  categoryId   String?
+  minPlayers   Int                  @default(2)
+  maxPlayers   Int                  @default(10)
+  sortOrder    Int                  @default(0)
+  enabled      Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  gameCategory LfgGameCategory?     @relation(fields: [categoryId], references: [id])
+  rooms        LfgRoom[]
+  preferences  UserGamePreference[]
+
+  @@index([categoryId, enabled, sortOrder])
+}
+
+model UserGamePreference {
+  userId               String
+  lfgGameId            String
+  interestStatus       GameInterestStatus @default(INTERESTED)
+  notificationsEnabled Boolean            @default(true)
+  mutedUntil           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game                 LfgGameCatalog     @relation(fields: [lfgGameId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lfgGameId])
+  @@index([lfgGameId, interestStatus, notificationsEnabled])
+}
+
+model NotificationDelivery {
+  id        String                     @id @default(cuid())
+  userId    String
+  lfgGameId String
+  roomId    String
+  status    NotificationDeliveryStatus @default(RESERVED)
+  dedupeKey String                     @unique
+  createdAt DateTime                   @default(now())
+  sentAt    DateTime?
+  ignoredAt DateTime?
+
+  @@index([userId, createdAt])
+  @@index([userId, lfgGameId, createdAt])
+  @@index([roomId, status])
+}
+
+model LfgRoom {
+  id                  String          @id @default(cuid())
+  hostId              String
+  lfgGameId           String
+  title               String?
+  description         String?
+  gameMode            String?
+  mapName             String?
+  needsVoice          Boolean         @default(true)
+  maxPlayers          Int             @default(2)
+  durationMinutes     Int             @default(60)
+  memberCount         Int             @default(1)
+  version             Int             @default(1)
+  status              RoomStatus      @default(OPEN)
+  locked              Boolean         @default(false)
+  roomEmoji           String?         @default("🎮")
+  accentColor         String          @default("#e50914")
+  voiceChannelId      String?
+  textChannelId       String?
+  categoryId          String?
+  controlMessageId    String?
+  listingChannelId    String?
+  listingMessageId    String?         @unique
+  createdAt           DateTime        @default(now())
+  scheduledFor        DateTime?
+  readyNotifiedAt     DateTime?
+  reminderDeliveredAt DateTime?
+  startedAt           DateTime?
+  playEndsAt          DateTime?
+  emptySince          DateTime?
+  autoDeleteAt        DateTime?
+  completedAt         DateTime?
+  closedAt            DateTime?
+  channelsDeletedAt   DateTime?
+  ratingRequestedAt   DateTime?
+  host                User            @relation("HostRooms", fields: [hostId], references: [id])
+  lfgGame             LfgGameCatalog  @relation(fields: [lfgGameId], references: [id])
+  members             LfgMember[]
+  ratings             LfgRoomRating[]
+
+  @@index([lfgGameId, status, createdAt])
+  @@index([listingChannelId, status])
+  @@index([status, autoDeleteAt])
+  @@index([status, scheduledFor])
+  @@index([status, playEndsAt])
+}
+
+model LfgMember {
+  roomId        String
+  userId        String
+  status        LfgMemberStatus @default(ACTIVE)
+  joinedAt      DateTime        @default(now())
+  leftAt        DateTime?
+  completedAt   DateTime?
+  voiceJoinedAt DateTime?
+  voiceSeconds  Int             @default(0)
+  played        Boolean         @default(false)
+  room          LfgRoom         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
+  @@index([userId, status])
+  @@index([roomId, voiceJoinedAt])
+}
+
+model AiUsageDaily {
+  id             String   @id @default(cuid())
+  userId         String
+  dayKey         String
+  requestCount   Int      @default(0)
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  reservedTokens Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayKey])
+  @@index([dayKey, requestCount])
+}
+
+model ServiceHeartbeat {
+  service    String   @id
+  instanceId String?
+  metadata   Json?
+  lastSeenAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  raterId   String
+  ratedId   String
+  sessionId String
+  stars     Int
+  tags      String[]
+  createdAt DateTime @default(now())
+
+  @@unique([raterId, sessionId, ratedId])
+  @@index([ratedId, createdAt])
+}
+
+model LfgRoomRating {
+  id        String   @id @default(cuid())
+  roomId    String
+  raterId   String
+  stars     Int
+  createdAt DateTime @default(now())
+  room      LfgRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  rater     User     @relation(fields: [raterId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, raterId])
+  @@index([roomId, createdAt])
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  reporterId  String
+  reportedId  String
+  sessionId   String?
+  reason      String
+  description String?
+  status      ReportStatus @default(PENDING)
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([reportedId, status, createdAt])
+  @@index([reporterId, createdAt])
+}
+
+model BugReport {
+  id          String          @id @default(cuid())
+  reporterId  String
+  title       String
+  description String
+  context     String?
+  status      BugReportStatus @default(OPEN)
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  reporter    User            @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([reporterId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  targetId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+}

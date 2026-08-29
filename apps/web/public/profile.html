@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ملفي — Zark LFG System</title><link rel="stylesheet" href="/styles.css"></head>
+<body data-page="profile">
+  <header id="site-nav"></header>
+  <main class="shell page-main">
+    <section id="profile-guest" class="auth-gate"><span>👤</span><h1>ملفك ينتظرك</h1><p>سجّل عبر Discord لعرض XP وتفاعل LFG ووقت اللعب وإعدادات الخصوصية.</p><a class="button primary" href="/auth/discord">تسجيل الدخول</a></section>
+    <section id="profile-content" hidden>
+      <div id="profile-head" class="profile-head"><div class="avatar-wrap"><img id="profile-avatar" alt=""><span id="profile-level">LV 1</span></div><div><span class="eyebrow">ZARK PLAYER PROFILE</span><h1 id="profile-name">—</h1><p id="profile-rating">لا يوجد تقييم بعد</p><p id="profile-bio" class="profile-bio"></p></div></div>
+      <div id="profile-stats" class="stats profile-stats"></div>
+      <div class="profile-grid">
+        <article class="surface"><h2>🎮 ألعاب Zark</h2><div id="profile-zark-games"></div></article>
+        <article class="surface"><h2>🔥 أكثر ألعاب LFG</h2><div id="profile-favorites"></div></article>
+        <article class="surface"><h2>🟢 غرفي الحالية</h2><div id="profile-active-rooms"></div></article>
+        <article class="surface"><h2>❤️ الاهتمامات</h2><div id="profile-interests" class="chip-list"></div></article>
+        <form id="profile-settings-form" class="surface wide profile-settings">
+          <h2>⚙️ تخصيص ملفي وخصوصيتي</h2>
+          <label>نبذة قصيرة<textarea id="profile-setting-bio" maxlength="160" placeholder="اكتب أسلوب لعبك والألعاب التي تفضلها"></textarea></label>
+          <div class="settings-grid"><label>لون الملف<input id="profile-setting-accent" type="color" value="#e50914"></label><div class="toggle-grid two"><label class="toggle-card"><input id="profile-setting-visible" type="checkbox"><span><b>عرض نشاطي</b><small>السماح بإظهار حالتك على الموقع</small></span></label><label class="toggle-card"><input id="profile-setting-rival" type="checkbox"><span><b>إشعارات المنافسة</b><small>تنبيهات Rival والتجاوز</small></span></label></div></div>
+          <button class="button primary" type="submit">حفظ الملف</button><p id="profile-settings-result" class="form-result"></p>
+        </form>
+        <form id="availability-form" class="surface wide availability-settings">
+          <h2>🕐 وقت فراغي وحالتي</h2>
+          <p class="section-copy">غيّر حالتك بضغطة واحدة. لن يرسل لك Zark فرص لعب عندما تكون مشغولًا.</p>
+          <div id="availability-current" class="availability-current">—</div>
+          <div class="availability-quick">
+            <button type="button" data-availability-quick="FREE:120">🟢 فاضي ساعتين</button><button type="button" data-availability-quick="PLAYING:120">🎮 ألعب الآن</button><button type="button" data-availability-quick="BUSY:60">⛔ مشغول ساعة</button><button type="button" data-availability-quick="AWAY:0">🌙 غير متاح</button>
+          </div>
+          <details class="advanced-options availability-advanced"><summary>⚙️ تخصيص الوقت والجدول الأسبوعي</summary>
+            <div class="settings-grid three">
+              <label>حالتي الآن<select id="availability-activity"><option value="FREE">🟢 فاضي للعب</option><option value="PLAYING">🎮 ألعب الآن</option><option value="STUDYING">📚 أدرس</option><option value="WORKING">💼 أعمل</option><option value="BUSY">⛔ مشغول</option><option value="AWAY">🌙 غير متاح</option></select></label>
+              <label>حتى وقت<input id="availability-until" type="datetime-local"></label>
+              <label>تنبيهات Zark<select id="availability-mentions"><option value="EVERYONE">كل فرص اللعب المناسبة</option><option value="INTERESTED_ONLY">ألعاب اهتماماتي فقط</option><option value="NOBODY">لا ترسل أو تمنشنني</option></select></label>
+            </div>
+            <label>ملاحظة الحالة<input id="availability-note" maxlength="120" placeholder="مثال: جاهز لماينكرافت بعد التاسعة"></label>
+            <h3 class="availability-title">جدولي الأسبوعي</h3><div id="weekly-availability" class="weekly-availability"></div>
+            <button class="button primary" type="submit">حفظ التفاصيل</button>
+          </details>
+          <p id="availability-result" class="form-result"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+  <footer id="site-footer"></footer><script src="/app.js"></script>
+</body>
+</html>

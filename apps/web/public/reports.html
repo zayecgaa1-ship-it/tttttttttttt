@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>الدعم والشكاوى — Zark LFG System</title><link rel="stylesheet" href="/styles.css"></head>
+<body data-page="reports">
+  <header id="site-nav"></header>
+  <main class="shell page-main">
+    <section class="page-hero small"><span class="eyebrow">SUPPORT & SAFETY</span><h1>مركز دعم <em>Zark.</em></h1><p>اسأل المساعد الذكي، أرسل خطأ تقنيًا، أو قدّم بلاغًا سريًا عن جلسة.</p></section>
+    <section class="support-chat surface">
+      <div class="support-chat-head"><div><span>✦</span><div><h2>مساعد Zark الذكي</h2><p id="support-ai-status">جارِ قراءة الحد اليومي...</p></div></div><span class="cost-safe">حماية رصيد مفعّلة</span></div>
+      <div id="support-chat-log" class="support-chat-log"><article class="chat-message assistant">مرحبًا! اسألني عن LFG، الغرف، Voice، الإشعارات، التقييم أو حسابك.</article></div>
+      <form id="support-chat-form" class="support-chat-form"><input id="support-chat-input" maxlength="500" placeholder="مثال: هل يوجد Minecraft الآن؟" autocomplete="off" required><button class="button primary" type="submit">إرسال</button></form>
+      <div id="support-suggestions" class="support-suggestions"></div>
+    </section>
+    <section class="feedback-grid">
+      <form id="bug-form" class="surface"><h2>🐞 تقرير خطأ</h2><label>العنوان<input id="bug-title" required maxlength="120"></label><label>ماذا حدث؟<textarea id="bug-description" required maxlength="2000"></textarea></label><button class="button primary" type="submit">إرسال التقرير</button><p id="bug-result" class="form-result"></p></form>
+      <form id="player-report-form" class="surface"><h2>⚠️ بلاغ عن لاعب</h2><label>Discord User ID<input id="reported-id" required></label><label>Room ID — اختياري<input id="reported-room"></label><label>السبب<input id="reported-reason" required maxlength="80"></label><label>التفاصيل<textarea id="reported-description" maxlength="1000"></textarea></label><button class="button ghost" type="submit">إرسال البلاغ</button><p id="report-result" class="form-result"></p></form>
+    </section>
+    <section class="section"><h2>بلاغاتي السابقة</h2><div id="my-reports" class="report-list"></div></section>
+  </main>
+  <footer id="site-footer"></footer><script src="/app.js"></script>
+</body>
+</html>

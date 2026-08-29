@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>لوحة تحكم Zark — Zark LFG System</title>
+  <meta name="description" content="إدارة إعدادات بوت Zark والألعاب والمحتوى.">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="admin">
+  <header id="site-nav"></header>
+  <main class="shell page-main">
+    <section id="admin-gate" class="auth-gate">
+      <span>🔐</span>
+      <h1>جارِ التحقق من الصلاحية</h1>
+      <p>لوحة التحكم متاحة فقط لرتب إدارة Zark المعتمدة.</p>
+    </section>
+
+    <div id="admin-content" hidden>
+      <section class="page-hero small">
+        <span class="eyebrow">ZARK CONTROL CENTER</span>
+        <h1>لوحة تحكم <em>Zark.</em></h1>
+        <p>إعدادات البوت والقنوات والإشعارات والمحتوى من مكان واحد، مع حفظ كل تعديل في سجل الإدارة.</p>
+      </section>
+
+      <section class="section admin-dashboard">
+        <div class="section-heading compact"><div><span class="eyebrow">LIVE OVERVIEW</span><h2>حالة النظام</h2></div><span id="admin-system-status" class="live-chip">● جارِ الفحص</span></div>
+        <div id="admin-stats" class="stats"></div>
+        <div id="admin-service-grid" class="service-grid"></div>
+      </section>
+
+      <section class="admin-section">
+        <div class="admin-section-title"><div><span>⚙️</span><div><h2>إعدادات البوت</h2><p>تنعكس على البوت فورًا بدون Restart.</p></div></div></div>
+        <form id="admin-settings-form" class="surface admin-settings">
+          <div class="settings-grid">
+            <label>اسم الهوية داخل Embeds<input id="setting-bot-name" required maxlength="40"></label>
+            <label>Tagline<input id="setting-tagline" required maxlength="120"></label>
+          </div>
+          <h3>قنوات Discord</h3>
+          <div class="settings-grid">
+            <label>قناة نشر LFG<input id="setting-lfg-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
+            <label>Category الغرف المؤقتة<input id="setting-lfg-category" inputmode="numeric" placeholder="Discord Category ID"></label>
+            <label>القناة العامة<input id="setting-public-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
+            <label>قناة التحدي اليومي<input id="setting-daily-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
+            <label>قناة التصنيف<input id="setting-leaderboard-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
+          </div>
+          <h3>الأنظمة</h3>
+          <div class="toggle-grid">
+            <label class="toggle-card"><input id="setting-dm-enabled" type="checkbox"><span><b>رسائل DM الذكية</b><small>إرسال فرص اللعب للمهتمين</small></span></label>
+            <label class="toggle-card"><input id="setting-quick-match" type="checkbox"><span><b>Quick Match</b><small>السماح بالمطابقة السريعة</small></span></label>
+            <label class="toggle-card"><input id="setting-ratings" type="checkbox"><span><b>تقييم اللاعبين</b><small>التقييم بعد الجلسات المكتملة</small></span></label>
+            <label class="toggle-card"><input id="setting-reports" type="checkbox"><span><b>البلاغات</b><small>بلاغات السلوك والأخطاء</small></span></label>
+            <label class="toggle-card"><input id="setting-auto-channels" type="checkbox"><span><b>غرف Text + Voice</b><small>إنشاء مساحة خاصة لكل LFG</small></span></label>
+            <label class="toggle-card"><input id="setting-ai-enabled" type="checkbox"><span><b>مساعد Zark</b><small>دعم ذكي بحدود تكلفة</small></span></label>
+          </div>
+          <h3>الحماية والحدود</h3>
+          <div class="settings-grid three">
+            <label>حد DM اليومي لكل عضو<input id="setting-dm-limit" type="number" min="0" max="20" required></label>
+            <label>Cooldown اللعبة بالدقائق<input id="setting-dm-cooldown" type="number" min="1" max="1440" required></label>
+            <label>أقصى غرف نشطة للعضو<input id="setting-room-limit" type="number" min="1" max="5" required></label>
+            <label>مدة الغرفة الافتراضية<input id="setting-room-duration" type="number" min="15" max="360" required></label>
+            <label>مهلة الغرفة الفارغة<input id="setting-room-grace" type="number" min="1" max="30" required></label>
+          </div>
+          <h3>حدود مساعد Zark</h3>
+          <div class="settings-grid three">
+            <label>Tokens العضو يوميًا<select id="setting-ai-user-limit"><option value="2000">2,000</option><option value="3000">3,000</option><option value="4000">4,000</option><option value="6000">6,000</option></select></label>
+            <label>Tokens العامة يوميًا<input id="setting-ai-global-limit" type="number" min="10000" max="1000000" step="1000" required></label>
+            <label>أقصى طول للرد Tokens<input id="setting-ai-output" type="number" min="50" max="1000" required></label>
+          </div>
+          <button class="button primary" type="submit">حفظ وتطبيق الإعدادات</button>
+          <p id="admin-settings-result" class="form-result"></p>
+        </form>
+      </section>
+
+      <section class="admin-section">
+        <div class="admin-section-title"><div><span>🛰️</span><div><h2>الغرف النشطة</h2><p>راقب اللاعبين والحالة وأغلق الغرفة عند الحاجة.</p></div></div></div>
+        <div id="admin-active-rooms" class="admin-room-list"></div>
+      </section>
+
+      <section class="admin-section">
+        <div class="admin-section-title"><div><span>🎮</span><div><h2>إدارة المحتوى</h2><p>أضف ألعاب LFG وأسئلة التحديات دون تعديل الكود.</p></div></div></div>
+        <div class="feedback-grid admin-content-grid">
+          <form id="admin-lfg-form" class="surface">
+            <h2>➕ لعبة LFG</h2>
+            <label>Slug<input id="admin-game-slug" required pattern="[a-z0-9-]+"></label>
+            <label>الاسم<input id="admin-game-name" required></label>
+            <div class="form-row"><label>الأيقونة<input id="admin-game-icon"></label><label>التصنيف<input id="admin-game-category" placeholder="sandbox"></label></div>
+            <div class="form-row"><label>أقل عدد<input id="admin-game-min" type="number" min="2" value="2"></label><label>أعلى عدد<input id="admin-game-max" type="number" min="2" value="10"></label></div>
+            <label>الوصف<textarea id="admin-game-description"></textarea></label>
+            <button class="button primary" type="submit">حفظ اللعبة</button>
+            <p id="admin-game-result" class="form-result"></p>
+          </form>
+          <form id="admin-question-form" class="surface">
+            <h2>🖼️ سؤال بصري</h2>
+            <label>Game Slug<select id="admin-question-game"><option value="car-logos">شعارات السيارات</option><option value="company-logos">شعارات الشركات</option><option value="anime-silhouette">بطل الأنمي</option></select></label>
+            <label>السؤال<input id="admin-question-prompt" required></label>
+            <label>الإجابات المقبولة، مفصولة بفاصلة<input id="admin-question-answers" required></label>
+            <label>رابط الصورة<input id="admin-question-media" type="url" required></label>
+            <label>الصعوبة<input id="admin-question-difficulty" type="number" min="1" max="5" value="1"></label>
+            <button class="button primary" type="submit">إضافة السؤال</button>
+            <p id="admin-question-result" class="form-result"></p>
+          </form>
+        </div>
+      </section>
+    </div>
+  </main>
+  <footer id="site-footer"></footer>
+  <script src="/app.js"></script>
+</body>
+</html>
