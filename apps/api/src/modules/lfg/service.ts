@@ -546,7 +546,7 @@ export async function getNotificationCandidates(roomId: string) {
   const availableCandidates = candidates.filter((candidate) => {
     if (candidate.user.mentionPolicy === "NOBODY") return false;
     const currentStatusActive = candidate.user.activityUntil && candidate.user.activityUntil > now;
-    return !currentStatusActive || !["PLAYING", "STUDYING", "WORKING", "BUSY"].includes(candidate.user.currentActivity);
+    return !currentStatusActive || !["PLAYING", "STUDYING", "WORKING", "BUSY", "SLEEPING"].includes(candidate.user.currentActivity);
   });
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);

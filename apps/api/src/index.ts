@@ -14,7 +14,7 @@ import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCrea
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
-import { addGameQuestion, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordServiceHeartbeat, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordServiceHeartbeat, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
@@ -81,7 +81,7 @@ app.put("/api/me/profile/settings", async (request) => {
   return updateProfileSettings(user.userId, body);
 });
 const availabilitySchema = z.object({
-  currentActivity: z.enum(["FREE", "PLAYING", "STUDYING", "WORKING", "BUSY", "AWAY"]),
+  currentActivity: z.enum(["FREE", "PLAYING", "STUDYING", "WORKING", "BUSY", "SLEEPING", "AWAY"]),
   activityUntil: z.coerce.date().nullable().optional(),
   activityNote: z.string().max(120).nullable().optional(),
   mentionPolicy: z.enum(["EVERYONE", "INTERESTED_ONLY", "NOBODY"]),
@@ -89,7 +89,7 @@ const availabilitySchema = z.object({
     dayOfWeek: z.number().int().min(0).max(6),
     startMinute: z.number().int().min(0).max(1439),
     endMinute: z.number().int().min(1).max(1440),
-    activity: z.enum(["FREE", "PLAYING", "STUDYING", "WORKING", "BUSY", "AWAY"]),
+    activity: z.enum(["FREE", "PLAYING", "STUDYING", "WORKING", "BUSY", "SLEEPING", "AWAY"]),
   })).max(28).optional(),
 });
 app.get("/api/me/availability", async (request) => getAvailability((await requireWebUser(request)).userId));
@@ -505,6 +505,10 @@ app.get("/api/settings", { preHandler: requireServiceKey }, getGuildRuntimeSetti
 app.post("/api/bot/heartbeat", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ instanceId: z.string().max(100).optional(), botUserId: z.string().optional(), tag: z.string().max(100).optional(), guilds: z.number().int().min(0).optional() }).parse(request.body ?? {});
   return recordServiceHeartbeat("discord-bot", body.instanceId, { botUserId: body.botUserId, tag: body.tag, guilds: body.guilds });
+});
+app.post("/api/bot/bump-reminder/claim", { preHandler: requireServiceKey }, async (request) => {
+  const body = z.object({ guildId: z.string().min(1).max(30) }).parse(request.body);
+  return claimBumpReminder(body.guildId, 120);
 });
 app.get("/api/stream", async (request, reply) => {
   reply.hijack();

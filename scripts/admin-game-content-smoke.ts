@@ -1,16 +1,20 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
 import { db } from "../packages/db/src/client.js";
-import { addGameQuestion, deleteGameQuestion, getZarkGameContent, updateGameQuestion } from "../apps/api/src/modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, deleteGameQuestion, getZarkGameContent, updateGameQuestion } from "../apps/api/src/modules/admin/service.js";
 import { ensureSystemData, startZarkRace } from "../apps/api/src/service.js";
 
 const adminId = "zark-smoke-content-admin";
+const bumpService = "bump-reminder:zark-smoke-guild";
 let questionId: string | undefined;
 let matchId: string | undefined;
 
 try {
   await ensureSystemData();
   await db.user.upsert({ where: { id: adminId }, update: {}, create: { id: adminId, displayName: "Content Admin" } });
+  await db.serviceHeartbeat.deleteMany({ where: { service: bumpService } });
+  assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, true);
+  assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, false);
   const created = await addGameQuestion({ adminId, gameSlug: "flags", prompt: "علم أي دولة هذا؟", acceptedAnswers: ["فلسطين"], difficulty: 2, enabled: true });
   questionId = created.id;
   const listed = await getZarkGameContent();
@@ -32,6 +36,7 @@ try {
   if (matchId) await db.zarkMatch.deleteMany({ where: { id: matchId } });
   if (questionId) await db.gameQuestion.deleteMany({ where: { id: questionId } });
   await db.auditLog.deleteMany({ where: { adminId } });
+  await db.serviceHeartbeat.deleteMany({ where: { service: bumpService } });
   await db.user.deleteMany({ where: { id: adminId } });
   await db.$disconnect();
 }

@@ -32,6 +32,7 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
   }
   const tagCounts = new Map<string, number>();
   for (const row of tags) for (const tag of row.tags) if (publicRatingTags.has(tag)) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+  const activityExpired = Boolean(user.activityUntil && user.activityUntil.getTime() <= Date.now());
   return {
     userId: user.id,
     displayName: user.displayName,
@@ -41,9 +42,9 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
       profileAccent: user.profileAccent,
       activityVisible: user.activityVisible,
       rivalNotificationsEnabled: user.rivalNotificationsEnabled,
-      currentActivity: user.activityUntil && user.activityUntil.getTime() <= Date.now() ? "AWAY" : user.currentActivity,
-      activityUntil: user.activityUntil?.toISOString(),
-      activityNote: user.activityNote,
+      currentActivity: activityExpired ? "AWAY" : user.currentActivity,
+      activityUntil: activityExpired ? undefined : user.activityUntil?.toISOString(),
+      activityNote: activityExpired ? undefined : user.activityNote,
       mentionPolicy: user.mentionPolicy,
       weeklyAvailability: user.weeklyAvailability.map((slot) => ({ id: slot.id, dayOfWeek: slot.dayOfWeek, startMinute: slot.startMinute, endMinute: slot.endMinute, activity: slot.activity })),
     },
@@ -84,11 +85,11 @@ export async function getAvailability(userId: string) {
 }
 
 export async function updateAvailability(userId: string, input: {
-  currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "AWAY";
+  currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY";
   activityUntil?: Date | null;
   activityNote?: string | null;
   mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY";
-  weeklyAvailability?: Array<{ dayOfWeek: number; startMinute: number; endMinute: number; activity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "AWAY" }>;
+  weeklyAvailability?: Array<{ dayOfWeek: number; startMinute: number; endMinute: number; activity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY" }>;
 }) {
   const slots = input.weeklyAvailability ?? [];
   for (const slot of slots) {

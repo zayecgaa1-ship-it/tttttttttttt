@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "../../../../../packages/db/src/client.js";
 import type { GuildRuntimeSettings } from "../../../../../packages/shared/src/index.js";
 import { publish } from "../../events.js";
+import { serializable } from "../../db-transaction.js";
 
 type GuildSettingsInput = Omit<GuildRuntimeSettings, "guildId" | "lfgChannelId" | "lfgCategoryId" | "publicChannelId" | "dailyChannelId" | "leaderboardChannelId" | "reportChannelId"> & {
   lfgChannelId?: string | null;
@@ -182,6 +183,18 @@ export async function recordServiceHeartbeat(service: string, instanceId?: strin
     where: { service },
     update: { instanceId, metadata },
     create: { service, instanceId, metadata },
+  });
+}
+
+export async function claimBumpReminder(guildId: string, intervalMinutes = 120) {
+  const service = `bump-reminder:${guildId}`;
+  return serializable(async (tx) => {
+    const previous = await tx.serviceHeartbeat.findUnique({ where: { service } });
+    const due = !previous || Date.now() - previous.lastSeenAt.getTime() >= intervalMinutes * 60_000;
+    if (!due) return { claimed: false, nextAt: new Date(previous.lastSeenAt.getTime() + intervalMinutes * 60_000).toISOString() };
+    const claimedAt = new Date();
+    await tx.serviceHeartbeat.upsert({ where: { service }, update: { instanceId: "discord-bot", metadata: { claimedAt: claimedAt.toISOString(), intervalMinutes } }, create: { service, instanceId: "discord-bot", metadata: { claimedAt: claimedAt.toISOString(), intervalMinutes } } });
+    return { claimed: true, claimedAt: claimedAt.toISOString(), nextAt: new Date(claimedAt.getTime() + intervalMinutes * 60_000).toISOString() };
   });
 }
 

@@ -22,6 +22,8 @@ try {
   });
   assert.equal(availability.currentActivity, "FREE");
   assert.equal((await getAvailability(firstUser)).weeklyAvailability.length, 1);
+  const sleeping = await updateAvailability(firstUser, { currentActivity: "SLEEPING", activityUntil: new Date(Date.now() + 8 * 60 * 60_000), activityNote: "نائم", mentionPolicy: "NOBODY" });
+  assert.equal(sleeping.currentActivity, "SLEEPING");
 
   const match = await startZarkRace("translate");
   createdMatches.push(match.id);

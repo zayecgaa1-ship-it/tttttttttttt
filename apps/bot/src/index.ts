@@ -13,6 +13,7 @@ const token = process.env.DISCORD_TOKEN;
 const guildId = process.env.DISCORD_GUILD_ID;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const lfgListingChannelId = process.env.DISCORD_LFG_CHANNEL_ID;
+const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter((role) => /^\d{17,20}$/.test(role));
 const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/zark-room-card-bg.png");
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
@@ -76,6 +77,7 @@ if (!token) {
   const notifiedRooms = new Set<string>();
   const ratingRequestsInFlight = new Set<string>();
   const roomByVoiceChannel = new Map<string, string>();
+  const mentionStatusCooldown = new Map<string, number>();
   let botEventSubscriber: ReturnType<typeof createClient> | undefined;
 
   if (guildId && clientId) {
@@ -93,12 +95,14 @@ if (!token) {
     }
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
-    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat()]);
+    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
     const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces().catch((error) => console.error("LFG cleanup cycle failed", error)), 30_000);
+    const bumpTimer = setInterval(() => void runBumpReminderCycle().catch((error) => console.error("Bump reminder failed", error)), 60_000);
     heartbeatTimer.unref();
     cleanupTimer.unref();
+    bumpTimer.unref();
   });
   client.on(Events.Error, (error) => console.error("Discord client error", error));
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -168,7 +172,7 @@ if (!token) {
       else if (message.content.trim() === ".وقت فراغي") {
         const current = await apiGet<UserAvailability>(`/api/users/${message.author.id}/availability`, true);
         await message.reply(availabilityPanelPayload(current));
-      }
+      } else await replyWithMentionedMemberStatus(message);
     } catch (error) {
       await message.reply(`❌ ${error instanceof Error ? error.message : "تعذر تشغيل اللعبة"}`).catch(() => undefined);
     }
@@ -677,6 +681,43 @@ if (!token) {
     await apiSend("/api/bot/heartbeat", "POST", { instanceId: `${process.pid}`, botUserId: client.user.id, tag: client.user.tag, guilds: client.guilds.cache.size }).catch((error) => console.error("Bot heartbeat failed", error));
   }
 
+  async function sendBumpReminder(channel: any) {
+    const roleMentions = adminRoleIds.map((roleId) => `<@&${roleId}>`).join(" ");
+    await channel.send({
+      content: `${roleMentions}\n🔔 **تذكير دعم السيرفر** — حان وقت كتابة أمر \`/bump\` لرفع ظهور السيرفر وجلب لاعبين جدد.`,
+      allowedMentions: { roles: adminRoleIds, users: [], parse: [] },
+    });
+  }
+
+  async function runBumpReminderCycle() {
+    if (!guildId || !adminRoleIds.length) return;
+    const channelId = process.env.DISCORD_BUMP_CHANNEL_ID || runtimeSettings.publicChannelId || runtimeSettings.dailyChannelId || runtimeSettings.lfgChannelId;
+    if (!channelId) return console.warn("Bump reminder skipped: set DISCORD_BUMP_CHANNEL_ID or a public bot channel");
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased() || !("send" in channel)) return console.warn(`Bump reminder channel ${channelId} is not text based`);
+    const claim = await apiSend<{ claimed: boolean }>("/api/bot/bump-reminder/claim", "POST", { guildId });
+    if (claim.claimed) await sendBumpReminder(channel);
+  }
+
+  async function replyWithMentionedMemberStatus(message: any) {
+    const mentioned = message.mentions?.users?.find((user: any) => !user.bot);
+    if (!mentioned) return;
+    const cooldownKey = `${message.guildId ?? "dm"}:${message.author.id}:${mentioned.id}`;
+    const lastReply = mentionStatusCooldown.get(cooldownKey) ?? 0;
+    if (Date.now() - lastReply < 20_000) return;
+    mentionStatusCooldown.set(cooldownKey, Date.now());
+    if (mentionStatusCooldown.size > 500) for (const [key, timestamp] of mentionStatusCooldown) if (Date.now() - timestamp > 60_000) mentionStatusCooldown.delete(key);
+    try {
+      const data = await apiGet<UnifiedProfile>(`/api/profiles/${mentioned.id}`);
+      const description = data.settings.activityVisible
+        ? `حالة **${data.displayName}** الآن: ${profileActivityText(data)}`
+        : `🔒 **${data.displayName}** اختار إخفاء حالته الحالية.`;
+      await message.reply({ content: description, allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
+    } catch {
+      await message.reply({ content: `ℹ️ **${mentioned.displayName ?? mentioned.username}** لم يحدد حالته في Zark بعد.`, allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
+    }
+  }
+
   async function notifyInterestedPlayers(room: LiveRoom) {
     if (notifiedRooms.has(room.id)) return;
     notifiedRooms.add(room.id);
@@ -763,7 +804,8 @@ if (!token) {
     const data = await apiGet<UnifiedProfile>(`/api/profiles/${userId}`);
     const filename = `zark-profile-${userId}.png`;
     const image = await renderProfileVisual(data);
-    const embed = baseEmbed().setTitle(`👤 ملف ${data.displayName}`).setDescription(`Level ${data.zark.level} · ${data.zark.xp.toLocaleString()} XP · ${data.zark.wins} فوز`).setImage(`attachment://${filename}`);
+    const activity = profileActivityText(data);
+    const embed = baseEmbed().setTitle(`👤 ملف ${data.displayName}`).setDescription(`Level ${data.zark.level} · ${data.zark.xp.toLocaleString()} XP · ${data.zark.wins} فوز\n${activity}`).setImage(`attachment://${filename}`);
     await interaction.editReply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
   }
 
@@ -1017,6 +1059,7 @@ if (!token) {
     const avatar = data.avatarUrl ? await remoteImage(data.avatarUrl) : undefined;
     const rating = data.lfg.rating.average ? `${data.lfg.rating.average} / 5` : "لا يوجد تقييم";
     const favorite = data.lfg.favoriteGames[0];
+    const activity = data.settings.activityVisible ? availabilityLabel(data.settings.currentActivity) : "🔒 الحالة مخفية";
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <rect width="1600" height="900" fill="#020202" fill-opacity=".78"/>
       <style>${fontFaceStyle}.label{font:800 28px ${arabicFont};fill:#aaa}.value{font:900 56px ${arabicFont};fill:#fff}.small{font:800 32px ${arabicFont};fill:#ddd}</style>
@@ -1029,6 +1072,7 @@ if (!token) {
       ${profileStat(700, "Zark XP", data.zark.xp.toLocaleString())}${profileStat(925, "الفوز", String(data.zark.wins))}${profileStat(1150, "التفاعل", String(data.lfg.engagement))}${profileStat(1375, "وقت Voice", formatDuration(data.lfg.voiceSeconds))}
       <text x="1040" y="690" text-anchor="middle" class="small">${data.lfg.completedSessions} جلسة مكتملة · لعب مع ${data.lfg.uniqueTeammates} عضو مختلف</text>
       <text x="1040" y="755" text-anchor="middle" class="small">${favorite ? `أكثر لعبة: ${escapeXml(favorite.name)} · ${favorite.sessions} جلسة` : "ابدأ أول جلسة LFG وسجّل إنجازك"}</text>
+      <text x="1040" y="820" text-anchor="middle" style="font:800 29px ${arabicFont};fill:#ff6b70">${escapeXml(activity)}</text>
       <text x="340" y="650" text-anchor="middle" style="font:900 36px ${arabicFont};fill:#fff">ZARK LEVEL ${data.zark.level}</text>
     </svg>`);
     const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
@@ -1174,6 +1218,7 @@ if (!token) {
     const second = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId("availability:set:STUDYING:120").setLabel("أدرس").setEmoji("📚").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId("availability:set:WORKING:120").setLabel("أعمل").setEmoji("💼").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("availability:set:SLEEPING:480").setLabel("نايم").setEmoji("😴").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId("availability:set:AWAY:0").setLabel("غير متاح").setEmoji("🌙").setStyle(ButtonStyle.Danger),
     );
     return {
@@ -1191,7 +1236,13 @@ if (!token) {
   function medal(index: number) { return ["🥇", "🥈", "🥉"][index] ?? `#${index + 1}`; }
   function formatDuration(seconds: number) { const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return hours ? `${hours}س ${minutes}د` : `${minutes} دقيقة`; }
   function formatClock(value: string) { return new Intl.DateTimeFormat("ar", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Jerusalem" }).format(new Date(value)); }
-  function availabilityLabel(value: UserAvailability["currentActivity"]) { return ({ FREE: "🟢 فاضي للعب", PLAYING: "🎮 ألعب الآن", STUDYING: "📚 أدرس", WORKING: "💼 أعمل", BUSY: "⛔ مشغول", AWAY: "🌙 غير متاح" })[value]; }
+  function availabilityLabel(value: UserAvailability["currentActivity"]) { return ({ FREE: "🟢 فاضي للعب", PLAYING: "🎮 ألعب الآن", STUDYING: "📚 أدرس", WORKING: "💼 أعمل", BUSY: "⛔ مشغول", SLEEPING: "😴 نايم", AWAY: "🌙 غير متاح" })[value]; }
+  function profileActivityText(data: UnifiedProfile) {
+    if (!data.settings.activityVisible) return "🔒 الحالة مخفية من العضو";
+    const until = data.settings.activityUntil ? ` حتى <t:${Math.floor(new Date(data.settings.activityUntil).getTime() / 1000)}:R>` : "";
+    const note = data.settings.activityNote ? ` — ${data.settings.activityNote}` : "";
+    return `${availabilityLabel(data.settings.currentActivity)}${until}${note}`;
+  }
   function channelSlug(value: string) { return value.normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 24).toLowerCase() || "player"; }
   function trimText(value: string, max: number) { return value.length > max ? `${value.slice(0, max - 1)}…` : value; }
   function escapeXml(value: string) { return value.replace(/[<>&"']/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;", "'": "&apos;" })[char] ?? char); }
@@ -1256,8 +1307,8 @@ type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<type
 type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
-type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
+type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
-type UnifiedProfile = { displayName: string; avatarUrl?: string; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ name: string; icon?: string }>; rating: { average: number | null; count: number } } };
+type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ name: string; icon?: string }>; rating: { average: number | null; count: number } } };

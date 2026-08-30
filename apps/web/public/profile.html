@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ملفي — Zark LFG System</title><link rel="stylesheet" href="/styles.css?v=2744916"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ملفي — Zark LFG System</title><link rel="stylesheet" href="/styles.css?v=2744942"></head>
 <body data-page="profile">
   <header id="site-nav"></header>
   <main class="shell page-main">
@@ -24,23 +24,24 @@
           <p class="section-copy">غيّر حالتك بضغطة واحدة. لن يرسل لك Zark فرص لعب عندما تكون مشغولًا.</p>
           <div id="availability-current" class="availability-current">—</div>
           <div class="availability-quick">
-            <button type="button" data-availability-quick="FREE:120">🟢 فاضي ساعتين</button><button type="button" data-availability-quick="PLAYING:120">🎮 ألعب الآن</button><button type="button" data-availability-quick="BUSY:60">⛔ مشغول ساعة</button><button type="button" data-availability-quick="AWAY:0">🌙 غير متاح</button>
+            <button type="button" data-availability-quick="FREE:120">🟢 فاضي ساعتين</button><button type="button" data-availability-quick="PLAYING:120">🎮 ألعب الآن</button><button type="button" data-availability-quick="BUSY:60">⛔ مشغول ساعة</button><button type="button" data-availability-quick="SLEEPING:480">😴 نايم</button><button type="button" data-availability-quick="AWAY:0">🌙 غير متاح</button>
           </div>
-          <details class="advanced-options availability-advanced"><summary>⚙️ تخصيص الوقت والجدول الأسبوعي</summary>
+          <details class="advanced-options availability-advanced"><summary>⚙️ تخصيص حالتي الحالية</summary>
             <div class="settings-grid three">
-              <label>حالتي الآن<select id="availability-activity"><option value="FREE">🟢 فاضي للعب</option><option value="PLAYING">🎮 ألعب الآن</option><option value="STUDYING">📚 أدرس</option><option value="WORKING">💼 أعمل</option><option value="BUSY">⛔ مشغول</option><option value="AWAY">🌙 غير متاح</option></select></label>
+              <label>حالتي الآن<select id="availability-activity"><option value="FREE">🟢 فاضي للعب</option><option value="PLAYING">🎮 ألعب الآن</option><option value="STUDYING">📚 أدرس</option><option value="WORKING">💼 أعمل</option><option value="BUSY">⛔ مشغول</option><option value="SLEEPING">😴 نايم</option><option value="AWAY">🌙 غير متاح</option></select></label>
               <label>حتى وقت<input id="availability-until" type="datetime-local"></label>
               <label>تنبيهات Zark<select id="availability-mentions"><option value="EVERYONE">كل فرص اللعب المناسبة</option><option value="INTERESTED_ONLY">ألعاب اهتماماتي فقط</option><option value="NOBODY">لا ترسل أو تمنشنني</option></select></label>
             </div>
             <label>ملاحظة الحالة<input id="availability-note" maxlength="120" placeholder="مثال: جاهز لماينكرافت بعد التاسعة"></label>
-            <h3 class="availability-title">جدولي الأسبوعي</h3><div id="weekly-availability" class="weekly-availability"></div>
-            <button class="button primary" type="submit">حفظ التفاصيل</button>
           </details>
+          <div class="weekly-simple-head"><div><h3 class="availability-title">ساعات فراغي الأسبوعية</h3><p>فعّل اليوم وحدد: فاضي من أي ساعة وحتى أي ساعة.</p></div></div>
+          <div id="weekly-availability" class="weekly-availability"></div>
+          <button class="button primary" type="submit">حفظ الحالة والجدول</button>
           <p id="availability-result" class="form-result"></p>
         </form>
       </div>
     </section>
   </main>
-  <footer id="site-footer"></footer><script src="/app.js?v=2744916"></script>
+  <footer id="site-footer"></footer><script src="/app.js?v=2744942"></script>
 </body>
 </html>

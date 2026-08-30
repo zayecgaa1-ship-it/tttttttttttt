@@ -52,6 +52,8 @@
 - Discord OAuth2 وجلسة HttpOnly موقعة.
 - صلاحيات لوحة الإدارة مبنية على `ADMIN_ROLE_IDS`.
 - تغييرات إعدادات البوت تُحفظ في `GuildSettings` و`AuditLog` وتصل للبوت لحظيًا عبر Redis.
+- تذكير `/bump` كل ساعتين في قناة الإدارة مع منشن `ADMIN_ROLE_IDS`، وقفل PostgreSQL يمنع تكراره بعد إعادة التشغيل.
+- منشن العضو يعرض حالته الحالية باحترام خصوصيته، وتظهر الحالة أيضًا داخل صورة وأمر `/profile`.
 
 ## أوامر Discord
 
@@ -99,6 +101,7 @@ DISCORD_TOKEN
 DISCORD_GUILD_ID
 DISCORD_LFG_CATEGORY_ID
 DISCORD_REPORT_CHANNEL_ID (قناة تنبيهات البلاغات، ويمكن تعديلها من لوحة الإدارة)
+DISCORD_BUMP_CHANNEL_ID (قناة تذكير /bump؛ عند تركها فارغة تُستخدم القناة العامة)
 PUBLIC_SITE_URL (مثل https://zark-ps.com ويظهر داخل أزرار البوت)
 DISCORD_CLIENT_ID
 DISCORD_CLIENT_SECRET
