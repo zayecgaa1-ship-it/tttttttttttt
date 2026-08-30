@@ -1,7 +1,7 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
 import { db } from "../packages/db/src/client.js";
-import { addGameQuestion, claimBumpReminder, deleteGameQuestion, getZarkGameContent, updateGameQuestion } from "../apps/api/src/modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, deleteGameQuestion, getZarkGameContent, recordBumpCompleted, updateGameQuestion } from "../apps/api/src/modules/admin/service.js";
 import { ensureSystemData, startZarkRace } from "../apps/api/src/service.js";
 
 const adminId = "zark-smoke-content-admin";
@@ -14,6 +14,10 @@ try {
   await db.user.upsert({ where: { id: adminId }, update: {}, create: { id: adminId, displayName: "Content Admin" } });
   await db.serviceHeartbeat.deleteMany({ where: { service: bumpService } });
   assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, true);
+  assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, false);
+  const bumped = await recordBumpCompleted("zark-smoke-guild", adminId);
+  assert.equal(bumped.recorded, true);
+  assert.ok(new Date(bumped.nextReminderAt).getTime() - new Date(bumped.completedAt).getTime() === 120 * 60_000);
   assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, false);
   const created = await addGameQuestion({ adminId, gameSlug: "flags", prompt: "علم أي دولة هذا؟", acceptedAnswers: ["فلسطين"], difficulty: 2, enabled: true });
   questionId = created.id;

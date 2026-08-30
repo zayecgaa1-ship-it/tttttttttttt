@@ -198,6 +198,17 @@ export async function claimBumpReminder(guildId: string, intervalMinutes = 120) 
   });
 }
 
+export async function recordBumpCompleted(guildId: string, userId?: string) {
+  const service = `bump-reminder:${guildId}`;
+  const completedAt = new Date();
+  await db.serviceHeartbeat.upsert({
+    where: { service },
+    update: { instanceId: "disboard", metadata: { completedAt: completedAt.toISOString(), userId: userId ?? null, intervalMinutes: 120 } },
+    create: { service, instanceId: "disboard", metadata: { completedAt: completedAt.toISOString(), userId: userId ?? null, intervalMinutes: 120 } },
+  });
+  return { recorded: true, completedAt: completedAt.toISOString(), nextReminderAt: new Date(completedAt.getTime() + 120 * 60_000).toISOString() };
+}
+
 export async function createLfgCategory(input: { slug: string; name: string; icon?: string; sortOrder?: number }) {
   return db.lfgGameCategory.create({ data: { slug: input.slug, name: input.name, icon: input.icon, sortOrder: input.sortOrder ?? 0 } });
 }

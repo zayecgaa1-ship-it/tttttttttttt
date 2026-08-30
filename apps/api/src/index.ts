@@ -14,7 +14,7 @@ import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCrea
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
-import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordServiceHeartbeat, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
@@ -509,6 +509,10 @@ app.post("/api/bot/heartbeat", { preHandler: requireServiceKey }, async (request
 app.post("/api/bot/bump-reminder/claim", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ guildId: z.string().min(1).max(30) }).parse(request.body);
   return claimBumpReminder(body.guildId, 120);
+});
+app.post("/api/bot/bump-reminder/completed", { preHandler: requireServiceKey }, async (request) => {
+  const body = z.object({ guildId: z.string().min(1).max(30), userId: z.string().max(30).optional() }).parse(request.body);
+  return recordBumpCompleted(body.guildId, body.userId);
 });
 app.get("/api/stream", async (request, reply) => {
   reply.hijack();

@@ -14,6 +14,7 @@ const guildId = process.env.DISCORD_GUILD_ID;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const lfgListingChannelId = process.env.DISCORD_LFG_CHANNEL_ID;
 const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter((role) => /^\d{17,20}$/.test(role));
+const disboardBotId = process.env.DISBOARD_BOT_ID?.trim() || "302050872383242240";
 const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/zark-room-card-bg.png");
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
@@ -145,7 +146,14 @@ if (!token) {
   });
 
   client.on(Events.MessageCreate, async (message) => {
-    if (message.author.bot) return;
+    if (message.author.bot) {
+      if (message.author.id === disboardBotId && isDisboardBumpConfirmation(message)) {
+        const bumperId = (message as any).interactionMetadata?.user?.id ?? (message as any).interaction?.user?.id;
+        await apiSend("/api/bot/bump-reminder/completed", "POST", { guildId: message.guildId, userId: bumperId }).catch((error) => console.error("Failed to record DISBOARD bump", error));
+        console.log(`DISBOARD bump recorded for guild ${message.guildId}; next reminder in 2 hours`);
+      }
+      return;
+    }
     const player = { userId: message.author.id, displayName: message.member?.displayName ?? message.author.username, answer: message.content };
     try {
       const race = activeRaceChannels.get(message.channelId);
@@ -716,6 +724,12 @@ if (!token) {
     } catch {
       await message.reply({ content: `ℹ️ **${mentioned.displayName ?? mentioned.username}** لم يحدد حالته في Zark بعد.`, allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
     }
+  }
+
+  function isDisboardBumpConfirmation(message: any) {
+    const embedText = (message.embeds ?? []).flatMap((embed: any) => [embed.title, embed.description, embed.footer?.text, ...(embed.fields ?? []).flatMap((field: any) => [field.name, field.value])]).filter(Boolean).join(" ");
+    const text = `${message.content ?? ""} ${embedText}`.toLocaleLowerCase("en").replace(/\s+/g, " ");
+    return /\bbump(?:ed)? done\b|\bserver (?:was )?bumped\b|تم (?:رفع|تحديث) السيرفر/.test(text);
   }
 
   async function notifyInterestedPlayers(room: LiveRoom) {
