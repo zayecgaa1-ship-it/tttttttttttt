@@ -8,6 +8,7 @@ let activeUserTicket;
 let activeAdminTicket;
 let reportPresenceTimer;
 let reportPresenceBound=false;
+let adminZarkContent=[];
 const roomSearchAliases={
   minecraft:['minecraft','ماينكرافت','ماين كرافت','माइनक्राफ्ट','майнкрафт'],
   roblox:['roblox','روبلوكس','روب لوكس','रोब्लॉक्स'],
@@ -236,9 +237,10 @@ async function bindFloatingSupport(){
   fab.onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden)input.focus()};close.onclick=()=>panel.hidden=true;
   clear.onclick=()=>{if(!confirm('حذف محادثة مساعد Zark؟'))return;log.innerHTML=`<article class="chat-message assistant">تم مسح المحادثة. كيف أقدر أساعدك يا ${escapeHtml(me.displayName)}؟</article>`;};
   try{const support=await api('/api/me/support/status');status.textContent=supportTokenLabel(support);}catch{status.textContent='الدعم متاح';}
-  form.onsubmit=async event=>{event.preventDefault();const message=input.value.trim();if(!message)return;floatingChatMessage(log,message,'user');input.value='';input.disabled=true;try{const reply=await api('/api/me/support/chat',{method:'POST',body:{message}});floatingChatMessage(log,reply.answer,'assistant');status.textContent=supportTokenLabel(reply);}catch(error){floatingChatMessage(log,error.message,'assistant error');}finally{input.disabled=false;input.focus();}};
+  form.onsubmit=async event=>{event.preventDefault();const message=input.value.trim();if(!message)return;floatingChatMessage(log,message,'user');input.value='';input.disabled=true;try{const reply=await api('/api/me/support/chat',{method:'POST',body:{message}});floatingChatMessage(log,reply.answer,'assistant');if(reply.action?.type==='LFG_CREATED')floatingChatAction(log,`فتح غرفة ${reply.action.gameSlug}`,`/lfg.html?room=${encodeURIComponent(reply.action.roomId)}`);if(reply.action?.type==='REPORT_CREATED')floatingChatAction(log,'فتح التذكرة',`/reports.html?reportKind=${reply.action.reportKind}&reportId=${encodeURIComponent(reply.action.reportId)}`);status.textContent=supportTokenLabel(reply);}catch(error){floatingChatMessage(log,error.message,'assistant error');}finally{input.disabled=false;input.focus();}};
 }
 function floatingChatMessage(log,message,type){const article=document.createElement('article');article.className=`chat-message ${type}`;article.textContent=message;log.appendChild(article);log.scrollTop=log.scrollHeight;}
+function floatingChatAction(log,label,href){const link=document.createElement('a');link.className='chat-action';link.textContent=`⚡ ${label}`;link.href=href;log.appendChild(link);log.scrollTop=log.scrollHeight;}
 
 async function bindAdmin(){
   const gate=$('admin-gate');
@@ -255,9 +257,11 @@ async function bindAdmin(){
     $('admin-active-rooms').innerHTML=dashboard.activeRooms.length?dashboard.activeRooms.map(room=>`<article class="admin-room"><div><b>${escapeHtml(room.gameIcon||'🎮')} ${escapeHtml(room.gameName)}</b><small class="host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')} ${escapeHtml(room.hostName)} · ${room.currentPlayers}/${room.maxPlayers} · ${escapeHtml(room.status)}</small><div class="room-players">${room.members.map(member=>`<span class="room-player">${avatar(member.avatarUrl,member.displayName,'mini')}${escapeHtml(member.displayName)}</span>`).join('')}</div></div><button class="button danger small" data-admin-close-room="${room.id}">إغلاق</button></article>`).join(''):empty('لا توجد غرف نشطة الآن.');
     document.querySelectorAll('[data-admin-close-room]').forEach(button=>button.onclick=async()=>{if(!confirm('إغلاق هذه الغرفة؟'))return;await api(`/api/web-admin/lfg/${button.dataset.adminCloseRoom}/close`,{method:'POST'});await bindAdmin();});
     fillAdminSettings(dashboard.settings);
+    bindAdminTabs();
+    await loadAdminZarkContent();
     await loadAdminReports();
     const query=new URLSearchParams(location.search),kind=query.get('reportKind'),id=query.get('reportId');
-    if((kind==='PLAYER'||kind==='BUG')&&id)await openAdminReport(kind,id).catch(()=>undefined);
+    if((kind==='PLAYER'||kind==='BUG')&&id){showAdminTab('reports');await openAdminReport(kind,id).catch(()=>undefined);}
   }catch(error){gate.innerHTML=`<span>⛔</span><h1>تعذر فتح اللوحة</h1><p>${escapeHtml(error.message)}</p>`;return;}
 
   $('admin-settings-form').onsubmit=async event=>{
@@ -273,7 +277,66 @@ async function bindAdmin(){
   };
   $('admin-ai-test').onclick=async()=>{const button=$('admin-ai-test'),result=$('admin-ai-test-result');button.disabled=true;result.textContent='جارِ فحص مزودي AI المجانيين...';try{const status=await api('/api/web-admin/ai/diagnostics',{method:'POST'});result.textContent=status.message;}catch(error){result.textContent=`❌ ${error.message}`;}finally{button.disabled=false;}};
   $('admin-lfg-form').onsubmit=async event=>{event.preventDefault();await submitForm(`/api/web-admin/lfg/games/${$('admin-game-slug').value}` ,{name:$('admin-game-name').value,description:$('admin-game-description').value||undefined,icon:$('admin-game-icon').value||undefined,categorySlug:$('admin-game-category').value||undefined,minPlayers:Number($('admin-game-min').value),maxPlayers:Number($('admin-game-max').value),enabled:true},$('admin-game-result'),'PUT');};
-  $('admin-question-form').onsubmit=async event=>{event.preventDefault();await submitForm(`/api/web-admin/zark-games/${$('admin-question-game').value}/questions`,{prompt:$('admin-question-prompt').value,acceptedAnswers:$('admin-question-answers').value.split(',').map(item=>item.trim()).filter(Boolean),mediaUrl:$('admin-question-media').value,difficulty:Number($('admin-question-difficulty').value)},$('admin-question-result'));};
+  $('admin-question-form').onsubmit=saveAdminQuestion;
+  $('admin-question-cancel').onclick=resetAdminQuestionForm;
+}
+
+function bindAdminTabs(){
+  document.querySelectorAll('[data-admin-tab]').forEach(button=>button.onclick=()=>showAdminTab(button.dataset.adminTab));
+  showAdminTab(location.hash.replace('#','')||'overview');
+}
+
+function showAdminTab(tab){
+  const selected=document.querySelector(`[data-admin-tab="${CSS.escape(tab)}"]`)?tab:'overview';
+  document.querySelectorAll('[data-admin-tab]').forEach(button=>button.classList.toggle('active',button.dataset.adminTab===selected));
+  document.querySelectorAll('[data-admin-panel]').forEach(panel=>panel.hidden=panel.dataset.adminPanel!==selected);
+  history.replaceState(null,'',`${location.pathname}${location.search}#${selected}`);
+}
+
+async function loadAdminZarkContent(selectedSlug){
+  adminZarkContent=await api('/api/web-admin/zark-games');
+  const manageable=adminZarkContent;
+  const select=$('admin-zark-game-filter'),formSelect=$('admin-question-game');
+  const current=selectedSlug||select.value||manageable[0]?.slug;
+  const options=manageable.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)} (${game.questionCount})</option>`).join('');
+  select.innerHTML=options;formSelect.innerHTML=options;
+  select.value=manageable.some(game=>game.slug===current)?current:manageable[0]?.slug||'';
+  formSelect.value=select.value;
+  select.onchange=()=>{formSelect.value=select.value;resetAdminQuestionForm(false);renderAdminQuestions();};
+  formSelect.onchange=()=>{select.value=formSelect.value;renderAdminQuestions();};
+  renderAdminQuestions();
+}
+
+function renderAdminQuestions(){
+  const game=adminZarkContent.find(item=>item.slug===$('admin-zark-game-filter').value);
+  if(!game){$('admin-question-list').innerHTML=empty('لا توجد ألعاب قابلة للإدارة.');return;}
+  $('admin-zark-game-summary').innerHTML=`<b>${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)}</b><small>${game.enabledQuestionCount} مفعّل من أصل ${game.questionCount} سؤال</small><p>${escapeHtml(game.description||'لعبة تحدي داخل Discord')}</p>`;
+  $('admin-question-count').textContent=`${game.questionCount} سؤال`;
+  $('admin-question-list').innerHTML=game.questions.length?game.questions.map(question=>`<article class="question-item ${question.enabled?'':'disabled'}"><div class="question-preview">${question.mediaUrl?`<img src="${escapeHtml(question.mediaUrl)}" alt="">`:`<span>${escapeHtml(game.icon||gameIcon(game.slug))}</span>`}</div><div class="question-copy"><header><b>${escapeHtml(question.prompt)}</b><span>${question.enabled?'مفعّل':'معطّل'} · صعوبة ${question.difficulty}/5</span></header><p>الإجابات: ${question.acceptedAnswers.map(escapeHtml).join('، ')}</p><small>${new Date(question.updatedAt).toLocaleString('ar')}</small></div><div class="question-actions"><button class="button ghost small" type="button" data-edit-question="${question.id}">تعديل</button><button class="button danger small" type="button" data-delete-question="${question.id}">حذف</button></div></article>`).join(''):empty('لا توجد أسئلة لهذه اللعبة بعد. أضف أول سؤال من النموذج أعلاه.');
+  document.querySelectorAll('[data-edit-question]').forEach(button=>button.onclick=()=>editAdminQuestion(button.dataset.editQuestion));
+  document.querySelectorAll('[data-delete-question]').forEach(button=>button.onclick=()=>deleteAdminQuestion(button.dataset.deleteQuestion));
+}
+
+function editAdminQuestion(id){
+  const game=adminZarkContent.find(item=>item.slug===$('admin-zark-game-filter').value),question=game?.questions.find(item=>item.id===id);if(!question)return;
+  $('admin-question-id').value=question.id;$('admin-question-game').value=game.slug;$('admin-question-prompt').value=question.prompt;$('admin-question-answers').value=question.acceptedAnswers.join(', ');$('admin-question-media').value=question.mediaUrl||'';$('admin-question-difficulty').value=question.difficulty;$('admin-question-enabled').checked=question.enabled;
+  $('admin-question-form-title').textContent=`✏️ تعديل سؤال ${game.name}`;$('admin-question-submit').textContent='حفظ التعديلات';$('admin-question-cancel').hidden=false;$('admin-question-form').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function resetAdminQuestionForm(keepGame=true){
+  const slug=keepGame?$('admin-question-game').value:$('admin-zark-game-filter').value;$('admin-question-form').reset();$('admin-question-id').value='';$('admin-question-game').value=slug;$('admin-question-enabled').checked=true;$('admin-question-difficulty').value=1;$('admin-question-form-title').textContent='➕ إضافة سؤال';$('admin-question-submit').textContent='إضافة السؤال';$('admin-question-cancel').hidden=true;$('admin-question-result').textContent='';
+}
+
+async function saveAdminQuestion(event){
+  event.preventDefault();const id=$('admin-question-id').value,slug=$('admin-question-game').value,result=$('admin-question-result');
+  const body={prompt:$('admin-question-prompt').value.trim(),acceptedAnswers:$('admin-question-answers').value.split(/[,،]/).map(item=>item.trim()).filter(Boolean),mediaUrl:$('admin-question-media').value.trim()||(id?null:undefined),difficulty:Number($('admin-question-difficulty').value),enabled:$('admin-question-enabled').checked};
+  result.textContent=id?'جارِ حفظ التعديلات...':'جارِ إضافة السؤال...';
+  try{await api(`/api/web-admin/zark-games/${slug}/questions${id?`/${id}`:''}`,{method:id?'PUT':'POST',body});await loadAdminZarkContent(slug);resetAdminQuestionForm();result.textContent=id?'✅ تم تعديل السؤال.':'✅ تمت إضافة السؤال.';}catch(error){result.textContent=`❌ ${error.message}`;}
+}
+
+async function deleteAdminQuestion(id){
+  const slug=$('admin-zark-game-filter').value;if(!confirm('حذف هذا السؤال نهائيًا من قاعدة البيانات؟'))return;
+  try{await api(`/api/web-admin/zark-games/${slug}/questions/${id}`,{method:'DELETE'});await loadAdminZarkContent(slug);resetAdminQuestionForm();}catch(error){alert(`تعذر حذف السؤال: ${error.message}`);}
 }
 
 async function loadAdminReports(){

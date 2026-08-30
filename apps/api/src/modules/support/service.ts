@@ -349,7 +349,7 @@ async function liveContext(message: string) {
     db.lfgRoom.findMany({ where: { status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, include: { lfgGame: true }, orderBy: [{ memberCount: "desc" }, { scheduledFor: "asc" }], take: 12 }),
   ]);
   const normalized = normalize(message);
-  const mentioned = games.find((game) => [game.name, game.slug, ...(gameAliases[game.slug] ?? [])].some((alias) => normalized.includes(normalize(alias))));
+  const mentioned = findMentionedGame(normalized, games);
   const matching = mentioned ? rooms.filter((room) => room.lfgGameId === mentioned.id) : rooms.slice(0, 4);
   const suggestions = matching.slice(0, 4).map((room) => ({ roomId: room.id, label: `${room.lfgGame.icon ?? "🎮"} ${room.lfgGame.name} — ${room.memberCount}/${room.maxPlayers}`, gameSlug: room.lfgGame.slug }));
   const summary = matching.length
@@ -373,10 +373,16 @@ async function executeSupportAction(input: { userId: string; displayName: string
     };
   }
 
-  const roomCommand = /^(?:بدي\s+)?(?:اعمل|سوي|انشئ|افتح|create)\s+(?:لي\s+)?(?:غرفه|روم|lfg)(?:\s|$)/.test(normalized);
+  const hasCreateVerb = /(?:^|\s)(?:اعمل(?:ي|لي)?|سوي(?:لي)?|انشئ(?:لي)?|افتح(?:لي)?|create)(?:\s|$)/.test(normalized);
+  const hasRoomNoun = /(?:^|\s)(?:غرفه|روم|lfg)(?:\s|$)/.test(normalized);
+  const roomCommand = hasCreateVerb && hasRoomNoun;
   if (!roomCommand) return undefined;
   if (!context.mentioned) {
     return { answer: "حدد اسم اللعبة أيضًا، مثل: «اعمل روم Minecraft لأربعة لاعبين مع فويس». لن أنشئ غرفة قبل معرفة اللعبة.", action: { type: "NEEDS_GAME" }, suggestions: context.suggestions };
+  }
+  if (context.mentioned.slug === "roblox") {
+    const mapMatch = message.match(/(?:ماب|map)\s*[:：-]?\s*([^،,]{2,60})/iu);
+    if (!mapMatch) return { answer: "اكتب اسم ماب Roblox أولًا، مثل: «اعملي غرفة Roblox ماب Blox Fruits». لن أنشئ الغرفة بدون اسم الماب.", action: { type: "NEEDS_MAP" }, suggestions: context.suggestions };
   }
   const playerMatch = normalized.match(/(?:عدد\s*)?(\d{1,2})\s*(?:لاعب|لاعبين|players?)/) ?? normalized.match(/(?:لاعبين|players?)\s*(\d{1,2})/);
   const requestedPlayers = playerMatch ? Number(playerMatch[1]) : 4;
@@ -385,12 +391,52 @@ async function executeSupportAction(input: { userId: string; displayName: string
   const hourMatch = normalized.match(/(\d{1,2})\s*(?:ساعه|ساعات|hour|hours)/);
   const durationMinutes = Math.min(360, Math.max(15, minuteMatch ? Number(minuteMatch[1]) : hourMatch ? Number(hourMatch[1]) * 60 : 60));
   const needsVoice = !/(?:بدون|بلا)\s*(?:فويس|voice)/.test(normalized);
-  const room = await createLfgRoom({ userId: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, gameSlug: context.mentioned.slug, maxPlayers, durationMinutes, needsVoice, description: "أنشئت عبر مساعد Zark" });
+  const mapName = context.mentioned.slug === "roblox" ? message.match(/(?:ماب|map)\s*[:：-]?\s*([^،,]{2,60})/iu)?.[1].trim() : undefined;
+  const room = await createLfgRoom({ userId: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, gameSlug: context.mentioned.slug, maxPlayers, durationMinutes, needsVoice, mapName, description: "أنشئت عبر مساعد Zark" });
   return {
     answer: `✅ أنشأت غرفة ${context.mentioned.name} بنجاح: ${room.currentPlayers}/${room.maxPlayers}${needsVoice ? " مع Voice" : " بدون Voice"}. سيقوم Zark بإشعار المهتمين وتظهر الغرفة الآن في الموقع وDiscord.`,
     action: { type: "LFG_CREATED", roomId: room.id, gameSlug: room.gameSlug },
     suggestions: [{ roomId: room.id, label: `${room.gameIcon ?? "🎮"} فتح غرفة ${room.gameName}`, gameSlug: room.gameSlug }],
   };
+}
+
+function findMentionedGame<T extends { slug: string; name: string }>(message: string, games: T[]) {
+  const exact = games.find((game) => [game.name, game.slug, ...(gameAliases[game.slug] ?? [])].some((alias) => message.includes(normalize(alias))));
+  if (exact) return exact;
+  const words = message.split(" ");
+  let best: { game: T; score: number } | undefined;
+  for (const game of games) {
+    for (const alias of [game.name, game.slug, ...(gameAliases[game.slug] ?? [])]) {
+      const target = normalize(alias);
+      if (target.replace(/\s/g, "").length < 5) continue;
+      const width = target.split(" ").length;
+      for (let start = 0; start < words.length; start += 1) {
+        for (const size of new Set([Math.max(1, width - 1), width, width + 1])) {
+          const candidate = words.slice(start, start + size).join(" ");
+          if (!candidate) continue;
+          const score = similarity(candidate.replace(/\s/g, ""), target.replace(/\s/g, ""));
+          if (score >= 0.72 && (!best || score > best.score)) best = { game, score };
+        }
+      }
+    }
+  }
+  return best?.game;
+}
+
+function similarity(left: string, right: string) {
+  const longest = Math.max(left.length, right.length);
+  if (!longest) return 1;
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    let diagonal = previous[0];
+    previous[0] = row;
+    for (let column = 1; column <= right.length; column += 1) {
+      const above = previous[column];
+      previous[column] = Math.min(previous[column] + 1, previous[column - 1] + 1, diagonal + (left[row - 1] === right[column - 1] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return 1 - previous[right.length] / longest;
 }
 
 function smartLocalAnswer(message: string, context: Awaited<ReturnType<typeof liveContext>>) {

@@ -212,7 +212,7 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
   const evaluation = evaluateAnswer(input.answer, splitAnswers(match.answer));
   if (!evaluation.correct) return { correct: false as const, points: 0 };
   const now = new Date();
-  const result = await db.$transaction(async (tx) => {
+  const result = await serializable(async (tx) => {
     const existing = await tx.zarkMatchResult.findUnique({ where: { matchId_userId: { matchId, userId: input.userId } } });
     if (existing) return { duplicate: true as const, rank: existing.rank, points: existing.points };
     const claimed = await tx.zarkMatch.updateMany({ where: { id: matchId, status: "OPEN", endsAt: { gte: now } }, data: { status: "COMPLETED" } });
@@ -225,7 +225,7 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
     await tx.user.update({ where: { id: input.userId }, data: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 } } });
     await tx.gameProfile.upsert({ where: { userId_gameId: { userId: input.userId, gameId: match.gameId } }, update: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 }, losses: { increment: rank === 1 ? 0 : 1 } }, create: { userId: input.userId, gameId: match.gameId, xp: points, wins: rank === 1 ? 1 : 0, losses: rank === 1 ? 0 : 1 } });
     return { duplicate: false as const, rank, points, typoCount: evaluation.typoCount, elapsedMs };
-  }, { isolationLevel: "Serializable" });
+  });
   if (!("capped" in result) && !result.duplicate) {
     publish({ type: "zark.match_answered", matchId, userId: input.userId, displayName: input.displayName, points: result.points, rank: result.rank });
     publish({ type: "leaderboard.updated" });
@@ -271,7 +271,6 @@ export async function leaderboard(period: "daily" | "weekly" | "monthly" | "all"
 }
 
 async function generateRacePrompt(module: RaceGame, gameId: string) {
-  if (module.questionSource !== "DATABASE") return module.generate(Math.random);
   const count = await db.gameQuestion.count({ where: { gameId, enabled: true } });
   if (!count) return module.generate(Math.random);
   const question = await db.gameQuestion.findFirstOrThrow({ where: { gameId, enabled: true }, skip: Math.floor(Math.random() * count) });

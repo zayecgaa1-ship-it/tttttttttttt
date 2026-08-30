@@ -205,10 +205,59 @@ export async function upsertLfgGame(input: { slug: string; name: string; descrip
   return db.lfgGameCatalog.upsert({ where: { slug: input.slug }, update: data, create: { slug: input.slug, ...data } });
 }
 
-export async function addGameQuestion(input: { gameSlug: string; prompt: string; acceptedAnswers: string[]; mediaUrl?: string; difficulty?: number }) {
+export async function addGameQuestion(input: { gameSlug: string; prompt: string; acceptedAnswers: string[]; mediaUrl?: string; difficulty?: number; enabled?: boolean; adminId?: string }) {
   const game = await db.zarkGame.findUniqueOrThrow({ where: { slug: input.gameSlug } });
   if (!input.acceptedAnswers.length) throw new Error("يجب إضافة إجابة صحيحة واحدة على الأقل");
-  return db.gameQuestion.create({ data: { gameId: game.id, prompt: input.prompt, acceptedAnswers: input.acceptedAnswers, mediaType: input.mediaUrl ? "IMAGE" : "TEXT", mediaUrl: input.mediaUrl, difficulty: Math.min(5, Math.max(1, input.difficulty ?? 1)) } });
+  const question = await db.gameQuestion.create({ data: { gameId: game.id, prompt: input.prompt, acceptedAnswers: input.acceptedAnswers, mediaType: input.mediaUrl ? "IMAGE" : "TEXT", mediaUrl: input.mediaUrl, difficulty: Math.min(5, Math.max(1, input.difficulty ?? 1)), enabled: input.enabled ?? true } });
+  if (input.adminId) await db.auditLog.create({ data: { adminId: input.adminId, action: "zark.question_created", targetId: question.id, details: { gameSlug: input.gameSlug } } });
+  return question;
+}
+
+export async function getZarkGameContent() {
+  const games = await db.zarkGame.findMany({
+    include: { questions: { orderBy: [{ enabled: "desc" }, { updatedAt: "desc" }] } },
+    orderBy: [{ category: "asc" }, { name: "asc" }],
+  });
+  return games.map((game) => ({
+    id: game.id,
+    slug: game.slug,
+    name: game.name,
+    description: game.description,
+    icon: game.icon,
+    category: game.category,
+    enabled: game.enabled,
+    questionCount: game.questions.length,
+    enabledQuestionCount: game.questions.filter((question) => question.enabled).length,
+    questions: game.questions.map((question) => ({ ...question, createdAt: question.createdAt.toISOString(), updatedAt: question.updatedAt.toISOString() })),
+  }));
+}
+
+export async function updateGameQuestion(adminId: string, gameSlug: string, questionId: string, input: { prompt: string; acceptedAnswers: string[]; mediaUrl?: string | null; difficulty: number; enabled: boolean }) {
+  if (!input.acceptedAnswers.length) throw new Error("يجب إضافة إجابة صحيحة واحدة على الأقل");
+  const owned = await db.gameQuestion.findFirst({ where: { id: questionId, game: { slug: gameSlug } }, select: { id: true } });
+  if (!owned) throw new Error("السؤال لا يتبع اللعبة المحددة");
+  const question = await db.gameQuestion.update({
+    where: { id: questionId },
+    data: {
+      prompt: input.prompt.trim(),
+      acceptedAnswers: input.acceptedAnswers.map((answer) => answer.trim()).filter(Boolean),
+      mediaUrl: input.mediaUrl?.trim() || null,
+      mediaType: input.mediaUrl?.trim() ? "IMAGE" : "TEXT",
+      difficulty: Math.min(5, Math.max(1, input.difficulty)),
+      enabled: input.enabled,
+    },
+    include: { game: { select: { slug: true } } },
+  });
+  await db.auditLog.create({ data: { adminId, action: "zark.question_updated", targetId: questionId, details: { gameSlug: question.game.slug, enabled: question.enabled } } });
+  return question;
+}
+
+export async function deleteGameQuestion(adminId: string, gameSlug: string, questionId: string) {
+  const owned = await db.gameQuestion.findFirst({ where: { id: questionId, game: { slug: gameSlug } }, select: { id: true } });
+  if (!owned) throw new Error("السؤال لا يتبع اللعبة المحددة");
+  const question = await db.gameQuestion.delete({ where: { id: questionId }, include: { game: { select: { slug: true } } } });
+  await db.auditLog.create({ data: { adminId, action: "zark.question_deleted", targetId: questionId, details: { gameSlug: question.game.slug, prompt: question.prompt } } });
+  return { deleted: true, id: question.id, gameSlug: question.game.slug };
 }
 
 export async function getAdminFeedback() {

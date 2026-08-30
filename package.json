@@ -12,6 +12,7 @@
     "test": "tsx --test packages/**/*.test.ts",
     "test:reports": "tsx scripts/report-ticket-smoke.ts",
     "test:ai-actions": "tsx scripts/ai-actions-smoke.ts",
+    "test:admin-games": "tsx scripts/admin-game-content-smoke.ts",
     "test:ai-failover": "tsx scripts/ai-failover-smoke.ts",
     "test:games": "tsx scripts/smoke-games-availability.ts",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
