@@ -31,6 +31,8 @@ let runtimeSettings: GuildRuntimeSettings = {
   tagline: brand.tagline,
   lfgChannelId: lfgListingChannelId,
   lfgCategoryId: process.env.DISCORD_LFG_CATEGORY_ID,
+  reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID ?? "14681947897814058",
+  websiteUrl: process.env.PUBLIC_SITE_URL ?? "https://zark-ps.com",
   dmNotificationsEnabled: true,
   quickMatchEnabled: true,
   ratingsEnabled: true,
@@ -407,16 +409,30 @@ if (!token) {
   }
 
   async function handleDomainEvent(raw: string) {
-    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings } } };
+    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string } } };
     const eventType = message.event?.eventType;
-    const room = message.event?.payload?.room;
-    const settings = message.event?.payload?.settings;
+    const payload = message.event?.payload;
+    const room = payload?.room;
+    const settings = payload?.settings;
     if (eventType === "guild.settings_updated" && settings) {
       const channelChanged = runtimeSettings.lfgChannelId !== settings.lfgChannelId;
       runtimeSettings = settings;
       brand.name = settings.botName;
       brand.tagline = settings.tagline;
       await reconcileRoomListings(channelChanged);
+      return;
+    }
+    if (eventType === "report.created" && payload?.reportId && payload.reportKind) {
+      await publishReportNotification(payload.reportKind, payload.reportId, false);
+      return;
+    }
+    if (eventType === "report.message_created" && payload?.reportId && payload.reportKind) {
+      if (payload.authorRole === "ADMIN" && payload.recipientId) await notifyReportOwner(payload.recipientId, payload.reportKind, payload.reportId, "💬 ردّت إدارة Zark على تذكرتك.");
+      else await publishReportNotification(payload.reportKind, payload.reportId, true);
+      return;
+    }
+    if (eventType === "report.status_changed" && payload?.reportId && payload.reportKind && payload.reporterId) {
+      await notifyReportOwner(payload.reporterId, payload.reportKind, payload.reportId, `📌 تم تحديث حالة تذكرتك إلى **${payload.status ?? "محدّثة"}**.`);
       return;
     }
     if (!room) return;
@@ -445,6 +461,34 @@ if (!token) {
       await syncRoomListing(room);
       await finalizeRoomSpace(room);
     }
+  }
+
+  async function publishReportNotification(kind: "PLAYER" | "BUG", reportId: string, isReply: boolean) {
+    const channelId = runtimeSettings.reportChannelId || process.env.DISCORD_REPORT_CHANNEL_ID || "14681947897814058";
+    if (!channelId) return;
+    const channel = await client.channels.fetch(channelId).catch((error) => {
+      console.error(`Report channel ${channelId} unavailable`, error);
+      return null;
+    });
+    if (!channel?.isTextBased() || !("send" in channel)) return;
+    const report = await apiGet<ReportThread>(`/api/reports/${kind}/${reportId}`, true);
+    const target = kind === "PLAYER" && report.reported ? `\n⚠️ **ضد:** <@${report.reported.id}> — ${report.reported.displayName}` : "";
+    const detail = report.description ? `\n\n${trimText(report.description, 900)}` : "";
+    const embed = baseEmbed()
+      .setTitle(isReply ? `💬 رد جديد على التذكرة ${shortId(report.id)}` : `🚨 تذكرة جديدة ${shortId(report.id)}`)
+      .setDescription(`**${report.title}**\n👤 **المشتكي:** <@${report.reporter.id}> — ${report.reporter.displayName}${target}\n📌 **الحالة:** ${report.status}${detail}`)
+      .setThumbnail(report.reporter.avatarUrl ?? null);
+    const components = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setLabel("فتح التذكرة في الموقع").setEmoji("🛡️").setStyle(ButtonStyle.Link).setURL(`${siteUrl()}/admin.html?reportKind=${kind}&reportId=${encodeURIComponent(report.id)}`),
+    );
+    await channel.send({ embeds: [embed], components: [components] });
+  }
+
+  async function notifyReportOwner(userId: string, kind: "PLAYER" | "BUG", reportId: string, message: string) {
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (!user) return;
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح التذكرة والرد").setEmoji("💬").setStyle(ButtonStyle.Link).setURL(`${siteUrl()}/reports.html?reportKind=${kind}&reportId=${encodeURIComponent(reportId)}`));
+    await user.send({ embeds: [baseEmbed().setTitle("دعم Zark").setDescription(message)], components: [row] }).catch((error) => console.error(`Report DM failed for ${userId}`, error));
   }
 
   async function reconcileRoomListings(forcePublish = false) {
@@ -734,7 +778,8 @@ if (!token) {
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
       { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.ايموجي` `.سيارات` `.شركات` `.انمي` `.صح` `.معلومات`" },
     );
-    return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    const website = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع Zark").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
+    return interaction.reply({ embeds: [embed], components: [website], flags: MessageFlags.Ephemeral });
   }
 
   async function availability(interaction: any) {
@@ -1093,6 +1138,7 @@ if (!token) {
       new ButtonBuilder().setCustomId(`lfg:leave:${roomId}`).setLabel(room?.status === "SCHEDULED" ? "إلغاء التسجيل" : "خروج").setEmoji("🚪").setStyle(ButtonStyle.Secondary).setDisabled(finished),
       new ButtonBuilder().setCustomId(`lfg:interest-on:${gameSlug}`).setLabel("مهتم").setEmoji("❤️").setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`lfg:mute:${gameSlug}`).setLabel("كتم").setEmoji("🔕").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setLabel("الموقع").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(`${siteUrl()}/lfg.html?room=${encodeURIComponent(roomId)}`),
     );
   }
 
@@ -1123,6 +1169,8 @@ if (!token) {
   }
 
   function baseEmbed() { return new EmbedBuilder().setColor(brand.color).setAuthor({ name: brand.name }).setFooter({ text: brand.tagline }).setTimestamp(); }
+  function siteUrl() { return (runtimeSettings.websiteUrl || process.env.PUBLIC_SITE_URL || "https://zark-ps.com").replace(/\/+$/, ""); }
+  function shortId(value: string) { return `#${value.slice(-8).toUpperCase()}`; }
   function actor(interaction: any) { return { userId: interaction.user.id, displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }) }; }
   function displayName(interaction: any) { return interaction.member?.displayName ?? interaction.user.globalName ?? interaction.user.username; }
   function winnerLine(name: string, rank?: number, points?: number) { return `🏁 **${name}** خطف المركز ${rank} بـ **${points} XP**!`; }
@@ -1184,5 +1232,6 @@ type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<type
 type ActiveDaily = { challengeId: string; messageId: string };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
-type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
+type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
+type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type UnifiedProfile = { displayName: string; avatarUrl?: string; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ name: string; icon?: string }>; rating: { average: number | null; count: number } } };

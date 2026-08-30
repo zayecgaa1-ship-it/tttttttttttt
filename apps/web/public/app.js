@@ -4,6 +4,8 @@ let state;
 let me;
 let roomFilter = 'all';
 let roomSearch = '';
+let activeUserTicket;
+let activeAdminTicket;
 const roomSearchAliases={
   minecraft:['minecraft','ماينكرافت','ماين كرافت','माइनक्राफ्ट','майнкрафт'],
   roblox:['roblox','روبلوكس','روب لوكس','रोब्लॉक्स'],
@@ -197,9 +199,25 @@ async function renderReports(){
   const support=await api('/api/me/support/status');
   $('support-ai-status').textContent=supportTokenLabel(support);
   $('support-chat-form').onsubmit=async event=>{event.preventDefault();const input=$('support-chat-input');const message=input.value.trim();if(!message)return;appendChat(message,'user');input.value='';input.disabled=true;try{const reply=await api('/api/me/support/chat',{method:'POST',body:{message}});appendChat(reply.answer,'assistant');$('support-ai-status').textContent=supportTokenLabel(reply);$('support-suggestions').innerHTML=(reply.suggestions||[]).map(item=>`<button data-support-room="${item.roomId}">${escapeHtml(item.label)}</button>`).join('');document.querySelectorAll('[data-support-room]').forEach(button=>button.onclick=()=>location.href=`/lfg.html?room=${button.dataset.supportRoom}`);}catch(error){appendChat(error.message,'assistant error');}finally{input.disabled=false;input.focus();}};
-  $('bug-form').onsubmit=async event=>{event.preventDefault();await submitForm('/api/me/reports/bug',{title:$('bug-title').value,description:$('bug-description').value,context:'Website'},$('bug-result'));};
-  $('player-report-form').onsubmit=async event=>{event.preventDefault();await submitForm('/api/me/reports/player',{reportedId:$('reported-id').value,roomId:$('reported-room').value||undefined,reason:$('reported-reason').value,description:$('reported-description').value||undefined},$('report-result'));};
-  const reports=await api('/api/me/reports');$('my-reports').innerHTML=[...reports.playerReports.map(report=>({title:`بلاغ لاعب: ${report.reason}`,status:report.status,date:report.createdAt})),...reports.bugReports.map(report=>({title:`خطأ: ${report.title}`,status:report.status,date:report.createdAt}))].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(report=>`<article class="report-item"><div><b>${escapeHtml(report.title)}</b><small>${new Date(report.date).toLocaleDateString('ar')}</small></div><span class="badge-red">${escapeHtml(report.status)}</span></article>`).join('')||empty('لا توجد بلاغات سابقة.');
+  $('bug-form').onsubmit=async event=>{event.preventDefault();const result=$('bug-result');result.textContent='جارِ فتح التذكرة...';try{const report=await api('/api/me/reports/bug',{method:'POST',body:{title:$('bug-title').value,description:$('bug-description').value,context:'Website'}});event.target.reset();result.textContent='✅ تم فتح تذكرة الخطأ وإرسالها للإدارة.';await loadMyReports();await openMyReport('BUG',report.id);}catch(error){result.textContent=`❌ ${error.message}`;}};
+  $('player-report-form').onsubmit=async event=>{event.preventDefault();const result=$('report-result');result.textContent='جارِ فتح التذكرة...';try{const report=await api('/api/me/reports/player',{method:'POST',body:{reportedId:$('reported-id').value,roomId:$('reported-room').value||undefined,reason:$('reported-reason').value,description:$('reported-description').value||undefined}});event.target.reset();result.textContent='✅ تم فتح البلاغ بسرية وإرسال تنبيه للإدارة.';await loadMyReports();await openMyReport('PLAYER',report.id);}catch(error){result.textContent=`❌ ${error.message}`;}};
+  await loadMyReports();
+  const query=new URLSearchParams(location.search),kind=query.get('reportKind'),id=query.get('reportId');
+  if((kind==='PLAYER'||kind==='BUG')&&id)await openMyReport(kind,id).catch(()=>undefined);
+}
+
+async function loadMyReports(){
+  const reports=await api('/api/me/reports');
+  const items=[...reports.playerReports.map(report=>({kind:'PLAYER',id:report.id,title:`بلاغ لاعب: ${report.reason}`,subtitle:report.reported?.displayName?`ضد ${report.reported.displayName}`:'بلاغ لاعب',status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0})),...reports.bugReports.map(report=>({kind:'BUG',id:report.id,title:`خطأ: ${report.title}`,subtitle:'تقرير تقني',status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0}))].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  $('my-reports').innerHTML=items.length?items.map(report=>ticketListItem(report,'my')).join(''):empty('لا توجد بلاغات سابقة.');
+  document.querySelectorAll('[data-my-ticket]').forEach(button=>button.onclick=()=>openMyReport(button.dataset.kind,button.dataset.myTicket));
+}
+
+async function openMyReport(kind,id){
+  const thread=await api(`/api/me/reports/${kind}/${id}`);activeUserTicket={kind,id};renderTicketThread(thread,'my');
+  const closed=kind==='PLAYER'?['RESOLVED','REJECTED','DISMISSED'].includes(thread.status):['RESOLVED','CLOSED'].includes(thread.status);
+  $('my-report-reply').hidden=closed;$('my-report-result').textContent=closed?'هذه التذكرة مغلقة.':'';
+  $('my-report-reply').onsubmit=async event=>{event.preventDefault();const input=$('my-report-message'),result=$('my-report-result');result.textContent='جارِ إرسال الرسالة...';try{const updated=await api(`/api/me/reports/${kind}/${id}/messages`,{method:'POST',body:{message:input.value}});input.value='';renderTicketThread(updated,'my');result.textContent='✅ وصلت رسالتك إلى الإدارة.';await loadMyReports();}catch(error){result.textContent=`❌ ${error.message}`;}};
 }
 
 function appendChat(message,type){const article=document.createElement('article');article.className=`chat-message ${type}`;article.textContent=message;$('support-chat-log').appendChild(article);$('support-chat-log').scrollTop=$('support-chat-log').scrollHeight;}
@@ -227,13 +245,16 @@ async function bindAdmin(){
     $('admin-active-rooms').innerHTML=dashboard.activeRooms.length?dashboard.activeRooms.map(room=>`<article class="admin-room"><div><b>${escapeHtml(room.gameIcon||'🎮')} ${escapeHtml(room.gameName)}</b><small class="host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')} ${escapeHtml(room.hostName)} · ${room.currentPlayers}/${room.maxPlayers} · ${escapeHtml(room.status)}</small><div class="room-players">${room.members.map(member=>`<span class="room-player">${avatar(member.avatarUrl,member.displayName,'mini')}${escapeHtml(member.displayName)}</span>`).join('')}</div></div><button class="button danger small" data-admin-close-room="${room.id}">إغلاق</button></article>`).join(''):empty('لا توجد غرف نشطة الآن.');
     document.querySelectorAll('[data-admin-close-room]').forEach(button=>button.onclick=async()=>{if(!confirm('إغلاق هذه الغرفة؟'))return;await api(`/api/web-admin/lfg/${button.dataset.adminCloseRoom}/close`,{method:'POST'});await bindAdmin();});
     fillAdminSettings(dashboard.settings);
+    await loadAdminReports();
+    const query=new URLSearchParams(location.search),kind=query.get('reportKind'),id=query.get('reportId');
+    if((kind==='PLAYER'||kind==='BUG')&&id)await openAdminReport(kind,id).catch(()=>undefined);
   }catch(error){gate.innerHTML=`<span>⛔</span><h1>تعذر فتح اللوحة</h1><p>${escapeHtml(error.message)}</p>`;return;}
 
   $('admin-settings-form').onsubmit=async event=>{
     event.preventDefault();
     const body={
       botName:$('setting-bot-name').value.trim(),tagline:$('setting-tagline').value.trim(),
-      lfgChannelId:channelValue('setting-lfg-channel'),lfgCategoryId:channelValue('setting-lfg-category'),publicChannelId:channelValue('setting-public-channel'),dailyChannelId:channelValue('setting-daily-channel'),leaderboardChannelId:channelValue('setting-leaderboard-channel'),
+      lfgChannelId:channelValue('setting-lfg-channel'),lfgCategoryId:channelValue('setting-lfg-category'),publicChannelId:channelValue('setting-public-channel'),dailyChannelId:channelValue('setting-daily-channel'),leaderboardChannelId:channelValue('setting-leaderboard-channel'),reportChannelId:channelValue('setting-report-channel'),websiteUrl:$('setting-website-url').value.trim(),
       dmNotificationsEnabled:$('setting-dm-enabled').checked,quickMatchEnabled:$('setting-quick-match').checked,ratingsEnabled:$('setting-ratings').checked,reportsEnabled:$('setting-reports').checked,autoCreateRoomChannels:$('setting-auto-channels').checked,aiChatEnabled:$('setting-ai-enabled').checked,
       maxDmPerDay:Number($('setting-dm-limit').value),notificationCooldownMinutes:Number($('setting-dm-cooldown').value),maxActiveRoomsPerUser:Number($('setting-room-limit').value),defaultRoomDurationMinutes:Number($('setting-room-duration').value),roomGraceMinutes:Number($('setting-room-grace').value),aiDailyMessagesPerUser:1000,aiGlobalDailyMessages:100000,aiDailyTokenBudgetPerUser:Number($('setting-ai-user-limit').value),aiGlobalDailyTokenBudget:Number($('setting-ai-global-limit').value),aiMaxOutputTokens:Number($('setting-ai-output').value),
     };
@@ -244,9 +265,39 @@ async function bindAdmin(){
   $('admin-question-form').onsubmit=async event=>{event.preventDefault();await submitForm(`/api/web-admin/zark-games/${$('admin-question-game').value}/questions`,{prompt:$('admin-question-prompt').value,acceptedAnswers:$('admin-question-answers').value.split(',').map(item=>item.trim()).filter(Boolean),mediaUrl:$('admin-question-media').value,difficulty:Number($('admin-question-difficulty').value)},$('admin-question-result'));};
 }
 
+async function loadAdminReports(){
+  const reports=await api('/api/web-admin/feedback');
+  const items=[...reports.playerReports.map(report=>({kind:'PLAYER',id:report.id,title:`بلاغ: ${report.reason}`,subtitle:`${report.reporter.displayName} ضد ${report.reported.displayName}`,status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0})),...reports.bugReports.map(report=>({kind:'BUG',id:report.id,title:`خطأ: ${report.title}`,subtitle:`أرسله ${report.reporter.displayName}`,status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0}))].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  $('admin-report-list').innerHTML=items.length?items.map(report=>ticketListItem(report,'admin')).join(''):empty('لا توجد بلاغات أو أخطاء حاليًا.');
+  document.querySelectorAll('[data-admin-ticket]').forEach(button=>button.onclick=()=>openAdminReport(button.dataset.kind,button.dataset.adminTicket));
+}
+
+async function openAdminReport(kind,id){
+  const thread=await api(`/api/web-admin/reports/${kind}/${id}`);activeAdminTicket={kind,id};renderTicketThread(thread,'admin');
+  const statuses=kind==='PLAYER'?['PENDING','REVIEWED','RESOLVED','REJECTED','DISMISSED']:['OPEN','IN_PROGRESS','RESOLVED','CLOSED'];
+  $('admin-report-status').innerHTML=statuses.map(status=>`<option value="${status}" ${status===thread.status?'selected':''}>${reportStatusLabel(status)}</option>`).join('');
+  $('admin-report-reply').onsubmit=async event=>{event.preventDefault();const input=$('admin-report-message'),result=$('admin-report-result');result.textContent='جارِ إرسال الرد...';try{const updated=await api(`/api/web-admin/reports/${kind}/${id}/messages`,{method:'POST',body:{message:input.value}});input.value='';renderTicketThread(updated,'admin');result.textContent='✅ تم إرسال الرد للمشتكي وسيصله DM.';await loadAdminReports();}catch(error){result.textContent=`❌ ${error.message}`;}};
+  $('admin-report-status-save').onclick=async()=>{const result=$('admin-report-result');result.textContent='جارِ تحديث الحالة...';try{const updated=await api(`/api/web-admin/reports/${kind}/${id}/status`,{method:'PUT',body:{status:$('admin-report-status').value}});renderTicketThread(updated,'admin');result.textContent='✅ تم تحديث الحالة وإشعار المشتكي.';await loadAdminReports();}catch(error){result.textContent=`❌ ${error.message}`;}};
+}
+
+function ticketListItem(report,prefix){
+  return `<button type="button" class="report-item ticket-list-item" data-${prefix}-ticket="${escapeHtml(report.id)}" data-kind="${report.kind}"><div><b>${escapeHtml(report.title)}</b><small>${escapeHtml(report.subtitle)} · ${new Date(report.date).toLocaleString('ar')} · 💬 ${report.messages}</small></div><span class="badge-red">${escapeHtml(reportStatusLabel(report.status))}</span></button>`;
+}
+
+function renderTicketThread(thread,prefix){
+  const section=$(prefix==='admin'?'admin-report-thread':'my-report-thread');section.hidden=false;
+  const target=thread.reported?`<span>${avatar(thread.reported.avatarUrl,thread.reported.displayName,'mini')} ضد ${escapeHtml(thread.reported.displayName)}</span>`:'';
+  $(prefix==='admin'?'admin-report-head':'my-report-head').innerHTML=`<div><span class="eyebrow">${thread.kind==='PLAYER'?'PLAYER REPORT':'BUG REPORT'} · #${escapeHtml(thread.id.slice(-8).toUpperCase())}</span><h2>${escapeHtml(thread.title)}</h2><p>${avatar(thread.reporter.avatarUrl,thread.reporter.displayName,'mini')} المشتكي: ${escapeHtml(thread.reporter.displayName)} ${target}</p>${thread.description?`<small>${escapeHtml(thread.description)}</small>`:''}</div><span class="badge-red">${escapeHtml(reportStatusLabel(thread.status))}</span>`;
+  const container=$(prefix==='admin'?'admin-report-messages':'my-report-messages');
+  container.innerHTML=thread.messages?.length?thread.messages.map(message=>`<article class="ticket-message ${message.authorRole.toLowerCase()}"><header><b>${message.authorRole==='ADMIN'?'🛡️ الإدارة':'👤 '+escapeHtml(message.authorName)}</b><time>${new Date(message.createdAt).toLocaleString('ar')}</time></header><p>${escapeHtml(message.message)}</p></article>`).join(''):empty('لا توجد رسائل بعد. اكتب أول رسالة في التذكرة.');
+  container.scrollTop=container.scrollHeight;
+}
+
+function reportStatusLabel(status){return({PENDING:'بانتظار المراجعة',REVIEWED:'قيد المراجعة',OPEN:'مفتوح',IN_PROGRESS:'جارِ العمل',RESOLVED:'تم الحل',REJECTED:'مرفوض',DISMISSED:'مغلق',CLOSED:'مغلق'})[status]||status;}
+
 function fillAdminSettings(settings){
   $('setting-bot-name').value=settings.botName||'';$('setting-tagline').value=settings.tagline||'';
-  $('setting-lfg-channel').value=settings.lfgChannelId||'';$('setting-lfg-category').value=settings.lfgCategoryId||'';$('setting-public-channel').value=settings.publicChannelId||'';$('setting-daily-channel').value=settings.dailyChannelId||'';$('setting-leaderboard-channel').value=settings.leaderboardChannelId||'';
+  $('setting-lfg-channel').value=settings.lfgChannelId||'';$('setting-lfg-category').value=settings.lfgCategoryId||'';$('setting-public-channel').value=settings.publicChannelId||'';$('setting-daily-channel').value=settings.dailyChannelId||'';$('setting-leaderboard-channel').value=settings.leaderboardChannelId||'';$('setting-report-channel').value=settings.reportChannelId||'';$('setting-website-url').value=settings.websiteUrl||'https://zark-ps.com';
   $('setting-dm-enabled').checked=settings.dmNotificationsEnabled;$('setting-quick-match').checked=settings.quickMatchEnabled;$('setting-ratings').checked=settings.ratingsEnabled;$('setting-reports').checked=settings.reportsEnabled;$('setting-auto-channels').checked=settings.autoCreateRoomChannels;$('setting-ai-enabled').checked=settings.aiChatEnabled;
   $('setting-dm-limit').value=settings.maxDmPerDay;$('setting-dm-cooldown').value=settings.notificationCooldownMinutes;$('setting-room-limit').value=settings.maxActiveRoomsPerUser;$('setting-room-duration').value=settings.defaultRoomDurationMinutes;$('setting-room-grace').value=settings.roomGraceMinutes;$('setting-ai-user-limit').value=settings.aiDailyTokenBudgetPerUser||3000;$('setting-ai-global-limit').value=settings.aiGlobalDailyTokenBudget||100000;$('setting-ai-output').value=settings.aiMaxOutputTokens;
 }

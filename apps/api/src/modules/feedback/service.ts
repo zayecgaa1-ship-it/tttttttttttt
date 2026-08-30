@@ -65,9 +65,13 @@ export async function reportPlayer(input: { reporterId: string; reporterName: st
       const duplicate = await tx.report.findFirst({ where: { reporterId: input.reporterId, reportedId: input.reportedId, sessionId: input.roomId } });
       if (duplicate) throw new Error("سبق أن أرسلت بلاغًا عن هذا اللاعب في الجلسة");
     }
-    return tx.report.create({ data: { reporterId: input.reporterId, reportedId: input.reportedId, sessionId: input.roomId, reason: input.reason, description: input.description } });
+    const created = await tx.report.create({ data: { reporterId: input.reporterId, reportedId: input.reportedId, sessionId: input.roomId, reason: input.reason, description: input.description } });
+    if (input.description?.trim()) {
+      await tx.reportMessage.create({ data: { playerReportId: created.id, authorId: input.reporterId, authorName: input.reporterName, authorRole: "USER", message: input.description.trim() } });
+    }
+    return created;
   });
-  publish({ type: "report.created", reportId: report.id, reporterId: input.reporterId, reportedId: input.reportedId });
+  publish({ type: "report.created", reportId: report.id, reportKind: "PLAYER", reporterId: input.reporterId, reportedId: input.reportedId });
   return report;
 }
 
@@ -78,18 +82,98 @@ export async function reportBug(input: { reporterId: string; reporterName: strin
     await tx.user.upsert({ where: { id: input.reporterId }, update: { displayName: input.reporterName }, create: { id: input.reporterId, displayName: input.reporterName } });
     const reportsToday = await tx.bugReport.count({ where: { reporterId: input.reporterId, createdAt: { gte: startOfToday() } } });
     if (reportsToday >= 5) throw new Error("وصلت إلى الحد اليومي لتقارير الأخطاء");
-    return tx.bugReport.create({ data: { reporterId: input.reporterId, title: input.title, description: input.description, context: input.context } });
+    const created = await tx.bugReport.create({ data: { reporterId: input.reporterId, title: input.title, description: input.description, context: input.context } });
+    await tx.reportMessage.create({ data: { bugReportId: created.id, authorId: input.reporterId, authorName: input.reporterName, authorRole: "USER", message: input.description.trim() } });
+    return created;
   });
-  publish({ type: "report.created", reportId: report.id, reporterId: input.reporterId });
+  publish({ type: "report.created", reportId: report.id, reportKind: "BUG", reporterId: input.reporterId });
   return report;
 }
 
 export async function getMyReports(userId: string) {
   const [playerReports, bugReports] = await Promise.all([
-    db.report.findMany({ where: { reporterId: userId }, orderBy: { createdAt: "desc" } }),
-    db.bugReport.findMany({ where: { reporterId: userId }, orderBy: { createdAt: "desc" } }),
+    db.report.findMany({ where: { reporterId: userId }, include: { reported: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" } }),
+    db.bugReport.findMany({ where: { reporterId: userId }, include: { _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" } }),
   ]);
   return { playerReports, bugReports };
+}
+
+export type ReportKind = "PLAYER" | "BUG";
+
+export async function getReportThreadForUser(kind: ReportKind, reportId: string, userId: string) {
+  const thread = await loadReportThread(kind, reportId);
+  if (thread.reporter.id !== userId) throw forbidden("لا يمكنك فتح محادثة بلاغ لا يخصك");
+  return thread;
+}
+
+export async function getReportThreadForAdmin(kind: ReportKind, reportId: string) {
+  return loadReportThread(kind, reportId);
+}
+
+export async function addReportMessage(input: { kind: ReportKind; reportId: string; authorId: string; authorName: string; authorRole: "USER" | "ADMIN"; message: string }) {
+  if (input.authorRole === "USER") await enforceRateLimit("report-message", input.authorId, 20, 10 * 60);
+  const message = input.message.trim().slice(0, 2000);
+  if (message.length < 1) throw new Error("اكتب رسالة قبل الإرسال");
+  const recipientId = await serializable(async (tx) => {
+    await tx.user.upsert({ where: { id: input.authorId }, update: { displayName: input.authorName }, create: { id: input.authorId, displayName: input.authorName } });
+    if (input.kind === "PLAYER") {
+      const report = await tx.report.findUnique({ where: { id: input.reportId } });
+      if (!report) throw notFound("البلاغ غير موجود");
+      if (input.authorRole === "USER" && report.reporterId !== input.authorId) throw forbidden("لا يمكنك الرد على هذا البلاغ");
+      if (["RESOLVED", "REJECTED", "DISMISSED"].includes(report.status)) throw new Error("هذه التذكرة مغلقة ولا تقبل رسائل جديدة");
+      await tx.reportMessage.create({ data: { playerReportId: report.id, authorId: input.authorId, authorName: input.authorName, authorRole: input.authorRole, message } });
+      if (input.authorRole === "ADMIN" && report.status === "PENDING") await tx.report.update({ where: { id: report.id }, data: { status: "REVIEWED" } });
+      return input.authorRole === "ADMIN" ? report.reporterId : undefined;
+    }
+    const report = await tx.bugReport.findUnique({ where: { id: input.reportId } });
+    if (!report) throw notFound("تقرير الخطأ غير موجود");
+    if (input.authorRole === "USER" && report.reporterId !== input.authorId) throw forbidden("لا يمكنك الرد على هذا البلاغ");
+    if (["RESOLVED", "CLOSED"].includes(report.status)) throw new Error("هذه التذكرة مغلقة ولا تقبل رسائل جديدة");
+    await tx.reportMessage.create({ data: { bugReportId: report.id, authorId: input.authorId, authorName: input.authorName, authorRole: input.authorRole, message } });
+    if (input.authorRole === "ADMIN" && report.status === "OPEN") await tx.bugReport.update({ where: { id: report.id }, data: { status: "IN_PROGRESS" } });
+    return input.authorRole === "ADMIN" ? report.reporterId : undefined;
+  });
+  publish({ type: "report.message_created", reportId: input.reportId, reportKind: input.kind, authorId: input.authorId, recipientId, authorRole: input.authorRole });
+  return input.authorRole === "ADMIN" ? getReportThreadForAdmin(input.kind, input.reportId) : getReportThreadForUser(input.kind, input.reportId, input.authorId);
+}
+
+export async function updateReportStatus(input: { kind: ReportKind; reportId: string; adminId: string; adminName: string; status: string }) {
+  const reporterId = await serializable(async (tx) => {
+    await tx.user.upsert({ where: { id: input.adminId }, update: { displayName: input.adminName }, create: { id: input.adminId, displayName: input.adminName } });
+    if (input.kind === "PLAYER") {
+      const report = await tx.report.findUniqueOrThrow({ where: { id: input.reportId } });
+      const status = input.status as "PENDING" | "REVIEWED" | "RESOLVED" | "REJECTED" | "DISMISSED";
+      await tx.report.update({ where: { id: report.id }, data: { status, resolvedBy: ["RESOLVED", "REJECTED", "DISMISSED"].includes(status) ? input.adminId : null, resolvedAt: ["RESOLVED", "REJECTED", "DISMISSED"].includes(status) ? new Date() : null } });
+      await tx.auditLog.create({ data: { adminId: input.adminId, action: "report.status_changed", targetId: report.id, details: { kind: input.kind, status } } });
+      return report.reporterId;
+    }
+    const report = await tx.bugReport.findUniqueOrThrow({ where: { id: input.reportId } });
+    const status = input.status as "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+    await tx.bugReport.update({ where: { id: report.id }, data: { status, resolvedBy: ["RESOLVED", "CLOSED"].includes(status) ? input.adminId : null, resolvedAt: ["RESOLVED", "CLOSED"].includes(status) ? new Date() : null } });
+    await tx.auditLog.create({ data: { adminId: input.adminId, action: "report.status_changed", targetId: report.id, details: { kind: input.kind, status } } });
+    return report.reporterId;
+  });
+  publish({ type: "report.status_changed", reportId: input.reportId, reportKind: input.kind, adminId: input.adminId, status: input.status, reporterId });
+  return getReportThreadForAdmin(input.kind, input.reportId);
+}
+
+async function loadReportThread(kind: ReportKind, reportId: string) {
+  if (kind === "PLAYER") {
+    const report = await db.report.findUnique({ where: { id: reportId }, include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, reported: { select: { id: true, displayName: true, avatarUrl: true } }, messages: { orderBy: { createdAt: "asc" } } } });
+    if (!report) throw notFound("البلاغ غير موجود");
+    return { kind, ...report, title: `بلاغ لاعب: ${report.reason}` };
+  }
+  const report = await db.bugReport.findUnique({ where: { id: reportId }, include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, messages: { orderBy: { createdAt: "asc" } } } });
+  if (!report) throw notFound("تقرير الخطأ غير موجود");
+  return { kind, ...report, title: `خطأ: ${report.title}` };
+}
+
+function forbidden(message: string) {
+  return Object.assign(new Error(message), { statusCode: 403 });
+}
+
+function notFound(message: string) {
+  return Object.assign(new Error(message), { statusCode: 404 });
 }
 
 function startOfToday() {

@@ -2,6 +2,8 @@ import { db } from "../../../../../packages/db/src/client.js";
 import { serializable } from "../../db-transaction.js";
 import { enforceRateLimit } from "../../events.js";
 import { getGuildRuntimeSettings } from "../admin/service.js";
+import { createLfgRoom } from "../lfg/service.js";
+import { reportPlayer } from "../feedback/service.js";
 
 const knowledge = [
   { keywords: ["اوفلاين", "offline", "البوت", "متصل"], answer: "إذا ظهر Zark أوفلاين فتأكد أن PostgreSQL وRedis والـAPI شغالة، ثم شغّل البوت. لوحة الإدارة تعرض حالة البوت وآخر Heartbeat تلقائيًا." },
@@ -14,6 +16,22 @@ const knowledge = [
   { keywords: ["ملف", "بروفايل", "profile", "خصوصيه", "خصوصية"], answer: "من صفحة ملفي تستطيع تعديل النبذة واللون وإخفاء نشاطك العام وإيقاف إشعارات المنافسة، بينما يبقى حساب Discord هو الهوية الأساسية." },
   { keywords: ["لعبه", "لعبة", "العاب", "ألعاب", "بحث"], answer: "استخدم البحث الذكي في صفحة LFG باسم اللعبة أو المضيف أو اللاعب أو Game Mode. ويمكن للإدارة إضافة ألعاب جديدة من لوحة التحكم دون تعديل الكود." },
 ];
+
+const gameAliases: Record<string, string[]> = {
+  minecraft: ["ماينكرافت", "ماين كرافت", "مينكرافت"],
+  roblox: ["روبلوكس", "روب لوكس"],
+  valorant: ["فالورانت", "فلورانت"],
+  fortnite: ["فورتنايت", "فورت نايت"],
+  rust: ["رست"],
+  "gta-v": ["gta", "gta 5", "قراند", "جراند", "جراند ثفت اوتو"],
+  "counter-strike-2": ["cs2", "كاونتر", "كاونتر سترايك"],
+  "rocket-league": ["روكيت ليق", "روكيت ليج"],
+  "league-of-legends": ["lol", "ليج اوف ليجندز"],
+  "call-of-duty-warzone": ["وارزون", "كول اوف ديوتي"],
+  "rainbow-six-siege": ["رينبو", "رينبو سكس"],
+  "overwatch-2": ["اوفر واتش", "اوفر واتش 2"],
+  "apex-legends": ["ايبكس", "ابكس ليجندز"],
+};
 
 export async function getSupportStatus(userId: string) {
   const settings = await getGuildRuntimeSettings();
@@ -33,16 +51,21 @@ export async function getSupportStatus(userId: string) {
   };
 }
 
-export async function askSupport(input: { userId: string; displayName: string; message: string }) {
+export async function askSupport(input: { userId: string; displayName: string; avatarUrl?: string; message: string }) {
   await enforceRateLimit("support-chat", input.userId, 15, 60);
   const settings = await getGuildRuntimeSettings();
   if (!settings.aiChatEnabled) throw new Error("مساعد Zark متوقف مؤقتًا من الإدارة");
   const message = input.message.trim().slice(0, 500);
   if (message.length < 2) throw new Error("اكتب سؤالك بشكل أوضح");
-  await db.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName }, create: { id: input.userId, displayName: input.displayName } });
+  await db.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName, avatarUrl: input.avatarUrl }, create: { id: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl } });
   await reserveDailyRequest(input.userId, settings.aiDailyMessagesPerUser, settings.aiGlobalDailyMessages);
   const context = await liveContext(message);
   const localAnswer = smartLocalAnswer(message, context);
+  const action = await executeSupportAction(input, message, context);
+  if (action) {
+    const status = await getSupportStatus(input.userId);
+    return { ...action, mode: "ACTION", provider: configuredAiProvider() ?? null, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget };
+  }
   const provider = configuredAiProvider();
   if (!provider) return { answer: localAnswer, mode: "SMART_LOCAL", provider: null, remainingTokens: settings.aiDailyTokenBudgetPerUser, tokenBudget: settings.aiDailyTokenBudgetPerUser, suggestions: context.suggestions };
 
@@ -72,7 +95,7 @@ export async function askSupport(input: { userId: string; displayName: string; m
   }
 }
 
-const supportInstructions = "أنت مساعد دعم عربي مختصر لنظام Zark LFG System. أجب فقط عن استخدام البوت والموقع والعثور على اللاعبين. لا تطلب أسرارًا أو Tokens، ولا تخترع خصائص غير موجودة. إذا كان السؤال شكوى، وجّه المستخدم لنموذج البلاغ.";
+const supportInstructions = "أنت مساعد Zark LFG System العربي. أجب باختصار ووضوح عن كل صفحات الموقع وأوامر البوت والعثور على اللاعبين والغرف والاهتمامات والإشعارات والملف والتقييم والبلاغات. اعتمد فقط على المعلومات والسياق المرفقين، ولا تطلب أسرارًا أو Tokens ولا تدّعي تنفيذ إجراء؛ الإجراءات ينفذها النظام بشكل مستقل وآمن.";
 
 function configuredAiProvider(): "GEMINI" | "OPENAI" | undefined {
   if (process.env.GEMINI_API_KEY?.trim()) return "GEMINI";
@@ -81,6 +104,15 @@ function configuredAiProvider(): "GEMINI" | "OPENAI" | undefined {
 }
 
 async function askGemini(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
+  try {
+    return await askGeminiInteractions(message, summary, localAnswer, maxOutputTokens);
+  } catch (error) {
+    console.warn("Gemini Interactions unavailable; trying generateContent", error instanceof Error ? error.message : error);
+    return askGeminiGenerateContent(message, summary, localAnswer, maxOutputTokens);
+  }
+}
+
+async function askGeminiInteractions(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
     method: "POST",
     headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!.trim(), "content-type": "application/json" },
@@ -93,7 +125,7 @@ async function askGemini(message: string, summary: string, localAnswer: string, 
     }),
     signal: AbortSignal.timeout(20_000),
   });
-  if (!response.ok) throw new Error(`Gemini ${response.status}`);
+  if (!response.ok) throw await aiHttpError("Gemini Interactions", response);
   const body = await response.json() as {
     steps?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
     usage?: { total_input_tokens?: number; total_output_tokens?: number };
@@ -109,6 +141,27 @@ async function askGemini(message: string, summary: string, localAnswer: string, 
   return { answer, inputTokens: body.usage?.total_input_tokens ?? 0, outputTokens: body.usage?.total_output_tokens ?? 0 };
 }
 
+async function askGeminiGenerateContent(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
+  const model = (process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash").replace(/^models\//, "");
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: "POST",
+    headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!.trim(), "content-type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: supportInstructions }] },
+      contents: [{ role: "user", parts: [{ text: supportPrompt(message, summary, localAnswer) }] }],
+      generationConfig: { maxOutputTokens, temperature: 0.3 },
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw await aiHttpError("Gemini generateContent", response);
+  const body = await response.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  };
+  const answer = body.candidates?.[0]?.content?.parts?.map((part) => part.text?.trim()).filter(Boolean).join("\n").trim();
+  return { answer, inputTokens: body.usageMetadata?.promptTokenCount ?? 0, outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0 };
+}
+
 async function askOpenAi(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -122,14 +175,28 @@ async function askOpenAi(message: string, summary: string, localAnswer: string, 
     }),
     signal: AbortSignal.timeout(20_000),
   });
-  if (!response.ok) throw new Error(`OpenAI ${response.status}`);
+  if (!response.ok) throw await aiHttpError("OpenAI", response);
   const body = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }>; usage?: { input_tokens?: number; output_tokens?: number } };
   const answer = body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text?.trim();
   return { answer, inputTokens: body.usage?.input_tokens ?? 0, outputTokens: body.usage?.output_tokens ?? 0 };
 }
 
 function supportPrompt(message: string, summary: string, localAnswer: string) {
-  return `السؤال: ${message}\n\nالحالة الحية الآمنة:\n${summary}\n\nإجابة الدعم المحلية المقترحة:\n${localAnswer}`;
+  return `دليل Zark المختصر:\n${siteKnowledge}\n\nالسؤال: ${message}\n\nالحالة الحية الآمنة:\n${summary}\n\nإجابة الدعم المحلية المقترحة:\n${localAnswer}`;
+}
+
+const siteKnowledge = [
+  "صفحة LFG تعرض الغرف الحية وتسمح بإنشاء غرفة الآن أو بموعد، والانضمام والخروج والبحث باسم اللعبة أو المضيف.",
+  "الاهتمامات منفصلة عن الإشعارات: مهتم مع إشعارات يستقبل DM، مهتم بدون إشعارات يبقى مهتمًا بلا DM، وغير مهتم لا يستقبل اقتراحات اللعبة.",
+  "ملف اللاعب يعرض Zark XP وEngagement ووقت Voice والجلسات والتقييم والاهتمامات، مع إعدادات الخصوصية.",
+  "أوامر Discord الأساسية: /help و/play و/daily و/profile و/leaderboard و/lfg create و/lfg rooms و/lfg interests و/lfg report و/lfg bug و/وقت-فراغي.",
+  "التقييم متاح بعد اكتمال جلسة LFG، والبلاغات سرية وتتحول إلى تذكرة محادثة مع الإدارة.",
+  "لوحة الإدارة مخصصة لرتب Discord المعتمدة وتدير إعدادات البوت والقنوات والغرف والمحتوى والبلاغات.",
+].join("\n");
+
+async function aiHttpError(provider: string, response: Response) {
+  const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 350);
+  return new Error(`${provider} ${response.status}${detail ? `: ${detail}` : ""}`);
 }
 
 async function reserveDailyTokens(userId: string, userLimit: number, globalLimit: number, maxOutputTokens: number, message: string) {
@@ -174,17 +241,52 @@ async function settleReservedTokens(userId: string, reservedTokens: number, inpu
 
 async function liveContext(message: string) {
   const [games, rooms] = await Promise.all([
-    db.lfgGameCatalog.findMany({ where: { enabled: true }, select: { id: true, slug: true, name: true, icon: true } }),
+    db.lfgGameCatalog.findMany({ where: { enabled: true }, select: { id: true, slug: true, name: true, icon: true, minPlayers: true, maxPlayers: true } }),
     db.lfgRoom.findMany({ where: { status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, include: { lfgGame: true }, orderBy: [{ memberCount: "desc" }, { scheduledFor: "asc" }], take: 12 }),
   ]);
   const normalized = normalize(message);
-  const mentioned = games.find((game) => normalized.includes(normalize(game.name)) || normalized.includes(normalize(game.slug)));
+  const mentioned = games.find((game) => [game.name, game.slug, ...(gameAliases[game.slug] ?? [])].some((alias) => normalized.includes(normalize(alias))));
   const matching = mentioned ? rooms.filter((room) => room.lfgGameId === mentioned.id) : rooms.slice(0, 4);
   const suggestions = matching.slice(0, 4).map((room) => ({ roomId: room.id, label: `${room.lfgGame.icon ?? "🎮"} ${room.lfgGame.name} — ${room.memberCount}/${room.maxPlayers}`, gameSlug: room.lfgGame.slug }));
   const summary = matching.length
     ? matching.map((room) => `${room.lfgGame.name}: ${room.memberCount}/${room.maxPlayers}, الحالة ${room.status}`).join("\n")
     : "لا توجد غرفة مطابقة مفتوحة الآن.";
   return { mentioned, matching, suggestions, summary };
+}
+
+async function executeSupportAction(input: { userId: string; displayName: string; avatarUrl?: string }, message: string, context: Awaited<ReturnType<typeof liveContext>>) {
+  const normalized = normalize(message);
+  const reportCommand = /^(?:بدي\s+)?(?:ابلغ|بلغ|اشتكي|اعمل\s+بلاغ|ارسل\s+بلاغ|اقدم\s+بلاغ|تقديم\s+بلاغ|report)\s+(?:عن\s+)?/.test(normalized);
+  const targetId = message.match(/(?:<@!?)?(\d{17,20})>?/)?.[1];
+  if (reportCommand && targetId) {
+    const reasonMatch = message.match(/(?:السبب|سبب)\s*[:：-]?\s*(.{2,80})/iu);
+    const reason = (reasonMatch?.[1] ?? "بلاغ أُرسل عبر مساعد Zark").trim().slice(0, 80);
+    const report = await reportPlayer({ reporterId: input.userId, reporterName: input.displayName, reportedId: targetId, reason, description: message });
+    return {
+      answer: `✅ تم إرسال البلاغ بسرية وفتح تذكرة رقم ${report.id}. ستجدها في قسم «بلاغاتي السابقة» ويمكنك متابعة محادثة الإدارة منها.`,
+      action: { type: "REPORT_CREATED", reportId: report.id, reportKind: "PLAYER" },
+      suggestions: [],
+    };
+  }
+
+  const roomCommand = /^(?:بدي\s+)?(?:اعمل|سوي|انشئ|افتح|create)\s+(?:لي\s+)?(?:غرفه|روم|lfg)(?:\s|$)/.test(normalized);
+  if (!roomCommand) return undefined;
+  if (!context.mentioned) {
+    return { answer: "حدد اسم اللعبة أيضًا، مثل: «اعمل روم Minecraft لأربعة لاعبين مع فويس». لن أنشئ غرفة قبل معرفة اللعبة.", action: { type: "NEEDS_GAME" }, suggestions: context.suggestions };
+  }
+  const playerMatch = normalized.match(/(?:عدد\s*)?(\d{1,2})\s*(?:لاعب|لاعبين|players?)/) ?? normalized.match(/(?:لاعبين|players?)\s*(\d{1,2})/);
+  const requestedPlayers = playerMatch ? Number(playerMatch[1]) : 4;
+  const maxPlayers = Math.min(context.mentioned.maxPlayers, Math.max(context.mentioned.minPlayers, requestedPlayers));
+  const minuteMatch = normalized.match(/(\d{1,3})\s*(?:دقيقه|دقائق|minute|minutes)/);
+  const hourMatch = normalized.match(/(\d{1,2})\s*(?:ساعه|ساعات|hour|hours)/);
+  const durationMinutes = Math.min(360, Math.max(15, minuteMatch ? Number(minuteMatch[1]) : hourMatch ? Number(hourMatch[1]) * 60 : 60));
+  const needsVoice = !/(?:بدون|بلا)\s*(?:فويس|voice)/.test(normalized);
+  const room = await createLfgRoom({ userId: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, gameSlug: context.mentioned.slug, maxPlayers, durationMinutes, needsVoice, description: "أنشئت عبر مساعد Zark" });
+  return {
+    answer: `✅ أنشأت غرفة ${context.mentioned.name} بنجاح: ${room.currentPlayers}/${room.maxPlayers}${needsVoice ? " مع Voice" : " بدون Voice"}. سيقوم Zark بإشعار المهتمين وتظهر الغرفة الآن في الموقع وDiscord.`,
+    action: { type: "LFG_CREATED", roomId: room.id, gameSlug: room.gameSlug },
+    suggestions: [{ roomId: room.id, label: `${room.gameIcon ?? "🎮"} فتح غرفة ${room.gameName}`, gameSlug: room.gameSlug }],
+  };
 }
 
 function smartLocalAnswer(message: string, context: Awaited<ReturnType<typeof liveContext>>) {

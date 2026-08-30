@@ -92,6 +92,8 @@ PUBLIC_SITE_ORIGINS
 DISCORD_TOKEN
 DISCORD_GUILD_ID
 DISCORD_LFG_CATEGORY_ID
+DISCORD_REPORT_CHANNEL_ID (قناة تنبيهات البلاغات، ويمكن تعديلها من لوحة الإدارة)
+PUBLIC_SITE_URL (مثل https://zark-ps.com ويظهر داخل أزرار البوت)
 DISCORD_CLIENT_ID
 DISCORD_CLIENT_SECRET
 DISCORD_REDIRECT_URI
@@ -103,6 +105,12 @@ OPENAI_MODEL (اختياري)
 GEMINI_API_KEY (اختياري، وله الأولوية عند ضبطه)
 GEMINI_MODEL (اختياري)
 ```
+
+عند ضبط `GEMINI_API_KEY` يستخدم مساعد Zark واجهة Gemini، مع رجوع تلقائي إلى
+`generateContent` إذا لم تكن Interactions API متاحة للمفتاح. يستطيع المستخدم تنفيذ
+أوامر صريحة وآمنة من الشات مثل: `اعمل روم Minecraft لأربعة لاعبين` أو
+`ابلغ عن 123456789012345678 سبب الإساءة`. البلاغ يفتح تذكرة خاصة يمكن للمشتكي
+والإدارة متابعة محادثتها من الموقع، ويرسل البوت تنبيهًا إلى قناة البلاغات.
 
 في Discord Developer Portal أضف Redirect URI نفسه الموجود في `DISCORD_REDIRECT_URI`، وفعل scopes:
 

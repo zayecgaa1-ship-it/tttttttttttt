@@ -79,6 +79,8 @@ export type GuildRuntimeSettings = {
   publicChannelId?: string;
   dailyChannelId?: string;
   leaderboardChannelId?: string;
+  reportChannelId?: string;
+  websiteUrl: string;
   dmNotificationsEnabled: boolean;
   quickMatchEnabled: boolean;
   ratingsEnabled: boolean;
@@ -127,7 +129,9 @@ export type ZarkEvent =
   | { type: "user.interest_changed"; userId: string; gameSlug: string; interested: boolean; notificationsEnabled: boolean }
   | { type: "user.notification_changed"; userId: string; gameSlug: string; notificationsEnabled: boolean }
   | { type: "rating.created"; roomId: string; raterId: string; ratedId: string; stars: number }
-  | { type: "report.created"; reportId: string; reporterId: string; reportedId?: string }
+  | { type: "report.created"; reportId: string; reportKind: "PLAYER" | "BUG"; reporterId: string; reportedId?: string }
+  | { type: "report.message_created"; reportId: string; reportKind: "PLAYER" | "BUG"; authorId: string; recipientId?: string; authorRole: "USER" | "ADMIN" }
+  | { type: "report.status_changed"; reportId: string; reportKind: "PLAYER" | "BUG"; adminId: string; status: string; reporterId: string }
   | { type: "guild.settings_updated"; adminId: string; settings: GuildRuntimeSettings };
 
 export type DomainEventEnvelope = {

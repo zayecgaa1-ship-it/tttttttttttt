@@ -38,6 +38,12 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum ReportMessageRole {
+  USER
+  ADMIN
+  SYSTEM
+}
+
 enum LfgMemberStatus {
   ACTIVE
   LEFT
@@ -98,6 +104,8 @@ model GuildSettings {
   publicChannelId             String?
   dailyChannelId              String?
   leaderboardChannelId        String?
+  reportChannelId             String?
+  websiteUrl                  String   @default("https://zark-ps.com")
   dmNotificationsEnabled      Boolean  @default(true)
   quickMatchEnabled           Boolean  @default(true)
   ratingsEnabled              Boolean  @default(true)
@@ -145,6 +153,9 @@ model User {
   answers                   DailyAnswer[]
   preferences               UserGamePreference[]
   bugReports                BugReport[]
+  reportsFiled              Report[]             @relation("ReportsFiled")
+  reportsReceived           Report[]             @relation("ReportsReceived")
+  reportMessages            ReportMessage[]
   aiUsage                   AiUsageDaily[]
   weeklyAvailability        UserAvailability[]
   roomRatings               LfgRoomRating[]
@@ -474,16 +485,20 @@ model LfgRoomRating {
 }
 
 model Report {
-  id          String       @id @default(cuid())
+  id          String          @id @default(cuid())
   reporterId  String
   reportedId  String
   sessionId   String?
   reason      String
   description String?
-  status      ReportStatus @default(PENDING)
+  status      ReportStatus    @default(PENDING)
   resolvedBy  String?
   resolvedAt  DateTime?
-  createdAt   DateTime     @default(now())
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  reporter    User            @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported    User            @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+  messages    ReportMessage[]
 
   @@index([reportedId, status, createdAt])
   @@index([reporterId, createdAt])
@@ -502,9 +517,28 @@ model BugReport {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   reporter    User            @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  messages    ReportMessage[]
 
   @@index([status, createdAt])
   @@index([reporterId, createdAt])
+}
+
+model ReportMessage {
+  id             String            @id @default(cuid())
+  playerReportId String?
+  bugReportId    String?
+  authorId       String
+  authorName     String
+  authorRole     ReportMessageRole
+  message        String
+  createdAt      DateTime          @default(now())
+  playerReport   Report?           @relation(fields: [playerReportId], references: [id], onDelete: Cascade)
+  bugReport      BugReport?        @relation(fields: [bugReportId], references: [id], onDelete: Cascade)
+  author         User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([playerReportId, createdAt])
+  @@index([bugReportId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model AuditLog {

@@ -43,6 +43,8 @@
             <label>القناة العامة<input id="setting-public-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
             <label>قناة التحدي اليومي<input id="setting-daily-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
             <label>قناة التصنيف<input id="setting-leaderboard-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
+            <label>قناة تنبيهات البلاغات<input id="setting-report-channel" inputmode="numeric" placeholder="14681947897814058"></label>
+            <label>رابط موقع Zark<input id="setting-website-url" type="url" placeholder="https://zark-ps.com"></label>
           </div>
           <h3>الأنظمة</h3>
           <div class="toggle-grid">
@@ -70,6 +72,20 @@
           <button class="button primary" type="submit">حفظ وتطبيق الإعدادات</button>
           <p id="admin-settings-result" class="form-result"></p>
         </form>
+      </section>
+
+      <section class="admin-section">
+        <div class="admin-section-title"><div><span>🛡️</span><div><h2>البلاغات والتذاكر</h2><p>اقرأ تفاصيل البلاغ وتحدث مع المشتكي بسرية من داخل الموقع.</p></div></div></div>
+        <div class="ticket-workspace">
+          <div id="admin-report-list" class="report-list ticket-list"></div>
+          <section id="admin-report-thread" class="surface ticket-thread" hidden>
+            <div id="admin-report-head" class="ticket-head"></div>
+            <div id="admin-report-messages" class="ticket-messages"></div>
+            <form id="admin-report-reply" class="ticket-reply"><input id="admin-report-message" maxlength="2000" placeholder="اكتب رد الإدارة للمشتكي..." required><button class="button primary" type="submit">إرسال الرد</button></form>
+            <div class="ticket-status-controls"><select id="admin-report-status"></select><button id="admin-report-status-save" class="button ghost" type="button">تحديث الحالة</button></div>
+            <p id="admin-report-result" class="form-result"></p>
+          </section>
+        </div>
       </section>
 
       <section class="admin-section">

@@ -3,12 +3,13 @@ import { db } from "../../../../../packages/db/src/client.js";
 import type { GuildRuntimeSettings } from "../../../../../packages/shared/src/index.js";
 import { publish } from "../../events.js";
 
-type GuildSettingsInput = Omit<GuildRuntimeSettings, "guildId" | "lfgChannelId" | "lfgCategoryId" | "publicChannelId" | "dailyChannelId" | "leaderboardChannelId"> & {
+type GuildSettingsInput = Omit<GuildRuntimeSettings, "guildId" | "lfgChannelId" | "lfgCategoryId" | "publicChannelId" | "dailyChannelId" | "leaderboardChannelId" | "reportChannelId"> & {
   lfgChannelId?: string | null;
   lfgCategoryId?: string | null;
   publicChannelId?: string | null;
   dailyChannelId?: string | null;
   leaderboardChannelId?: string | null;
+  reportChannelId?: string | null;
 };
 
 export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
@@ -24,6 +25,8 @@ export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
         lfgCategoryId: process.env.DISCORD_LFG_CATEGORY_ID || null,
         publicChannelId: process.env.DISCORD_PUBLIC_CHANNEL_ID || null,
         dailyChannelId: process.env.DISCORD_DAILY_CHANNEL_ID || null,
+        reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID || "14681947897814058",
+        websiteUrl: process.env.PUBLIC_SITE_URL || "https://zark-ps.com",
       },
     }),
   ]);
@@ -36,6 +39,8 @@ export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
     publicChannelId: settings.publicChannelId ?? undefined,
     dailyChannelId: settings.dailyChannelId ?? undefined,
     leaderboardChannelId: settings.leaderboardChannelId ?? undefined,
+    reportChannelId: settings.reportChannelId ?? process.env.DISCORD_REPORT_CHANNEL_ID ?? "14681947897814058",
+    websiteUrl: settings.websiteUrl || process.env.PUBLIC_SITE_URL || "https://zark-ps.com",
     dmNotificationsEnabled: settings.dmNotificationsEnabled,
     quickMatchEnabled: settings.quickMatchEnabled,
     ratingsEnabled: settings.ratingsEnabled,
@@ -67,6 +72,8 @@ export async function updateGuildRuntimeSettings(adminId: string, input: GuildSe
         publicChannelId: input.publicChannelId ?? null,
         dailyChannelId: input.dailyChannelId ?? null,
         leaderboardChannelId: input.leaderboardChannelId ?? null,
+        reportChannelId: input.reportChannelId ?? null,
+        websiteUrl: input.websiteUrl,
         dmNotificationsEnabled: input.dmNotificationsEnabled,
         quickMatchEnabled: input.quickMatchEnabled,
         ratingsEnabled: input.ratingsEnabled,
@@ -92,6 +99,8 @@ export async function updateGuildRuntimeSettings(adminId: string, input: GuildSe
         publicChannelId: input.publicChannelId,
         dailyChannelId: input.dailyChannelId,
         leaderboardChannelId: input.leaderboardChannelId,
+        reportChannelId: input.reportChannelId,
+        websiteUrl: input.websiteUrl,
         dmNotificationsEnabled: input.dmNotificationsEnabled,
         quickMatchEnabled: input.quickMatchEnabled,
         ratingsEnabled: input.ratingsEnabled,
@@ -193,8 +202,8 @@ export async function addGameQuestion(input: { gameSlug: string; prompt: string;
 
 export async function getAdminFeedback() {
   const [playerReports, bugReports] = await Promise.all([
-    db.report.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
-    db.bugReport.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
+    db.report.findMany({ include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, reported: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
+    db.bugReport.findMany({ include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
   ]);
   return { playerReports, bugReports };
 }

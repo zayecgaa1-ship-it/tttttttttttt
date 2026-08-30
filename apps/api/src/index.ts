@@ -13,7 +13,7 @@ import { closeEvents, initEvents, subscribe } from "./events.js";
 import { answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
-import { getMyReports, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer } from "./modules/feedback/service.js";
+import { addReportMessage, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, createLfgCategory, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, recordServiceHeartbeat, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, getSupportStatus } from "./modules/support/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
@@ -161,11 +161,22 @@ app.post("/api/me/reports/bug", async (request) => {
   return reportBug({ reporterId: user.userId, reporterName: user.displayName, ...body });
 });
 app.get("/api/me/reports", async (request) => getMyReports((await requireWebUser(request)).userId));
+app.get("/api/me/reports/:kind/:id", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  return getReportThreadForUser(params.kind, params.id, user.userId);
+});
+app.post("/api/me/reports/:kind/:id/messages", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  const body = z.object({ message: z.string().min(1).max(2000) }).parse(request.body);
+  return addReportMessage({ kind: params.kind, reportId: params.id, authorId: user.userId, authorName: user.displayName, authorRole: "USER", message: body.message });
+});
 app.get("/api/me/support/status", async (request) => getSupportStatus((await requireWebUser(request)).userId));
 app.post("/api/me/support/chat", async (request) => {
   const user = await requireWebUser(request);
   const body = z.object({ message: z.string().min(2).max(500) }).parse(request.body);
-  return askSupport({ userId: user.userId, displayName: user.displayName, message: body.message });
+  return askSupport({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, message: body.message });
 });
 app.get("/api/web-admin/dashboard", async (request) => {
   await requireWebAdmin(request);
@@ -182,6 +193,8 @@ app.put("/api/web-admin/settings", async (request) => {
     publicChannelId: channelId,
     dailyChannelId: channelId,
     leaderboardChannelId: channelId,
+    reportChannelId: channelId,
+    websiteUrl: z.string().url().max(200),
     dmNotificationsEnabled: z.boolean(),
     quickMatchEnabled: z.boolean(),
     ratingsEnabled: z.boolean(),
@@ -224,6 +237,29 @@ app.post("/api/web-admin/zark-games/:slug/questions", async (request) => {
   const params = z.object({ slug: z.string() }).parse(request.params);
   const body = z.object({ prompt: z.string().min(2).max(500), acceptedAnswers: z.array(z.string().min(1)).min(1).max(20), mediaUrl: z.string().url().optional(), difficulty: z.number().int().min(1).max(5).optional() }).parse(request.body);
   return addGameQuestion({ gameSlug: params.slug, ...body });
+});
+app.get("/api/web-admin/feedback", async (request) => {
+  await requireWebAdmin(request);
+  return getAdminFeedback();
+});
+app.get("/api/web-admin/reports/:kind/:id", async (request) => {
+  await requireWebAdmin(request);
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  return getReportThreadForAdmin(params.kind, params.id);
+});
+app.post("/api/web-admin/reports/:kind/:id/messages", async (request) => {
+  const admin = await requireWebAdmin(request);
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  const body = z.object({ message: z.string().min(1).max(2000) }).parse(request.body);
+  return addReportMessage({ kind: params.kind, reportId: params.id, authorId: admin.userId, authorName: admin.displayName, authorRole: "ADMIN", message: body.message });
+});
+app.put("/api/web-admin/reports/:kind/:id/status", async (request) => {
+  const admin = await requireWebAdmin(request);
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  const body = z.object({ status: z.string().min(2).max(30) }).parse(request.body);
+  const allowed = params.kind === "PLAYER" ? ["PENDING", "REVIEWED", "RESOLVED", "REJECTED", "DISMISSED"] : ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"];
+  if (!allowed.includes(body.status)) throw Object.assign(new Error("حالة البلاغ غير صحيحة"), { statusCode: 400 });
+  return updateReportStatus({ kind: params.kind, reportId: params.id, adminId: admin.userId, adminName: admin.displayName, status: body.status });
 });
 app.get("/api/state", async () => {
   const lfgCatalog = await getLfgCatalog();
@@ -406,6 +442,10 @@ app.post("/api/reports/bug", { preHandler: requireServiceKey }, async (request) 
 app.get("/api/users/:id/reports", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
   return getMyReports(params.id);
+});
+app.get("/api/reports/:kind/:id", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  return getReportThreadForAdmin(params.kind, params.id);
 });
 app.post("/api/admin/lfg/categories", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ slug: z.string().regex(/^[a-z0-9-]+$/), name: z.string().min(2).max(80), icon: z.string().max(10).optional(), sortOrder: z.number().int().optional() }).parse(request.body);
