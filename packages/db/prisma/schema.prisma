@@ -235,19 +235,27 @@ model GameProfile {
 }
 
 model ZarkMatch {
-  id         String            @id @default(cuid())
-  gameId     String
-  prompt     String
-  answer     String
-  mediaUrl   String?
-  status     MatchStatus       @default(OPEN)
-  durationMs Int               @default(60000)
-  startedAt  DateTime          @default(now())
-  endsAt     DateTime
-  game       ZarkGame          @relation(fields: [gameId], references: [id])
-  results    ZarkMatchResult[]
+  id               String            @id @default(cuid())
+  gameId           String
+  seriesId         String?
+  channelId        String?
+  activeChannelKey String?           @unique
+  roundNumber      Int               @default(1)
+  totalRounds      Int               @default(1)
+  prompt           String
+  answer           String
+  mediaUrl         String?
+  status           MatchStatus       @default(OPEN)
+  durationMs       Int               @default(60000)
+  startedAt        DateTime          @default(now())
+  endsAt           DateTime
+  lockExpiresAt    DateTime?
+  game             ZarkGame          @relation(fields: [gameId], references: [id])
+  results          ZarkMatchResult[]
 
   @@index([gameId, startedAt])
+  @@unique([seriesId, roundNumber])
+  @@index([channelId, startedAt])
 }
 
 model ZarkMatchResult {

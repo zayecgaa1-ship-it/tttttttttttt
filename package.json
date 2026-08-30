@@ -13,9 +13,11 @@
     "test:reports": "tsx scripts/report-ticket-smoke.ts",
     "test:ai-actions": "tsx scripts/ai-actions-smoke.ts",
     "test:ai-failover": "tsx scripts/ai-failover-smoke.ts",
+    "test:games": "tsx scripts/smoke-games-availability.ts",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
-    "db:push": "prisma db push --schema packages/db/prisma/schema.prisma",
-    "db:push:deploy": "prisma db push --skip-generate --schema packages/db/prisma/schema.prisma",
+    "db:prepare": "prisma db execute --file packages/db/prisma/safe-zark-series.sql --schema packages/db/prisma/schema.prisma",
+    "db:push": "npm run db:prepare && prisma db push --schema packages/db/prisma/schema.prisma",
+    "db:push:deploy": "npm run db:prepare && prisma db push --skip-generate --schema packages/db/prisma/schema.prisma",
     "check": "tsc --noEmit -p tsconfig.json",
     "postinstall": "prisma generate --schema packages/db/prisma/schema.prisma"
   },

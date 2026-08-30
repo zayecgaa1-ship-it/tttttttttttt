@@ -110,8 +110,9 @@ export type LeaderboardRow = {
 };
 
 export type ZarkEvent =
-  | { type: "zark.match_started"; matchId: string; gameSlug: string }
+  | { type: "zark.match_started"; matchId: string; seriesId: string; gameSlug: string; channelId?: string; roundNumber: number; totalRounds: number }
   | { type: "zark.match_answered"; matchId: string; userId: string; displayName: string; points: number; rank: number }
+  | { type: "zark.series_completed"; seriesId: string; channelId?: string; totalRounds: number }
   | { type: "daily.answer"; userId: string; displayName: string; points: number }
   | { type: "leaderboard.updated" }
   | { type: "lfg.created"; room: LiveRoom }

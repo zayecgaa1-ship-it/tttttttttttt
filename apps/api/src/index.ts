@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, initEvents, subscribe } from "./events.js";
-import { answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
+import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
@@ -305,8 +305,8 @@ app.post("/api/daily/answer", { preHandler: requireServiceKey }, async (request,
 });
 app.get("/api/zark-games", listZarkGames);
 app.post("/api/play/start", { preHandler: requireServiceKey }, async (request) => {
-  const body = z.object({ gameSlug: z.string().optional() }).parse(request.body ?? {});
-  return startZarkRace(body.gameSlug);
+  const body = z.object({ gameSlug: z.string().optional(), channelId: z.string().min(1).max(40), rounds: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(10)]).default(1) }).parse(request.body ?? {});
+  return startZarkRace(body.gameSlug, { channelId: body.channelId, totalRounds: body.rounds });
 });
 app.post("/api/play/:id/answer", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
@@ -316,6 +316,10 @@ app.post("/api/play/:id/answer", { preHandler: requireServiceKey }, async (reque
 app.post("/api/play/:id/expire", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
   return expireZarkRace(params.id);
+});
+app.post("/api/play/:id/next", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  return advanceZarkRace(params.id);
 });
 app.get("/api/lfg", listLfgRooms);
 app.get("/api/lfg/search", async (request) => {
