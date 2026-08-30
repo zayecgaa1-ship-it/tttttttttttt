@@ -14,7 +14,7 @@ type GuildSettingsInput = Omit<GuildRuntimeSettings, "guildId" | "lfgChannelId" 
 
 export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
   const guildId = process.env.DISCORD_GUILD_ID ?? "default";
-  const [identity, settings] = await Promise.all([
+  const [identity, storedSettings] = await Promise.all([
     db.botIdentity.upsert({ where: { id: 1 }, update: {}, create: { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل" } }),
     db.guildSettings.upsert({
       where: { guildId },
@@ -30,6 +30,15 @@ export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
       },
     }),
   ]);
+  const migratedAiLimits = {
+    aiDailyMessagesPerUser: storedSettings.aiDailyMessagesPerUser <= 5 || storedSettings.aiDailyMessagesPerUser >= 1000 ? 60 : storedSettings.aiDailyMessagesPerUser,
+    aiGlobalDailyMessages: storedSettings.aiGlobalDailyMessages <= 100 || storedSettings.aiGlobalDailyMessages >= 100000 ? 5000 : storedSettings.aiGlobalDailyMessages,
+    aiDailyTokenBudgetPerUser: storedSettings.aiDailyTokenBudgetPerUser <= 6000 ? 50000 : storedSettings.aiDailyTokenBudgetPerUser,
+    aiGlobalDailyTokenBudget: storedSettings.aiGlobalDailyTokenBudget <= 100000 ? 1000000 : storedSettings.aiGlobalDailyTokenBudget,
+  };
+  const settings = Object.entries(migratedAiLimits).some(([key, value]) => storedSettings[key as keyof typeof migratedAiLimits] !== value)
+    ? await db.guildSettings.update({ where: { guildId }, data: migratedAiLimits })
+    : storedSettings;
   return {
     guildId,
     botName: identity.name,
@@ -146,7 +155,8 @@ export async function getAdminDashboard() {
     }),
   ]);
   const botOnline = Boolean(botHeartbeat && Date.now() - botHeartbeat.lastSeenAt.getTime() < 75_000);
-  const aiProvider = process.env.GEMINI_API_KEY?.trim() ? "Gemini" : process.env.OPENAI_API_KEY?.trim() ? "OpenAI" : null;
+  const aiProviders = [process.env.GEMINI_API_KEY?.trim() && "Gemini", process.env.GROQ_API_KEY?.trim() && "Groq", process.env.OPENROUTER_API_KEY?.trim() && "OpenRouter"].filter(Boolean);
+  const aiProvider = aiProviders.length ? aiProviders.join(" → ") : null;
   return {
     settings,
     system: { apiOnline: true, databaseOnline: true, botOnline, botLastSeenAt: botHeartbeat?.lastSeenAt.toISOString(), aiConfigured: Boolean(aiProvider), aiProvider },

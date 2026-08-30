@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>لوحة تحكم Zark — Zark LFG System</title>
   <meta name="description" content="إدارة إعدادات بوت Zark والألعاب والمحتوى.">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=2744916">
 </head>
 <body data-page="admin">
   <header id="site-nav"></header>
@@ -63,13 +63,15 @@
             <label>مدة الغرفة الافتراضية<input id="setting-room-duration" type="number" min="15" max="360" required></label>
             <label>مهلة الغرفة الفارغة<input id="setting-room-grace" type="number" min="1" max="30" required></label>
           </div>
-          <h3>حدود مساعد Zark</h3>
+          <h3>حدود استخدام مساعد Zark</h3>
+          <p class="section-note">المساعد يرد على التحيات وأسئلة Zark فقط، وينتقل تلقائيًا بين Gemini وGroq وOpenRouter ثم الرد المحلي.</p>
           <div class="settings-grid three">
-            <label>Tokens العضو يوميًا<select id="setting-ai-user-limit"><option value="2000">2,000</option><option value="3000">3,000</option><option value="4000">4,000</option><option value="6000">6,000</option></select></label>
-            <label>Tokens العامة يوميًا<input id="setting-ai-global-limit" type="number" min="10000" max="1000000" step="1000" required></label>
-            <label>أقصى طول للرد Tokens<input id="setting-ai-output" type="number" min="50" max="1000" required></label>
+            <label>رسائل العضو يوميًا<input id="setting-ai-message-limit" type="number" min="10" max="200" value="60" required></label>
+            <label>الرسائل العامة يوميًا<input id="setting-ai-global-message-limit" type="number" min="100" max="100000" value="5000" required></label>
+            <label>طول الرد<select id="setting-ai-output"><option value="150">قصير</option><option value="250">متوازن</option><option value="400">مفصل</option></select></label>
           </div>
-          <div class="room-manager-actions"><button id="admin-ai-test" class="button ghost" type="button">اختبار اتصال Gemini</button><span id="admin-ai-test-result" class="form-result"></span></div>
+          <input id="setting-ai-user-limit" type="hidden" value="50000"><input id="setting-ai-global-limit" type="hidden" value="1000000">
+          <div class="room-manager-actions"><button id="admin-ai-test" class="button ghost" type="button">فحص جميع مزودي AI</button><span id="admin-ai-test-result" class="form-result provider-test-result"></span></div>
           <button class="button primary" type="submit">حفظ وتطبيق الإعدادات</button>
           <p id="admin-settings-result" class="form-result"></p>
         </form>
@@ -122,6 +124,6 @@
     </div>
   </main>
   <footer id="site-footer"></footer>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2744916"></script>
 </body>
 </html>

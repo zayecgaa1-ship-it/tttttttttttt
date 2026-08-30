@@ -52,7 +52,12 @@ app.addHook("preHandler", async (request) => {
   const sameHost = (() => { try { return new URL(origin).host === request.headers.host; } catch { return false; } })();
   if (!sameHost && !siteOrigins.includes(origin)) throw new HttpError("تعذر التحقق من مصدر الطلب", 403);
 });
-await app.register(fastifyStatic, { root: path.resolve(process.cwd(), "apps/web/public") });
+await app.register(fastifyStatic, {
+  root: path.resolve(process.cwd(), "apps/web/public"),
+  setHeaders(response, filePath) {
+    if (/\.(?:html|js|css)$/i.test(filePath)) response.header("cache-control", "no-cache, no-store, must-revalidate");
+  },
+});
 await registerDiscordAuth(app);
 
 app.get("/health", async () => ({ ok: true, service: "zark-api" }));

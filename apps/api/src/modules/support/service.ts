@@ -5,6 +5,9 @@ import { getGuildRuntimeSettings } from "../admin/service.js";
 import { createLfgRoom } from "../lfg/service.js";
 import { reportPlayer } from "../feedback/service.js";
 
+type AiProvider = "GEMINI" | "GROQ" | "OPENROUTER";
+type AiAnswer = { answer?: string; inputTokens: number; outputTokens: number };
+
 const knowledge = [
   { keywords: ["اوفلاين", "offline", "البوت", "متصل"], answer: "إذا ظهر Zark أوفلاين فتأكد أن PostgreSQL وRedis والـAPI شغالة، ثم شغّل البوت. لوحة الإدارة تعرض حالة البوت وآخر Heartbeat تلقائيًا." },
   { keywords: ["انضمام", "دخول", "join", "غرفه", "غرفة"], answer: "افتح صفحة LFG واختر غرفة ثم اضغط دخول. سيضيفك Zark للغرفة ويمنحك وصولًا إلى Text وVoice الخاصين بها فورًا." },
@@ -36,38 +39,40 @@ const gameAliases: Record<string, string[]> = {
 export async function getSupportStatus(userId: string) {
   const settings = await getGuildRuntimeSettings();
   const usage = await db.aiUsageDaily.findUnique({ where: { userId_dayKey: { userId, dayKey: dayKey() } } });
-  const usedTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0) + (usage?.reservedTokens ?? 0);
-  const provider = configuredAiProvider();
-  const aiConnected = Boolean(provider);
+  const providers = configuredAiProviders();
+  const provider = providers[0];
+  const aiConnected = providers.length > 0;
   return {
     enabled: settings.aiChatEnabled,
     mode: aiConnected ? "CONFIGURED" : "SMART_LOCAL",
     provider,
-    model: provider === "GEMINI" ? geminiModel() : provider === "OPENAI" ? cleanEnvValue("OPENAI_MODEL") || "gpt-5-mini" : null,
-    setupRequired: !provider,
-    dailyTokenBudget: settings.aiDailyTokenBudgetPerUser,
-    usedTokens: aiConnected ? usedTokens : 0,
-    remainingTokens: aiConnected ? Math.max(0, settings.aiDailyTokenBudgetPerUser - usedTokens) : settings.aiDailyTokenBudgetPerUser,
+    providers,
+    model: provider ? providerModel(provider) : null,
+    setupRequired: providers.length === 0,
     requestsToday: usage?.requestCount ?? 0,
+    messageLimit: settings.aiDailyMessagesPerUser,
     remainingMessages: Math.max(0, settings.aiDailyMessagesPerUser - (usage?.requestCount ?? 0)),
   };
 }
 
 export async function diagnoseSupportAi(adminId: string) {
-  await enforceRateLimit("support-diagnostic", adminId, 3, 5 * 60);
-  const provider = configuredAiProvider();
-  if (!provider) return { configured: false, connected: false, provider: null, code: "MISSING_KEY", message: "GEMINI_API_KEY غير موجود في Railway Variables" };
-  try {
-    const result = provider === "GEMINI"
-      ? await askGemini("اختبار اتصال فقط. أجب بكلمة: متصل", "لا توجد حاجة لبيانات حية.", "متصل", 40)
-      : await askOpenAi("اختبار اتصال فقط. أجب بكلمة: متصل", "لا توجد حاجة لبيانات حية.", "متصل", 40);
-    if (!result.answer) throw new Error("empty provider response");
-    return { configured: true, connected: true, provider, code: "OK", message: `${provider} متصل ويرد بشكل صحيح` };
-  } catch (error) {
-    console.error("Zark AI diagnostic failed", error);
-    const failure = aiFailure(error, provider);
-    return { configured: true, connected: false, provider, code: failure.code, message: failure.message };
+  await enforceRateLimit("support-diagnostic", adminId, 5, 5 * 60);
+  const providers = configuredAiProviders();
+  if (!providers.length) return { configured: false, connected: false, provider: null, providers: [], code: "MISSING_KEYS", message: "أضف مفتاحًا واحدًا على الأقل: GEMINI_API_KEY أو GROQ_API_KEY أو OPENROUTER_API_KEY" };
+  const results = [] as Array<{ provider: AiProvider; connected: boolean; code: string; message: string }>;
+  for (const provider of providers) {
+    try {
+      const result = await askProvider(provider, "اختبار اتصال فقط. أجب بكلمة: متصل", "لا توجد حاجة لبيانات حية.", "متصل", 40);
+      if (!result.answer) throw new Error("empty provider response");
+      results.push({ provider, connected: true, code: "OK", message: `${provider} متصل` });
+    } catch (error) {
+      console.error(`Zark AI diagnostic failed for ${provider}`, error);
+      const failure = aiFailure(error, provider);
+      results.push({ provider, connected: false, code: failure.code, message: failure.message });
+    }
   }
+  const connected = results.some((result) => result.connected);
+  return { configured: true, connected, provider: results.find((result) => result.connected)?.provider ?? providers[0], providers: results, code: connected ? "OK" : "ALL_PROVIDERS_FAILED", message: results.map((result) => `${result.connected ? "✅" : "❌"} ${result.provider}: ${result.connected ? "متصل" : result.message}`).join("\n") };
 }
 
 export async function askSupport(input: { userId: string; displayName: string; avatarUrl?: string; message: string }) {
@@ -83,10 +88,18 @@ export async function askSupport(input: { userId: string; displayName: string; a
   const action = await executeSupportAction(input, message, context);
   if (action) {
     const status = await getSupportStatus(input.userId);
-    return { ...action, mode: "ACTION", provider: configuredAiProvider() ?? null, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget };
+    return { ...action, mode: "ACTION", provider: configuredAiProviders()[0] ?? null, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit };
   }
-  const provider = configuredAiProvider();
-  if (!provider) return { answer: `${localAnswer}\n\n⚠️ Gemini غير مربوط حاليًا. أضف GEMINI_API_KEY داخل Variables في Railway ثم أعد نشر الخدمة.`, mode: "SMART_LOCAL", provider: null, setupRequired: true, aiError: false, remainingTokens: settings.aiDailyTokenBudgetPerUser, tokenBudget: settings.aiDailyTokenBudgetPerUser, suggestions: context.suggestions };
+  const scope = supportScope(message);
+  if (scope === "CASUAL" || scope === "OUT_OF_SCOPE") {
+    const status = await getSupportStatus(input.userId);
+    return { answer: scope === "CASUAL" ? casualAnswer(input.displayName, message) : "أنا مساعد Zark المخصص للموقع والبوت وLFG فقط. اسألني عن الغرف، الألعاب، الأوامر، الإشعارات، الملف، التقييم أو البلاغات.", mode: "SMART_LOCAL", provider: null, setupRequired: configuredAiProviders().length === 0, aiError: false, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
+  }
+  const providers = configuredAiProviders();
+  if (!providers.length) {
+    const status = await getSupportStatus(input.userId);
+    return { answer: localAnswer, mode: "SMART_LOCAL", provider: null, setupRequired: true, aiError: false, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
+  }
 
   let reservation: Awaited<ReturnType<typeof reserveDailyTokens>>;
   try {
@@ -94,33 +107,55 @@ export async function askSupport(input: { userId: string; displayName: string; a
   } catch (error) {
     if (!(error instanceof AiBudgetError)) throw error;
     const status = await getSupportStatus(input.userId);
-    return { answer: localAnswer, mode: "SMART_LOCAL", provider, setupRequired: false, aiError: false, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    return { answer: localAnswer, mode: "SMART_LOCAL", provider: providers[0], setupRequired: false, aiError: false, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
   }
 
   try {
-    const result = provider === "GEMINI"
-      ? await askGemini(message, context.summary, localAnswer, reservation.maxOutputTokens)
-      : await askOpenAi(message, context.summary, localAnswer, reservation.maxOutputTokens);
+    const result = await askWithProviderFallback(providers, message, context.summary, localAnswer, reservation.maxOutputTokens);
     const answer = result.answer;
     if (!answer) throw new Error("empty AI response");
     await settleReservedTokens(input.userId, reservation.reservedTokens, result.inputTokens, result.outputTokens);
     const status = await getSupportStatus(input.userId);
-    return { answer, mode: "AI", provider, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    return { answer, mode: "AI", provider: result.provider, providersTried: result.providersTried, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
   } catch (error) {
     await settleReservedTokens(input.userId, reservation.reservedTokens, 0, 0).catch(() => undefined);
     console.error("Zark AI support fallback", error);
     const status = await getSupportStatus(input.userId);
-    const failure = aiFailure(error, provider);
-    return { answer: `${localAnswer}\n\n⚠️ ${failure.message}`, mode: "SMART_LOCAL", provider, setupRequired: false, aiError: true, aiErrorCode: failure.code, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    return { answer: `${localAnswer}\n\n⚠️ مزودات AI المجانية غير متاحة الآن؛ استخدمت مساعد Zark المحلي تلقائيًا.`, mode: "SMART_LOCAL", provider: providers[0], setupRequired: false, aiError: true, aiErrorCode: "ALL_PROVIDERS_FAILED", remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
   }
 }
 
-const supportInstructions = "أنت مساعد Zark LFG System العربي. أجب باختصار ووضوح عن كل صفحات الموقع وأوامر البوت والعثور على اللاعبين والغرف والاهتمامات والإشعارات والملف والتقييم والبلاغات. اعتمد فقط على المعلومات والسياق المرفقين، ولا تطلب أسرارًا أو Tokens ولا تدّعي تنفيذ إجراء؛ الإجراءات ينفذها النظام بشكل مستقل وآمن.";
+const supportInstructions = "أنت مساعد Zark LFG System العربي. نطاقك الوحيد هو موقع Zark وبوت Discord وLFG والألعاب والغرف والأوامر والاهتمامات والإشعارات والملف والتقييم والبلاغات، مع السماح بتحية ودية قصيرة. ارفض باختصار أي سؤال خارج هذا النطاق. أجب بوضوح وباختصار واعتمد فقط على دليل Zark والسياق المرفقين، ولا تطلب أسرارًا أو Tokens ولا تدّعي تنفيذ إجراء؛ الإجراءات ينفذها النظام بشكل مستقل وآمن.";
 
-function configuredAiProvider(): "GEMINI" | "OPENAI" | undefined {
-  if (cleanEnvValue("GEMINI_API_KEY")) return "GEMINI";
-  if (cleanEnvValue("OPENAI_API_KEY")) return "OPENAI";
-  return undefined;
+function configuredAiProviders(): AiProvider[] {
+  return ([
+    cleanEnvValue("GEMINI_API_KEY") ? "GEMINI" : undefined,
+    cleanEnvValue("GROQ_API_KEY") ? "GROQ" : undefined,
+    cleanEnvValue("OPENROUTER_API_KEY") ? "OPENROUTER" : undefined,
+  ] satisfies Array<AiProvider | undefined>).filter((provider): provider is AiProvider => Boolean(provider));
+}
+
+async function askWithProviderFallback(providers: AiProvider[], message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
+  const providersTried: AiProvider[] = [];
+  let lastError: unknown;
+  for (const provider of providers) {
+    providersTried.push(provider);
+    try {
+      const result = await askProvider(provider, message, summary, localAnswer, maxOutputTokens);
+      if (!result.answer) throw new Error(`${provider} returned an empty answer`);
+      return { ...result, provider, providersTried };
+    } catch (error) {
+      lastError = error;
+      console.warn(`Zark AI provider ${provider} failed; trying the next provider`, error instanceof Error ? error.message : error);
+    }
+  }
+  throw lastError ?? new Error("No AI provider returned an answer");
+}
+
+function askProvider(provider: AiProvider, message: string, summary: string, localAnswer: string, maxOutputTokens: number): Promise<AiAnswer> {
+  if (provider === "GEMINI") return askGemini(message, summary, localAnswer, maxOutputTokens);
+  if (provider === "GROQ") return askOpenAiCompatible("Groq", "https://api.groq.com/openai/v1/chat/completions", cleanEnvValue("GROQ_API_KEY")!, groqModel(), message, summary, localAnswer, maxOutputTokens);
+  return askOpenAiCompatible("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", cleanEnvValue("OPENROUTER_API_KEY")!, openRouterModel(), message, summary, localAnswer, maxOutputTokens, { "HTTP-Referer": cleanEnvValue("PUBLIC_SITE_URL") || "https://zark-ps.com", "X-Title": "Zark LFG System" });
 }
 
 async function askGemini(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
@@ -187,23 +222,25 @@ async function askGeminiGenerateContent(message: string, summary: string, localA
   return { answer, inputTokens: body.usageMetadata?.promptTokenCount ?? 0, outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0 };
 }
 
-async function askOpenAi(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
+async function askOpenAiCompatible(provider: string, url: string, apiKey: string, model: string, message: string, summary: string, localAnswer: string, maxOutputTokens: number, extraHeaders: Record<string, string> = {}) {
+  const response = await fetch(url, {
     method: "POST",
-    headers: { authorization: `Bearer ${cleanEnvValue("OPENAI_API_KEY")}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", ...extraHeaders },
     body: JSON.stringify({
-      model: cleanEnvValue("OPENAI_MODEL") ?? "gpt-5-mini",
-      store: false,
-      max_output_tokens: maxOutputTokens,
-      instructions: supportInstructions,
-      input: supportPrompt(message, summary, localAnswer),
+      model,
+      max_tokens: maxOutputTokens,
+      temperature: 0.3,
+      messages: [
+        { role: "system", content: supportInstructions },
+        { role: "user", content: supportPrompt(message, summary, localAnswer) },
+      ],
     }),
     signal: AbortSignal.timeout(20_000),
   });
-  if (!response.ok) throw await aiHttpError("OpenAI", response);
-  const body = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }>; usage?: { input_tokens?: number; output_tokens?: number } };
-  const answer = body.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text?.trim();
-  return { answer, inputTokens: body.usage?.input_tokens ?? 0, outputTokens: body.usage?.output_tokens ?? 0 };
+  if (!response.ok) throw await aiHttpError(provider, response);
+  const body = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+  const answer = body.choices?.[0]?.message?.content?.trim();
+  return { answer, inputTokens: body.usage?.prompt_tokens ?? 0, outputTokens: body.usage?.completion_tokens ?? 0 };
 }
 
 function supportPrompt(message: string, summary: string, localAnswer: string) {
@@ -230,11 +267,12 @@ class AiProviderError extends Error {
   }
 }
 
-function aiFailure(error: unknown, provider: "GEMINI" | "OPENAI") {
+function aiFailure(error: unknown, provider: AiProvider) {
+  const keyName = provider === "GEMINI" ? "GEMINI_API_KEY" : provider === "GROQ" ? "GROQ_API_KEY" : "OPENROUTER_API_KEY";
   if (error instanceof AiProviderError) {
-    if (error.status === 429) return { code: "QUOTA_EXCEEDED", message: `${provider} وصل إلى حد الـQuota. افتح Google AI Studio وتحقق من Usage أو انتظر تجدد الحصة.` };
-    if ([400, 401, 403].includes(error.status)) return { code: "INVALID_KEY", message: `${provider} رفض المفتاح أو أن Generative Language API غير مفعّلة. انسخ المفتاح من Google AI Studio إلى GEMINI_API_KEY بدون علامات اقتباس أو مسافات.` };
-    if (error.status === 404) return { code: "MODEL_NOT_FOUND", message: `موديل Gemini غير متاح لهذا المفتاح. اضبط GEMINI_MODEL على gemini-2.5-flash.` };
+    if (error.status === 429) return { code: "QUOTA_EXCEEDED", message: "انتهت الحصة المجانية أو وصل المزوّد إلى حد الطلبات؛ سيحوّل Zark تلقائيًا إلى المزوّد التالي." };
+    if ([400, 401, 403].includes(error.status)) return { code: "INVALID_KEY", message: `المفتاح مرفوض. راجع ${keyName} وتأكد أنه بلا علامات اقتباس أو مسافات.` };
+    if (error.status === 404) return { code: "MODEL_NOT_FOUND", message: `الموديل ${providerModel(provider)} غير متاح لهذا الحساب.` };
     if (error.status >= 500) return { code: "PROVIDER_UNAVAILABLE", message: `${provider} غير متاح مؤقتًا؛ الرد المحلي يعمل لحين عودة الخدمة.` };
   }
   return { code: "CONNECTION_FAILED", message: `تعذر الاتصال بـ${provider}. تحقق من شبكة Railway ثم استخدم زر اختبار الاتصال في لوحة الإدارة.` };
@@ -242,6 +280,20 @@ function aiFailure(error: unknown, provider: "GEMINI" | "OPENAI") {
 
 function geminiModel() {
   return (cleanEnvValue("GEMINI_MODEL") || "gemini-2.5-flash").replace(/^models\//, "");
+}
+
+function groqModel() {
+  return cleanEnvValue("GROQ_MODEL") || "openai/gpt-oss-20b";
+}
+
+function openRouterModel() {
+  return cleanEnvValue("OPENROUTER_MODEL") || "openrouter/free";
+}
+
+function providerModel(provider: AiProvider) {
+  if (provider === "GEMINI") return geminiModel();
+  if (provider === "GROQ") return groqModel();
+  return openRouterModel();
 }
 
 function cleanEnvValue(name: string) {
@@ -347,6 +399,25 @@ function smartLocalAnswer(message: string, context: Awaited<ReturnType<typeof li
   let answer = ranked[0]?.score ? ranked[0].item.answer : "أقدر أساعدك في إنشاء غرف LFG، الدخول والخروج، Voice، الإشعارات، الملف الشخصي، التقييم والبلاغات. اكتب اسم الميزة أو اللعبة التي تريدها.";
   if (context.mentioned) answer += context.matching.length ? `\n\nوجدت ${context.matching.length} غرفة ${context.mentioned.name} متاحة الآن؛ اختر واحدة من الاقتراحات بالأسفل.` : `\n\nلا توجد غرفة ${context.mentioned.name} مفتوحة الآن، لكن تستطيع إنشاء واحدة من صفحة LFG وسيتم إشعار المهتمين.`;
   return answer;
+}
+
+function supportScope(message: string): "CASUAL" | "SITE" | "OUT_OF_SCOPE" {
+  const normalized = normalize(message);
+  const casual = ["مرحبا", "اهلا", "السلام عليكم", "صباح الخير", "مساء الخير", "كيف حالك", "شو اخبارك", "شلونك", "هاي", "hello", "hi"];
+  if (casual.some((phrase) => normalized === normalize(phrase) || normalized.startsWith(`${normalize(phrase)} `))) return "CASUAL";
+  const siteTerms = [
+    "zark", "زارك", "lfg", "الموقع", "البوت", "ديسكورد", "discord", "روم", "غرفه", "غرفة", "لاعب", "لعبه", "لعبة", "العاب", "ألعاب", "فويس", "voice", "اشعار", "إشعار", "مهتم", "بروفايل", "ملف", "تقييم", "بلاغ", "شكوى", "تذكره", "تذكرة", "امر", "أمر", "اوامر", "أوامر", "نقاط", "xp", "leaderboard", "اهتمامات", "دخول", "خروج", "انضمام", "موعد", "وقت فراغ", "اداره", "إدارة", "دعم", "مساعد",
+    ...Object.keys(gameAliases), ...Object.values(gameAliases).flat(),
+  ];
+  return siteTerms.some((term) => normalized.includes(normalize(term))) ? "SITE" : "OUT_OF_SCOPE";
+}
+
+function casualAnswer(displayName: string, message: string) {
+  const normalized = normalize(message);
+  if (normalized.includes("صباح الخير")) return `صباح النور يا ${displayName} ☀️ كيف أساعدك في Zark اليوم؟`;
+  if (normalized.includes("مساء الخير")) return `مساء النور يا ${displayName} 🌙 شو حاب تعمل في Zark؟`;
+  if (normalized.includes("كيف حالك") || normalized.includes("شو اخبارك") || normalized.includes("شلونك")) return `تمام يا ${displayName}، وجاهز أساعدك في غرف LFG وأوامر Zark 😊`;
+  return `أهلًا يا ${displayName} 👋 اسألني عن غرف LFG أو ألعاب وأوامر Zark.`;
 }
 
 function normalize(value: string) {

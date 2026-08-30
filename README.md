@@ -86,6 +86,8 @@ Website ─────┘             │
 
 انسخ `.env.example` إلى `.env` واضبط:
 
+لشرح قيم شاشة Suggested Variables في Railway راجع [docs/railway-variables.md](docs/railway-variables.md).
+
 ```text
 DATABASE_URL
 REDIS_URL
@@ -103,14 +105,14 @@ DISCORD_REDIRECT_URI
 SESSION_SECRET
 INTERNAL_API_KEY
 ADMIN_ROLE_IDS
-OPENAI_API_KEY (اختياري)
-OPENAI_MODEL (اختياري)
-GEMINI_API_KEY (اختياري، وله الأولوية عند ضبطه)
-GEMINI_MODEL (اختياري)
+GEMINI_API_KEY + GEMINI_MODEL=gemini-2.5-flash (اختياري)
+GROQ_API_KEY + GROQ_MODEL=openai/gpt-oss-20b (اختياري)
+OPENROUTER_API_KEY + OPENROUTER_MODEL=openrouter/free (اختياري)
 ```
 
-عند ضبط `GEMINI_API_KEY` يستخدم مساعد Zark واجهة Gemini، مع رجوع تلقائي إلى
-`generateContent` إذا لم تكن Interactions API متاحة للمفتاح. يستطيع المستخدم تنفيذ
+يكفي ضبط مفتاح واحد. يستخدم مساعد Zark السلسلة المجانية بالترتيب:
+Gemini ثم Groq ثم OpenRouter Free، وعند فشلها كلها يبقى المساعد المحلي متاحًا.
+المحادثة محصورة في تحيات بسيطة وأسئلة الموقع والبوت وLFG. يستطيع المستخدم تنفيذ
 أوامر صريحة وآمنة من الشات مثل: `اعمل روم Minecraft لأربعة لاعبين` أو
 `ابلغ عن 123456789012345678 سبب الإساءة`. البلاغ يفتح تذكرة خاصة يمكن للمشتكي
 والإدارة متابعة محادثتها من الموقع، ويرسل البوت تنبيهًا إلى قناة البلاغات.
