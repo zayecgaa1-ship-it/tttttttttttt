@@ -729,7 +729,7 @@ if (!token) {
   function isDisboardBumpConfirmation(message: any) {
     const embedText = (message.embeds ?? []).flatMap((embed: any) => [embed.title, embed.description, embed.footer?.text, ...(embed.fields ?? []).flatMap((field: any) => [field.name, field.value])]).filter(Boolean).join(" ");
     const text = `${message.content ?? ""} ${embedText}`.toLocaleLowerCase("en").replace(/\s+/g, " ");
-    return /\bbump(?:ed)? done\b|\bserver (?:was )?bumped\b|تم (?:رفع|تحديث) السيرفر/.test(text);
+    return /\bbump(?:ed)? done\b|\bserver (?:was )?bumped\b|تم\s+(?:الرفع|رفع(?:\s+السيرفر)?|تحديث\s+السيرفر)/.test(text);
   }
 
   async function notifyInterestedPlayers(room: LiveRoom) {

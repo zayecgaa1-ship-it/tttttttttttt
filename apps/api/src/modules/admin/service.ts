@@ -190,10 +190,15 @@ export async function claimBumpReminder(guildId: string, intervalMinutes = 120) 
   const service = `bump-reminder:${guildId}`;
   return serializable(async (tx) => {
     const previous = await tx.serviceHeartbeat.findUnique({ where: { service } });
-    const due = !previous || Date.now() - previous.lastSeenAt.getTime() >= intervalMinutes * 60_000;
-    if (!due) return { claimed: false, nextAt: new Date(previous.lastSeenAt.getTime() + intervalMinutes * 60_000).toISOString() };
+    const metadata = previous?.metadata && typeof previous.metadata === "object" && !Array.isArray(previous.metadata) ? previous.metadata as Record<string, Prisma.JsonValue> : {};
+    const lastBumpAt = typeof metadata.lastBumpAt === "string" ? Date.parse(metadata.lastBumpAt) : Number.NaN;
+    if (!Number.isFinite(lastBumpAt)) return { claimed: false, nextAt: null, waitingForFirstBump: true };
+    const lastReminderAt = typeof metadata.lastReminderAt === "string" ? Date.parse(metadata.lastReminderAt) : Number.NaN;
+    const anchor = Number.isFinite(lastReminderAt) ? Math.max(lastBumpAt, lastReminderAt) : lastBumpAt;
+    const nextAt = anchor + intervalMinutes * 60_000;
+    if (Date.now() < nextAt) return { claimed: false, nextAt: new Date(nextAt).toISOString(), waitingForFirstBump: false };
     const claimedAt = new Date();
-    await tx.serviceHeartbeat.upsert({ where: { service }, update: { instanceId: "discord-bot", metadata: { claimedAt: claimedAt.toISOString(), intervalMinutes } }, create: { service, instanceId: "discord-bot", metadata: { claimedAt: claimedAt.toISOString(), intervalMinutes } } });
+    await tx.serviceHeartbeat.update({ where: { service }, data: { instanceId: "discord-bot", metadata: { ...metadata, lastReminderAt: claimedAt.toISOString(), intervalMinutes } } });
     return { claimed: true, claimedAt: claimedAt.toISOString(), nextAt: new Date(claimedAt.getTime() + intervalMinutes * 60_000).toISOString() };
   });
 }
@@ -203,8 +208,8 @@ export async function recordBumpCompleted(guildId: string, userId?: string) {
   const completedAt = new Date();
   await db.serviceHeartbeat.upsert({
     where: { service },
-    update: { instanceId: "disboard", metadata: { completedAt: completedAt.toISOString(), userId: userId ?? null, intervalMinutes: 120 } },
-    create: { service, instanceId: "disboard", metadata: { completedAt: completedAt.toISOString(), userId: userId ?? null, intervalMinutes: 120 } },
+    update: { instanceId: "disboard", metadata: { lastBumpAt: completedAt.toISOString(), lastReminderAt: null, userId: userId ?? null, intervalMinutes: 120 } },
+    create: { service, instanceId: "disboard", metadata: { lastBumpAt: completedAt.toISOString(), lastReminderAt: null, userId: userId ?? null, intervalMinutes: 120 } },
   });
   return { recorded: true, completedAt: completedAt.toISOString(), nextReminderAt: new Date(completedAt.getTime() + 120 * 60_000).toISOString() };
 }

@@ -13,11 +13,15 @@ try {
   await ensureSystemData();
   await db.user.upsert({ where: { id: adminId }, update: {}, create: { id: adminId, displayName: "Content Admin" } });
   await db.serviceHeartbeat.deleteMany({ where: { service: bumpService } });
-  assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, true);
-  assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, false);
+  const beforeFirstBump = await claimBumpReminder("zark-smoke-guild");
+  assert.equal(beforeFirstBump.claimed, false);
+  assert.equal(beforeFirstBump.waitingForFirstBump, true);
   const bumped = await recordBumpCompleted("zark-smoke-guild", adminId);
   assert.equal(bumped.recorded, true);
   assert.ok(new Date(bumped.nextReminderAt).getTime() - new Date(bumped.completedAt).getTime() === 120 * 60_000);
+  assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, false);
+  await db.serviceHeartbeat.update({ where: { service: bumpService }, data: { metadata: { lastBumpAt: new Date(Date.now() - 121 * 60_000).toISOString(), lastReminderAt: null, userId: adminId, intervalMinutes: 120 } } });
+  assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, true);
   assert.equal((await claimBumpReminder("zark-smoke-guild")).claimed, false);
   const created = await addGameQuestion({ adminId, gameSlug: "flags", prompt: "علم أي دولة هذا؟", acceptedAnswers: ["فلسطين"], difficulty: 2, enabled: true });
   questionId = created.id;
