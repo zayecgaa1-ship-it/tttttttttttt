@@ -31,7 +31,7 @@ let runtimeSettings: GuildRuntimeSettings = {
   tagline: brand.tagline,
   lfgChannelId: lfgListingChannelId,
   lfgCategoryId: process.env.DISCORD_LFG_CATEGORY_ID,
-  reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID ?? "14681947897814058",
+  reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID ?? "1467945220376363131",
   websiteUrl: process.env.PUBLIC_SITE_URL ?? "https://zark-ps.com",
   dmNotificationsEnabled: true,
   quickMatchEnabled: true,
@@ -464,7 +464,7 @@ if (!token) {
   }
 
   async function publishReportNotification(kind: "PLAYER" | "BUG", reportId: string, isReply: boolean) {
-    const channelId = runtimeSettings.reportChannelId || process.env.DISCORD_REPORT_CHANNEL_ID || "14681947897814058";
+    const channelId = runtimeSettings.reportChannelId || process.env.DISCORD_REPORT_CHANNEL_ID || "1467945220376363131";
     if (!channelId) return;
     const channel = await client.channels.fetch(channelId).catch((error) => {
       console.error(`Report channel ${channelId} unavailable`, error);

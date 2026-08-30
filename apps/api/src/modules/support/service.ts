@@ -41,14 +41,32 @@ export async function getSupportStatus(userId: string) {
   const aiConnected = Boolean(provider);
   return {
     enabled: settings.aiChatEnabled,
-    mode: aiConnected ? "AI" : "SMART_LOCAL",
+    mode: aiConnected ? "CONFIGURED" : "SMART_LOCAL",
     provider,
+    model: provider === "GEMINI" ? process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash" : provider === "OPENAI" ? process.env.OPENAI_MODEL?.trim() || "gpt-5-mini" : null,
+    setupRequired: !provider,
     dailyTokenBudget: settings.aiDailyTokenBudgetPerUser,
     usedTokens: aiConnected ? usedTokens : 0,
     remainingTokens: aiConnected ? Math.max(0, settings.aiDailyTokenBudgetPerUser - usedTokens) : settings.aiDailyTokenBudgetPerUser,
     requestsToday: usage?.requestCount ?? 0,
     remainingMessages: Math.max(0, settings.aiDailyMessagesPerUser - (usage?.requestCount ?? 0)),
   };
+}
+
+export async function diagnoseSupportAi(adminId: string) {
+  await enforceRateLimit("support-diagnostic", adminId, 3, 5 * 60);
+  const provider = configuredAiProvider();
+  if (!provider) return { configured: false, connected: false, provider: null, code: "MISSING_KEY", message: "GEMINI_API_KEY غير موجود في Railway Variables" };
+  try {
+    const result = provider === "GEMINI"
+      ? await askGemini("اختبار اتصال فقط. أجب بكلمة: متصل", "لا توجد حاجة لبيانات حية.", "متصل", 40)
+      : await askOpenAi("اختبار اتصال فقط. أجب بكلمة: متصل", "لا توجد حاجة لبيانات حية.", "متصل", 40);
+    if (!result.answer) throw new Error("empty provider response");
+    return { configured: true, connected: true, provider, code: "OK", message: `${provider} متصل ويرد بشكل صحيح` };
+  } catch (error) {
+    console.error("Zark AI diagnostic failed", error);
+    return { configured: true, connected: false, provider, code: "PROVIDER_ERROR", message: `${provider} مضبوط لكن الطلب فشل. تحقق من صلاحية المفتاح والـQuota واسم الموديل.` };
+  }
 }
 
 export async function askSupport(input: { userId: string; displayName: string; avatarUrl?: string; message: string }) {
@@ -67,7 +85,7 @@ export async function askSupport(input: { userId: string; displayName: string; a
     return { ...action, mode: "ACTION", provider: configuredAiProvider() ?? null, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget };
   }
   const provider = configuredAiProvider();
-  if (!provider) return { answer: localAnswer, mode: "SMART_LOCAL", provider: null, remainingTokens: settings.aiDailyTokenBudgetPerUser, tokenBudget: settings.aiDailyTokenBudgetPerUser, suggestions: context.suggestions };
+  if (!provider) return { answer: `${localAnswer}\n\n⚠️ Gemini غير مربوط حاليًا. أضف GEMINI_API_KEY داخل Variables في Railway ثم أعد نشر الخدمة.`, mode: "SMART_LOCAL", provider: null, setupRequired: true, aiError: false, remainingTokens: settings.aiDailyTokenBudgetPerUser, tokenBudget: settings.aiDailyTokenBudgetPerUser, suggestions: context.suggestions };
 
   let reservation: Awaited<ReturnType<typeof reserveDailyTokens>>;
   try {
@@ -75,7 +93,7 @@ export async function askSupport(input: { userId: string; displayName: string; a
   } catch (error) {
     if (!(error instanceof AiBudgetError)) throw error;
     const status = await getSupportStatus(input.userId);
-    return { answer: localAnswer, mode: "SMART_LOCAL", provider, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    return { answer: localAnswer, mode: "SMART_LOCAL", provider, setupRequired: false, aiError: false, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
   }
 
   try {
@@ -91,7 +109,7 @@ export async function askSupport(input: { userId: string; displayName: string; a
     await settleReservedTokens(input.userId, reservation.reservedTokens, 0, 0).catch(() => undefined);
     console.error("Zark AI support fallback", error);
     const status = await getSupportStatus(input.userId);
-    return { answer: localAnswer, mode: "SMART_LOCAL", provider, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    return { answer: `${localAnswer}\n\n⚠️ تعذر اتصال Gemini الآن، لذلك استخدمت الرد المحلي. راجع GEMINI_API_KEY وGEMINI_MODEL في Railway.`, mode: "SMART_LOCAL", provider, setupRequired: false, aiError: true, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
   }
 }
 
@@ -105,10 +123,10 @@ function configuredAiProvider(): "GEMINI" | "OPENAI" | undefined {
 
 async function askGemini(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
   try {
-    return await askGeminiInteractions(message, summary, localAnswer, maxOutputTokens);
+    return await askGeminiGenerateContent(message, summary, localAnswer, maxOutputTokens);
   } catch (error) {
-    console.warn("Gemini Interactions unavailable; trying generateContent", error instanceof Error ? error.message : error);
-    return askGeminiGenerateContent(message, summary, localAnswer, maxOutputTokens);
+    console.warn("Gemini generateContent unavailable; trying Interactions", error instanceof Error ? error.message : error);
+    return askGeminiInteractions(message, summary, localAnswer, maxOutputTokens);
   }
 }
 
@@ -149,7 +167,7 @@ async function askGeminiGenerateContent(message: string, summary: string, localA
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: supportInstructions }] },
       contents: [{ role: "user", parts: [{ text: supportPrompt(message, summary, localAnswer) }] }],
-      generationConfig: { maxOutputTokens, temperature: 0.3 },
+      generationConfig: { maxOutputTokens, temperature: 0.3, ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {}) },
     }),
     signal: AbortSignal.timeout(20_000),
   });

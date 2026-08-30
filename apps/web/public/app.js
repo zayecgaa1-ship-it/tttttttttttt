@@ -6,6 +6,8 @@ let roomFilter = 'all';
 let roomSearch = '';
 let activeUserTicket;
 let activeAdminTicket;
+let reportPresenceTimer;
+let reportPresenceBound=false;
 const roomSearchAliases={
   minecraft:['minecraft','ماينكرافت','ماين كرافت','माइनक्राफ्ट','майнкрафт'],
   roblox:['roblox','روبلوكس','روب لوكس','रोब्लॉक्स'],
@@ -41,7 +43,7 @@ function renderShell() {
   $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}</div></div></div>`;
   $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
   if(me&&!$('zark-ai-widget')){
-    document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد Zark"><img src="/assets/zark-bot-avatar.png" alt=""><span>اسأل Zark</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/zark-bot-avatar.png" alt=""><div><b>مساعد Zark</b><small id="floating-ai-status">دعم ذكي</small></div><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
+    document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد Zark"><img src="/assets/zark-bot-avatar.png" alt=""><span>اسأل Zark</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/zark-bot-avatar.png" alt=""><div><b>مساعد Zark</b><small id="floating-ai-status">دعم ذكي</small></div><button id="floating-ai-clear" type="button" title="حذف المحادثة">🗑️</button><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
     bindFloatingSupport().catch(console.error);
   }
 }
@@ -198,10 +200,12 @@ async function renderReports(){
   if(!me){['support-chat-form','bug-form','player-report-form'].forEach(id=>$(id).innerHTML='<div class="auth-gate compact"><p>سجّل عبر Discord لاستخدام الدعم.</p><a class="button primary" href="/auth/discord">تسجيل الدخول</a></div>');return;}
   const support=await api('/api/me/support/status');
   $('support-ai-status').textContent=supportTokenLabel(support);
+  $('support-ai-clear').onclick=()=>{if(!confirm('حذف محادثة مساعد Zark من هذه الصفحة؟'))return;$('support-chat-log').innerHTML='<article class="chat-message assistant">تم مسح المحادثة. كيف أقدر أساعدك الآن؟</article>';$('support-suggestions').innerHTML='';};
   $('support-chat-form').onsubmit=async event=>{event.preventDefault();const input=$('support-chat-input');const message=input.value.trim();if(!message)return;appendChat(message,'user');input.value='';input.disabled=true;try{const reply=await api('/api/me/support/chat',{method:'POST',body:{message}});appendChat(reply.answer,'assistant');$('support-ai-status').textContent=supportTokenLabel(reply);$('support-suggestions').innerHTML=(reply.suggestions||[]).map(item=>`<button data-support-room="${item.roomId}">${escapeHtml(item.label)}</button>`).join('');document.querySelectorAll('[data-support-room]').forEach(button=>button.onclick=()=>location.href=`/lfg.html?room=${button.dataset.supportRoom}`);}catch(error){appendChat(error.message,'assistant error');}finally{input.disabled=false;input.focus();}};
   $('bug-form').onsubmit=async event=>{event.preventDefault();const result=$('bug-result');result.textContent='جارِ فتح التذكرة...';try{const report=await api('/api/me/reports/bug',{method:'POST',body:{title:$('bug-title').value,description:$('bug-description').value,context:'Website'}});event.target.reset();result.textContent='✅ تم فتح تذكرة الخطأ وإرسالها للإدارة.';await loadMyReports();await openMyReport('BUG',report.id);}catch(error){result.textContent=`❌ ${error.message}`;}};
   $('player-report-form').onsubmit=async event=>{event.preventDefault();const result=$('report-result');result.textContent='جارِ فتح التذكرة...';try{const report=await api('/api/me/reports/player',{method:'POST',body:{reportedId:$('reported-id').value,roomId:$('reported-room').value||undefined,reason:$('reported-reason').value,description:$('reported-description').value||undefined}});event.target.reset();result.textContent='✅ تم فتح البلاغ بسرية وإرسال تنبيه للإدارة.';await loadMyReports();await openMyReport('PLAYER',report.id);}catch(error){result.textContent=`❌ ${error.message}`;}};
   await loadMyReports();
+  bindReportPresenceLifecycle();
   const query=new URLSearchParams(location.search),kind=query.get('reportKind'),id=query.get('reportId');
   if((kind==='PLAYER'||kind==='BUG')&&id)await openMyReport(kind,id).catch(()=>undefined);
 }
@@ -214,7 +218,11 @@ async function loadMyReports(){
 }
 
 async function openMyReport(kind,id){
+  if(activeUserTicket&&(activeUserTicket.kind!==kind||activeUserTicket.id!==id))await setMyReportPresence(false,activeUserTicket);
   const thread=await api(`/api/me/reports/${kind}/${id}`);activeUserTicket={kind,id};renderTicketThread(thread,'my');
+  history.replaceState(null,'',`${location.pathname}?reportKind=${kind}&reportId=${encodeURIComponent(id)}`);
+  await setMyReportPresence(true);
+  clearInterval(reportPresenceTimer);reportPresenceTimer=setInterval(()=>{if(activeUserTicket&&document.visibilityState==='visible')setMyReportPresence(true).catch(()=>undefined);},25000);
   const closed=kind==='PLAYER'?['RESOLVED','REJECTED','DISMISSED'].includes(thread.status):['RESOLVED','CLOSED'].includes(thread.status);
   $('my-report-reply').hidden=closed;$('my-report-result').textContent=closed?'هذه التذكرة مغلقة.':'';
   $('my-report-reply').onsubmit=async event=>{event.preventDefault();const input=$('my-report-message'),result=$('my-report-result');result.textContent='جارِ إرسال الرسالة...';try{const updated=await api(`/api/me/reports/${kind}/${id}/messages`,{method:'POST',body:{message:input.value}});input.value='';renderTicketThread(updated,'my');result.textContent='✅ وصلت رسالتك إلى الإدارة.';await loadMyReports();}catch(error){result.textContent=`❌ ${error.message}`;}};
@@ -223,8 +231,9 @@ async function openMyReport(kind,id){
 function appendChat(message,type){const article=document.createElement('article');article.className=`chat-message ${type}`;article.textContent=message;$('support-chat-log').appendChild(article);$('support-chat-log').scrollTop=$('support-chat-log').scrollHeight;}
 
 async function bindFloatingSupport(){
-  const panel=$('zark-ai-panel'),fab=$('zark-ai-fab'),close=$('zark-ai-close'),form=$('floating-ai-form'),input=$('floating-ai-input'),log=$('floating-ai-log'),status=$('floating-ai-status');
+  const panel=$('zark-ai-panel'),fab=$('zark-ai-fab'),close=$('zark-ai-close'),clear=$('floating-ai-clear'),form=$('floating-ai-form'),input=$('floating-ai-input'),log=$('floating-ai-log'),status=$('floating-ai-status');
   fab.onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden)input.focus()};close.onclick=()=>panel.hidden=true;
+  clear.onclick=()=>{if(!confirm('حذف محادثة مساعد Zark؟'))return;log.innerHTML=`<article class="chat-message assistant">تم مسح المحادثة. كيف أقدر أساعدك يا ${escapeHtml(me.displayName)}؟</article>`;};
   try{const support=await api('/api/me/support/status');status.textContent=supportTokenLabel(support);}catch{status.textContent='الدعم متاح';}
   form.onsubmit=async event=>{event.preventDefault();const message=input.value.trim();if(!message)return;floatingChatMessage(log,message,'user');input.value='';input.disabled=true;try{const reply=await api('/api/me/support/chat',{method:'POST',body:{message}});floatingChatMessage(log,reply.answer,'assistant');status.textContent=supportTokenLabel(reply);}catch(error){floatingChatMessage(log,error.message,'assistant error');}finally{input.disabled=false;input.focus();}};
 }
@@ -241,7 +250,7 @@ async function bindAdmin(){
     const stats=dashboard.stats;
     $('admin-stats').innerHTML=statCards([[stats.users,'مستخدم'],[stats.openRooms,'غرفة مفتوحة'],[stats.completedRooms,'جلسة مكتملة'],[stats.pendingReports+stats.openBugs,'بلاغ يحتاج مراجعة']]);
     $('admin-system-status').textContent=dashboard.system.botOnline?'● البوت Online':'● البوت Offline';$('admin-system-status').classList.toggle('offline',!dashboard.system.botOnline);
-    $('admin-service-grid').innerHTML=[['API',dashboard.system.apiOnline],['PostgreSQL',dashboard.system.databaseOnline],['Discord Bot',dashboard.system.botOnline]].map(([name,online])=>`<article><span class="service-dot ${online?'online':'offline'}"></span><b>${name}</b><small>${online?'متصل':'غير متصل'}</small></article>`).join('');
+    $('admin-service-grid').innerHTML=[['API',dashboard.system.apiOnline,'متصل'],['PostgreSQL',dashboard.system.databaseOnline,'متصل'],['Discord Bot',dashboard.system.botOnline,'متصل'],[dashboard.system.aiProvider||'Gemini',dashboard.system.aiConfigured,dashboard.system.aiConfigured?'المفتاح مضبوط':'GEMINI_API_KEY غير موجود']].map(([name,online,label])=>`<article><span class="service-dot ${online?'online':'offline'}"></span><b>${name}</b><small>${online?label:label||'غير متصل'}</small></article>`).join('');
     $('admin-active-rooms').innerHTML=dashboard.activeRooms.length?dashboard.activeRooms.map(room=>`<article class="admin-room"><div><b>${escapeHtml(room.gameIcon||'🎮')} ${escapeHtml(room.gameName)}</b><small class="host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')} ${escapeHtml(room.hostName)} · ${room.currentPlayers}/${room.maxPlayers} · ${escapeHtml(room.status)}</small><div class="room-players">${room.members.map(member=>`<span class="room-player">${avatar(member.avatarUrl,member.displayName,'mini')}${escapeHtml(member.displayName)}</span>`).join('')}</div></div><button class="button danger small" data-admin-close-room="${room.id}">إغلاق</button></article>`).join(''):empty('لا توجد غرف نشطة الآن.');
     document.querySelectorAll('[data-admin-close-room]').forEach(button=>button.onclick=async()=>{if(!confirm('إغلاق هذه الغرفة؟'))return;await api(`/api/web-admin/lfg/${button.dataset.adminCloseRoom}/close`,{method:'POST'});await bindAdmin();});
     fillAdminSettings(dashboard.settings);
@@ -261,6 +270,7 @@ async function bindAdmin(){
     const result=$('admin-settings-result');result.textContent='جارِ تطبيق الإعدادات...';
     try{const saved=await api('/api/web-admin/settings',{method:'PUT',body});fillAdminSettings(saved);result.textContent='✅ تم الحفظ والتطبيق على البوت فورًا.';}catch(error){result.textContent=`❌ ${error.message}`;}
   };
+  $('admin-ai-test').onclick=async()=>{const result=$('admin-ai-test-result');result.textContent='جارِ اختبار اتصال Gemini...';try{const status=await api('/api/web-admin/ai/diagnostics',{method:'POST'});result.textContent=status.connected?`✅ ${status.message}`:`❌ ${status.message}`;}catch(error){result.textContent=`❌ ${error.message}`;}};
   $('admin-lfg-form').onsubmit=async event=>{event.preventDefault();await submitForm(`/api/web-admin/lfg/games/${$('admin-game-slug').value}` ,{name:$('admin-game-name').value,description:$('admin-game-description').value||undefined,icon:$('admin-game-icon').value||undefined,categorySlug:$('admin-game-category').value||undefined,minPlayers:Number($('admin-game-min').value),maxPlayers:Number($('admin-game-max').value),enabled:true},$('admin-game-result'),'PUT');};
   $('admin-question-form').onsubmit=async event=>{event.preventDefault();await submitForm(`/api/web-admin/zark-games/${$('admin-question-game').value}/questions`,{prompt:$('admin-question-prompt').value,acceptedAnswers:$('admin-question-answers').value.split(',').map(item=>item.trim()).filter(Boolean),mediaUrl:$('admin-question-media').value,difficulty:Number($('admin-question-difficulty').value)},$('admin-question-result'));};
 }
@@ -287,13 +297,18 @@ function ticketListItem(report,prefix){
 function renderTicketThread(thread,prefix){
   const section=$(prefix==='admin'?'admin-report-thread':'my-report-thread');section.hidden=false;
   const target=thread.reported?`<span>${avatar(thread.reported.avatarUrl,thread.reported.displayName,'mini')} ضد ${escapeHtml(thread.reported.displayName)}</span>`:'';
-  $(prefix==='admin'?'admin-report-head':'my-report-head').innerHTML=`<div><span class="eyebrow">${thread.kind==='PLAYER'?'PLAYER REPORT':'BUG REPORT'} · #${escapeHtml(thread.id.slice(-8).toUpperCase())}</span><h2>${escapeHtml(thread.title)}</h2><p>${avatar(thread.reporter.avatarUrl,thread.reporter.displayName,'mini')} المشتكي: ${escapeHtml(thread.reporter.displayName)} ${target}</p>${thread.description?`<small>${escapeHtml(thread.description)}</small>`:''}</div><span class="badge-red">${escapeHtml(reportStatusLabel(thread.status))}</span>`;
+  $(prefix==='admin'?'admin-report-head':'my-report-head').innerHTML=`<div><span class="eyebrow">${thread.kind==='PLAYER'?'PLAYER REPORT':'BUG REPORT'} · #${escapeHtml(thread.id.slice(-8).toUpperCase())}</span><h2>${escapeHtml(thread.title)}</h2><p>${avatar(thread.reporter.avatarUrl,thread.reporter.displayName,'mini')} المشتكي: ${escapeHtml(thread.reporter.displayName)} ${target}</p>${thread.description?`<small>${escapeHtml(thread.description)}</small>`:''}</div><div class="ticket-head-actions"><span class="badge-red">${escapeHtml(reportStatusLabel(thread.status))}</span>${prefix==='my'?'<button id="my-report-close" class="icon-button" type="button" title="الخروج من التذكرة">×</button>':''}</div>`;
   const container=$(prefix==='admin'?'admin-report-messages':'my-report-messages');
   container.innerHTML=thread.messages?.length?thread.messages.map(message=>`<article class="ticket-message ${message.authorRole.toLowerCase()}"><header><b>${message.authorRole==='ADMIN'?'🛡️ الإدارة':'👤 '+escapeHtml(message.authorName)}</b><time>${new Date(message.createdAt).toLocaleString('ar')}</time></header><p>${escapeHtml(message.message)}</p></article>`).join(''):empty('لا توجد رسائل بعد. اكتب أول رسالة في التذكرة.');
   container.scrollTop=container.scrollHeight;
+  if(prefix==='my')bindMyTicketClose();
 }
 
 function reportStatusLabel(status){return({PENDING:'بانتظار المراجعة',REVIEWED:'قيد المراجعة',OPEN:'مفتوح',IN_PROGRESS:'جارِ العمل',RESOLVED:'تم الحل',REJECTED:'مرفوض',DISMISSED:'مغلق',CLOSED:'مغلق'})[status]||status;}
+
+async function setMyReportPresence(active,ticket=activeUserTicket){if(!ticket)return;await api(`/api/me/reports/${ticket.kind}/${ticket.id}/presence`,{method:'POST',body:{active},keepalive:!active});}
+function bindReportPresenceLifecycle(){if(reportPresenceBound)return;reportPresenceBound=true;document.addEventListener('visibilitychange',()=>{if(activeUserTicket)setMyReportPresence(document.visibilityState==='visible').catch(()=>undefined);});window.addEventListener('pagehide',()=>{if(activeUserTicket)setMyReportPresence(false).catch(()=>undefined);});}
+function bindMyTicketClose(){const button=$('my-report-close');if(!button)return;button.onclick=async()=>{await setMyReportPresence(false).catch(()=>undefined);activeUserTicket=undefined;clearInterval(reportPresenceTimer);$('my-report-thread').hidden=true;history.replaceState(null,'',location.pathname);};}
 
 function fillAdminSettings(settings){
   $('setting-bot-name').value=settings.botName||'';$('setting-tagline').value=settings.tagline||'';
@@ -314,7 +329,7 @@ function gameIcon(slug){return {'translate':'🌐','flags':'🚩','capitals':'�
 function normalizeRoomSearch(value){return String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim()}
 function smartRoomMatch(room,query){if(!query)return true;const canonical=Object.entries(roomSearchAliases).find(([,aliases])=>aliases.some(alias=>{const normalized=normalizeRoomSearch(alias);return query.includes(normalized)||normalized.includes(query)}))?.[0];const haystack=normalizeRoomSearch([room.id,room.gameName,room.gameSlug,room.hostName,room.title,room.gameMode,room.mapName,room.description,...(room.members||[]).map(member=>member.displayName)].filter(Boolean).join(' '));return haystack.includes(query)||(canonical&&room.gameSlug===canonical)}
 function availabilityText(value){return{FREE:'🟢 فاضي للعب',PLAYING:'🎮 ألعب الآن',STUDYING:'📚 أدرس',WORKING:'💼 أعمل',BUSY:'⛔ مشغول',AWAY:'🌙 غير متاح'}[value]||'غير محدد'}
-function supportTokenLabel(status){const provider=status.provider==='GEMINI'?'Gemini':status.provider==='OPENAI'?'OpenAI':'AI';return status.mode==='AI'?`${provider} متصل · متبقي ${formatValue(status.remainingTokens)}/${formatValue(status.tokenBudget||status.dailyTokenBudget)} Token`:'دعم ذكي محلي مفتوح بلا تكلفة'}
+function supportTokenLabel(status){const provider=status.provider==='GEMINI'?'Gemini':status.provider==='OPENAI'?'OpenAI':'AI';if(status.mode==='AI')return`${provider} متصل · متبقي ${formatValue(status.remainingTokens)}/${formatValue(status.tokenBudget||status.dailyTokenBudget)} Token`;if(status.mode==='ACTION')return`نفّذ Zark الطلب · ${provider==='AI'?'بدون AI':provider}`;if(status.aiError)return`تعذر اتصال ${provider} · الرد المحلي يعمل`;if(status.setupRequired||!status.provider)return'Gemini غير مربوط — أضف GEMINI_API_KEY في Railway';return`${provider} مضبوط · جاهز للرد`}
 function empty(message){return `<div class="empty-state">${escapeHtml(message)}</div>`}
 function formatValue(value){return typeof value==='number'?new Intl.NumberFormat('ar').format(value):value??0}
 function formatDuration(seconds){const value=Math.max(0,Number(seconds)||0);const hours=Math.floor(value/3600);const minutes=Math.floor((value%3600)/60);return hours?`${hours}س ${minutes}د`:`${minutes} دقيقة`}
@@ -327,5 +342,5 @@ function countdownTo(date){const minutes=Math.ceil((new Date(date).getTime()-Dat
 function timeAgo(date){const minutes=Math.max(1,Math.floor((Date.now()-new Date(date).getTime())/60000));return minutes<60?`منذ ${minutes}د`:`منذ ${Math.floor(minutes/60)}س`}
 function avatar(url,name,size='mini'){const cls=`discord-avatar ${size}`;return url?`<img class="${cls}" src="${escapeHtml(url)}" alt="${escapeHtml(name||'Discord')}">`:`<span class="${cls} avatar-fallback">${escapeHtml(String(name||'Z').slice(0,1).toUpperCase())}</span>`}
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
-async function api(path,options={}){const response=await fetch(path,{method:options.method||'GET',credentials:'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined});const text=await response.text();let body;try{body=text?JSON.parse(text):null}catch{body={error:text}}if(!response.ok)throw new Error(body?.error||'تعذر تنفيذ الطلب');return body;}
+async function api(path,options={}){const response=await fetch(path,{method:options.method||'GET',credentials:'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined,keepalive:Boolean(options.keepalive)});const text=await response.text();let body;try{body=text?JSON.parse(text):null}catch{body={error:text}}if(!response.ok)throw new Error(body?.error||'تعذر تنفيذ الطلب');return body;}
 function showFatal(error){console.error(error);const target=document.querySelector('main');if(target)target.insertAdjacentHTML('afterbegin',`<div class="shell"><div class="empty-state">تعذر الاتصال بـZark API: ${escapeHtml(error.message)}</div></div>`)}

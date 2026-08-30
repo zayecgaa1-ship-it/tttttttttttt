@@ -110,6 +110,25 @@ export async function getReportThreadForAdmin(kind: ReportKind, reportId: string
   return loadReportThread(kind, reportId);
 }
 
+export async function setReportPresence(kind: ReportKind, reportId: string, userId: string, active: boolean) {
+  const now = new Date();
+  const data = active
+    ? { reporterViewingUntil: new Date(now.getTime() + 45_000), reporterNotificationPending: false, reporterLastReadAt: now }
+    : { reporterViewingUntil: null };
+  if (kind === "PLAYER") {
+    const report = await db.report.findUnique({ where: { id: reportId }, select: { reporterId: true } });
+    if (!report) throw notFound("البلاغ غير موجود");
+    if (report.reporterId !== userId) throw forbidden("لا يمكنك تحديث حضور تذكرة لا تخصك");
+    await db.report.update({ where: { id: reportId }, data });
+  } else {
+    const report = await db.bugReport.findUnique({ where: { id: reportId }, select: { reporterId: true } });
+    if (!report) throw notFound("تقرير الخطأ غير موجود");
+    if (report.reporterId !== userId) throw forbidden("لا يمكنك تحديث حضور تذكرة لا تخصك");
+    await db.bugReport.update({ where: { id: reportId }, data });
+  }
+  return { active, viewingUntil: active ? data.reporterViewingUntil : null };
+}
+
 export async function addReportMessage(input: { kind: ReportKind; reportId: string; authorId: string; authorName: string; authorRole: "USER" | "ADMIN"; message: string }) {
   if (input.authorRole === "USER") await enforceRateLimit("report-message", input.authorId, 20, 10 * 60);
   const message = input.message.trim().slice(0, 2000);
@@ -122,38 +141,42 @@ export async function addReportMessage(input: { kind: ReportKind; reportId: stri
       if (input.authorRole === "USER" && report.reporterId !== input.authorId) throw forbidden("لا يمكنك الرد على هذا البلاغ");
       if (["RESOLVED", "REJECTED", "DISMISSED"].includes(report.status)) throw new Error("هذه التذكرة مغلقة ولا تقبل رسائل جديدة");
       await tx.reportMessage.create({ data: { playerReportId: report.id, authorId: input.authorId, authorName: input.authorName, authorRole: input.authorRole, message } });
-      if (input.authorRole === "ADMIN" && report.status === "PENDING") await tx.report.update({ where: { id: report.id }, data: { status: "REVIEWED" } });
-      return input.authorRole === "ADMIN" ? report.reporterId : undefined;
+      const notifyOwner = input.authorRole === "ADMIN" && !(report.reporterViewingUntil && report.reporterViewingUntil.getTime() > Date.now()) && !report.reporterNotificationPending;
+      if (input.authorRole === "ADMIN") await tx.report.update({ where: { id: report.id }, data: { status: report.status === "PENDING" ? "REVIEWED" : report.status, reporterNotificationPending: notifyOwner || report.reporterNotificationPending } });
+      return notifyOwner ? report.reporterId : undefined;
     }
     const report = await tx.bugReport.findUnique({ where: { id: input.reportId } });
     if (!report) throw notFound("تقرير الخطأ غير موجود");
     if (input.authorRole === "USER" && report.reporterId !== input.authorId) throw forbidden("لا يمكنك الرد على هذا البلاغ");
     if (["RESOLVED", "CLOSED"].includes(report.status)) throw new Error("هذه التذكرة مغلقة ولا تقبل رسائل جديدة");
     await tx.reportMessage.create({ data: { bugReportId: report.id, authorId: input.authorId, authorName: input.authorName, authorRole: input.authorRole, message } });
-    if (input.authorRole === "ADMIN" && report.status === "OPEN") await tx.bugReport.update({ where: { id: report.id }, data: { status: "IN_PROGRESS" } });
-    return input.authorRole === "ADMIN" ? report.reporterId : undefined;
+    const notifyOwner = input.authorRole === "ADMIN" && !(report.reporterViewingUntil && report.reporterViewingUntil.getTime() > Date.now()) && !report.reporterNotificationPending;
+    if (input.authorRole === "ADMIN") await tx.bugReport.update({ where: { id: report.id }, data: { status: report.status === "OPEN" ? "IN_PROGRESS" : report.status, reporterNotificationPending: notifyOwner || report.reporterNotificationPending } });
+    return notifyOwner ? report.reporterId : undefined;
   });
   publish({ type: "report.message_created", reportId: input.reportId, reportKind: input.kind, authorId: input.authorId, recipientId, authorRole: input.authorRole });
   return input.authorRole === "ADMIN" ? getReportThreadForAdmin(input.kind, input.reportId) : getReportThreadForUser(input.kind, input.reportId, input.authorId);
 }
 
 export async function updateReportStatus(input: { kind: ReportKind; reportId: string; adminId: string; adminName: string; status: string }) {
-  const reporterId = await serializable(async (tx) => {
+  const notification = await serializable(async (tx) => {
     await tx.user.upsert({ where: { id: input.adminId }, update: { displayName: input.adminName }, create: { id: input.adminId, displayName: input.adminName } });
     if (input.kind === "PLAYER") {
       const report = await tx.report.findUniqueOrThrow({ where: { id: input.reportId } });
       const status = input.status as "PENDING" | "REVIEWED" | "RESOLVED" | "REJECTED" | "DISMISSED";
-      await tx.report.update({ where: { id: report.id }, data: { status, resolvedBy: ["RESOLVED", "REJECTED", "DISMISSED"].includes(status) ? input.adminId : null, resolvedAt: ["RESOLVED", "REJECTED", "DISMISSED"].includes(status) ? new Date() : null } });
+      const notifyOwner = !(report.reporterViewingUntil && report.reporterViewingUntil.getTime() > Date.now()) && !report.reporterNotificationPending;
+      await tx.report.update({ where: { id: report.id }, data: { status, resolvedBy: ["RESOLVED", "REJECTED", "DISMISSED"].includes(status) ? input.adminId : null, resolvedAt: ["RESOLVED", "REJECTED", "DISMISSED"].includes(status) ? new Date() : null, reporterNotificationPending: notifyOwner || report.reporterNotificationPending } });
       await tx.auditLog.create({ data: { adminId: input.adminId, action: "report.status_changed", targetId: report.id, details: { kind: input.kind, status } } });
-      return report.reporterId;
+      return { reporterId: report.reporterId, notifyOwner };
     }
     const report = await tx.bugReport.findUniqueOrThrow({ where: { id: input.reportId } });
     const status = input.status as "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
-    await tx.bugReport.update({ where: { id: report.id }, data: { status, resolvedBy: ["RESOLVED", "CLOSED"].includes(status) ? input.adminId : null, resolvedAt: ["RESOLVED", "CLOSED"].includes(status) ? new Date() : null } });
+    const notifyOwner = !(report.reporterViewingUntil && report.reporterViewingUntil.getTime() > Date.now()) && !report.reporterNotificationPending;
+    await tx.bugReport.update({ where: { id: report.id }, data: { status, resolvedBy: ["RESOLVED", "CLOSED"].includes(status) ? input.adminId : null, resolvedAt: ["RESOLVED", "CLOSED"].includes(status) ? new Date() : null, reporterNotificationPending: notifyOwner || report.reporterNotificationPending } });
     await tx.auditLog.create({ data: { adminId: input.adminId, action: "report.status_changed", targetId: report.id, details: { kind: input.kind, status } } });
-    return report.reporterId;
+    return { reporterId: report.reporterId, notifyOwner };
   });
-  publish({ type: "report.status_changed", reportId: input.reportId, reportKind: input.kind, adminId: input.adminId, status: input.status, reporterId });
+  publish({ type: "report.status_changed", reportId: input.reportId, reportKind: input.kind, adminId: input.adminId, status: input.status, reporterId: notification.notifyOwner ? notification.reporterId : undefined });
   return getReportThreadForAdmin(input.kind, input.reportId);
 }
 

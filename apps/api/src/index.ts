@@ -13,9 +13,9 @@ import { closeEvents, initEvents, subscribe } from "./events.js";
 import { answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
-import { addReportMessage, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, updateReportStatus } from "./modules/feedback/service.js";
+import { addReportMessage, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, createLfgCategory, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, recordServiceHeartbeat, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
-import { askSupport, getSupportStatus } from "./modules/support/service.js";
+import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true });
@@ -172,6 +172,12 @@ app.post("/api/me/reports/:kind/:id/messages", async (request) => {
   const body = z.object({ message: z.string().min(1).max(2000) }).parse(request.body);
   return addReportMessage({ kind: params.kind, reportId: params.id, authorId: user.userId, authorName: user.displayName, authorRole: "USER", message: body.message });
 });
+app.post("/api/me/reports/:kind/:id/presence", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  const body = z.object({ active: z.boolean() }).parse(request.body);
+  return setReportPresence(params.kind, params.id, user.userId, body.active);
+});
 app.get("/api/me/support/status", async (request) => getSupportStatus((await requireWebUser(request)).userId));
 app.post("/api/me/support/chat", async (request) => {
   const user = await requireWebUser(request);
@@ -213,6 +219,10 @@ app.put("/api/web-admin/settings", async (request) => {
     aiMaxOutputTokens: z.number().int().min(50).max(1000),
   }).parse(request.body);
   return updateGuildRuntimeSettings(admin.userId, body);
+});
+app.post("/api/web-admin/ai/diagnostics", async (request) => {
+  const admin = await requireWebAdmin(request);
+  return diagnoseSupportAi(admin.userId);
 });
 app.post("/api/web-admin/lfg/:id/close", async (request) => {
   const admin = await requireWebAdmin(request);

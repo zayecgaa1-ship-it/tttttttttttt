@@ -43,7 +43,7 @@
             <label>القناة العامة<input id="setting-public-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
             <label>قناة التحدي اليومي<input id="setting-daily-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
             <label>قناة التصنيف<input id="setting-leaderboard-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
-            <label>قناة تنبيهات البلاغات<input id="setting-report-channel" inputmode="numeric" placeholder="14681947897814058"></label>
+            <label>قناة تنبيهات البلاغات<input id="setting-report-channel" inputmode="numeric" placeholder="1467945220376363131"></label>
             <label>رابط موقع Zark<input id="setting-website-url" type="url" placeholder="https://zark-ps.com"></label>
           </div>
           <h3>الأنظمة</h3>
@@ -69,6 +69,7 @@
             <label>Tokens العامة يوميًا<input id="setting-ai-global-limit" type="number" min="10000" max="1000000" step="1000" required></label>
             <label>أقصى طول للرد Tokens<input id="setting-ai-output" type="number" min="50" max="1000" required></label>
           </div>
+          <div class="room-manager-actions"><button id="admin-ai-test" class="button ghost" type="button">اختبار اتصال Gemini</button><span id="admin-ai-test-result" class="form-result"></span></div>
           <button class="button primary" type="submit">حفظ وتطبيق الإعدادات</button>
           <p id="admin-settings-result" class="form-result"></p>
         </form>

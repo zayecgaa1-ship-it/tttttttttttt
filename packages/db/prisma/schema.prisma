@@ -485,20 +485,23 @@ model LfgRoomRating {
 }
 
 model Report {
-  id          String          @id @default(cuid())
-  reporterId  String
-  reportedId  String
-  sessionId   String?
-  reason      String
-  description String?
-  status      ReportStatus    @default(PENDING)
-  resolvedBy  String?
-  resolvedAt  DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  reporter    User            @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
-  reported    User            @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
-  messages    ReportMessage[]
+  id                          String          @id @default(cuid())
+  reporterId                  String
+  reportedId                  String
+  sessionId                   String?
+  reason                      String
+  description                 String?
+  status                      ReportStatus    @default(PENDING)
+  resolvedBy                  String?
+  resolvedAt                  DateTime?
+  reporterViewingUntil        DateTime?
+  reporterNotificationPending Boolean         @default(false)
+  reporterLastReadAt          DateTime?
+  createdAt                   DateTime        @default(now())
+  updatedAt                   DateTime        @updatedAt
+  reporter                    User            @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported                    User            @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+  messages                    ReportMessage[]
 
   @@index([reportedId, status, createdAt])
   @@index([reporterId, createdAt])
@@ -506,18 +509,21 @@ model Report {
 }
 
 model BugReport {
-  id          String          @id @default(cuid())
-  reporterId  String
-  title       String
-  description String
-  context     String?
-  status      BugReportStatus @default(OPEN)
-  resolvedBy  String?
-  resolvedAt  DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  reporter    User            @relation(fields: [reporterId], references: [id], onDelete: Cascade)
-  messages    ReportMessage[]
+  id                          String          @id @default(cuid())
+  reporterId                  String
+  title                       String
+  description                 String
+  context                     String?
+  status                      BugReportStatus @default(OPEN)
+  resolvedBy                  String?
+  resolvedAt                  DateTime?
+  reporterViewingUntil        DateTime?
+  reporterNotificationPending Boolean         @default(false)
+  reporterLastReadAt          DateTime?
+  createdAt                   DateTime        @default(now())
+  updatedAt                   DateTime        @updatedAt
+  reporter                    User            @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  messages                    ReportMessage[]
 
   @@index([status, createdAt])
   @@index([reporterId, createdAt])

@@ -25,7 +25,7 @@ export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
         lfgCategoryId: process.env.DISCORD_LFG_CATEGORY_ID || null,
         publicChannelId: process.env.DISCORD_PUBLIC_CHANNEL_ID || null,
         dailyChannelId: process.env.DISCORD_DAILY_CHANNEL_ID || null,
-        reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID || "14681947897814058",
+        reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID || "1467945220376363131",
         websiteUrl: process.env.PUBLIC_SITE_URL || "https://zark-ps.com",
       },
     }),
@@ -39,7 +39,7 @@ export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
     publicChannelId: settings.publicChannelId ?? undefined,
     dailyChannelId: settings.dailyChannelId ?? undefined,
     leaderboardChannelId: settings.leaderboardChannelId ?? undefined,
-    reportChannelId: settings.reportChannelId ?? process.env.DISCORD_REPORT_CHANNEL_ID ?? "14681947897814058",
+    reportChannelId: resolveReportChannel(settings.reportChannelId ?? process.env.DISCORD_REPORT_CHANNEL_ID),
     websiteUrl: settings.websiteUrl || process.env.PUBLIC_SITE_URL || "https://zark-ps.com",
     dmNotificationsEnabled: settings.dmNotificationsEnabled,
     quickMatchEnabled: settings.quickMatchEnabled,
@@ -146,9 +146,10 @@ export async function getAdminDashboard() {
     }),
   ]);
   const botOnline = Boolean(botHeartbeat && Date.now() - botHeartbeat.lastSeenAt.getTime() < 75_000);
+  const aiProvider = process.env.GEMINI_API_KEY?.trim() ? "Gemini" : process.env.OPENAI_API_KEY?.trim() ? "OpenAI" : null;
   return {
     settings,
-    system: { apiOnline: true, databaseOnline: true, botOnline, botLastSeenAt: botHeartbeat?.lastSeenAt.toISOString() },
+    system: { apiOnline: true, databaseOnline: true, botOnline, botLastSeenAt: botHeartbeat?.lastSeenAt.toISOString(), aiConfigured: Boolean(aiProvider), aiProvider },
     stats: { users, openRooms, completedRooms, lfgGames, zarkGames, pendingReports, openBugs },
     activeRooms: activeRooms.map((room) => ({
       id: room.id,
@@ -206,4 +207,8 @@ export async function getAdminFeedback() {
     db.bugReport.findMany({ include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
   ]);
   return { playerReports, bugReports };
+}
+
+function resolveReportChannel(value?: string | null) {
+  return !value || value === "14681947897814058" ? "1467945220376363131" : value;
 }
