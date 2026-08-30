@@ -132,6 +132,7 @@ export type ZarkEvent =
   | { type: "report.created"; reportId: string; reportKind: "PLAYER" | "BUG"; reporterId: string; reportedId?: string }
   | { type: "report.message_created"; reportId: string; reportKind: "PLAYER" | "BUG"; authorId: string; recipientId?: string; authorRole: "USER" | "ADMIN" }
   | { type: "report.status_changed"; reportId: string; reportKind: "PLAYER" | "BUG"; adminId: string; status: string; reporterId?: string }
+  | { type: "report.deleted"; reportId: string; reportKind: "PLAYER" | "BUG"; adminId: string }
   | { type: "guild.settings_updated"; adminId: string; settings: GuildRuntimeSettings };
 
 export type DomainEventEnvelope = {

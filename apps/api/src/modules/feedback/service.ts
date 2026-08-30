@@ -69,6 +69,7 @@ export async function reportPlayer(input: { reporterId: string; reporterName: st
     if (input.description?.trim()) {
       await tx.reportMessage.create({ data: { playerReportId: created.id, authorId: input.reporterId, authorName: input.reporterName, authorRole: "USER", message: input.description.trim() } });
     }
+    await tx.user.update({ where: { id: input.reporterId }, data: { submittedReportCount: { increment: 1 } } });
     return created;
   });
   publish({ type: "report.created", reportId: report.id, reportKind: "PLAYER", reporterId: input.reporterId, reportedId: input.reportedId });
@@ -84,6 +85,7 @@ export async function reportBug(input: { reporterId: string; reporterName: strin
     if (reportsToday >= 5) throw new Error("وصلت إلى الحد اليومي لتقارير الأخطاء");
     const created = await tx.bugReport.create({ data: { reporterId: input.reporterId, title: input.title, description: input.description, context: input.context } });
     await tx.reportMessage.create({ data: { bugReportId: created.id, authorId: input.reporterId, authorName: input.reporterName, authorRole: "USER", message: input.description.trim() } });
+    await tx.user.update({ where: { id: input.reporterId }, data: { submittedReportCount: { increment: 1 } } });
     return created;
   });
   publish({ type: "report.created", reportId: report.id, reportKind: "BUG", reporterId: input.reporterId });
@@ -178,6 +180,29 @@ export async function updateReportStatus(input: { kind: ReportKind; reportId: st
   });
   publish({ type: "report.status_changed", reportId: input.reportId, reportKind: input.kind, adminId: input.adminId, status: input.status, reporterId: notification.notifyOwner ? notification.reporterId : undefined });
   return getReportThreadForAdmin(input.kind, input.reportId);
+}
+
+export async function deleteReportTicket(kind: ReportKind, reportId: string, adminId: string) {
+  const deleted = await serializable(async (tx) => {
+    const ticket = kind === "PLAYER"
+      ? await tx.report.findUnique({ where: { id: reportId }, select: { reporterId: true } })
+      : await tx.bugReport.findUnique({ where: { id: reportId }, select: { reporterId: true } });
+    if (!ticket) throw notFound("التذكرة غير موجودة أو حُذفت مسبقًا");
+    const [playerReports, bugReports, reporter] = await Promise.all([
+      tx.report.count({ where: { reporterId: ticket.reporterId } }),
+      tx.bugReport.count({ where: { reporterId: ticket.reporterId } }),
+      tx.user.findUniqueOrThrow({ where: { id: ticket.reporterId }, select: { submittedReportCount: true } }),
+    ]);
+    const submittedReportCount = Math.max(reporter.submittedReportCount, playerReports + bugReports);
+    await tx.auditLog.deleteMany({ where: { targetId: reportId } });
+    if (kind === "PLAYER") await tx.report.delete({ where: { id: reportId } });
+    else await tx.bugReport.delete({ where: { id: reportId } });
+    await tx.user.update({ where: { id: ticket.reporterId }, data: { submittedReportCount } });
+    await tx.auditLog.create({ data: { adminId, action: "report.deleted", targetId: ticket.reporterId, details: { submittedReportCount } } });
+    return { reporterId: ticket.reporterId, submittedReportCount };
+  });
+  publish({ type: "report.deleted", reportId, reportKind: kind, adminId });
+  return { deleted: true, ...deleted };
 }
 
 async function loadReportThread(kind: ReportKind, reportId: string) {

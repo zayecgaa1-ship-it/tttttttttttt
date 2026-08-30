@@ -43,7 +43,7 @@ export async function getSupportStatus(userId: string) {
     enabled: settings.aiChatEnabled,
     mode: aiConnected ? "CONFIGURED" : "SMART_LOCAL",
     provider,
-    model: provider === "GEMINI" ? process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash" : provider === "OPENAI" ? process.env.OPENAI_MODEL?.trim() || "gpt-5-mini" : null,
+    model: provider === "GEMINI" ? geminiModel() : provider === "OPENAI" ? cleanEnvValue("OPENAI_MODEL") || "gpt-5-mini" : null,
     setupRequired: !provider,
     dailyTokenBudget: settings.aiDailyTokenBudgetPerUser,
     usedTokens: aiConnected ? usedTokens : 0,
@@ -65,7 +65,8 @@ export async function diagnoseSupportAi(adminId: string) {
     return { configured: true, connected: true, provider, code: "OK", message: `${provider} متصل ويرد بشكل صحيح` };
   } catch (error) {
     console.error("Zark AI diagnostic failed", error);
-    return { configured: true, connected: false, provider, code: "PROVIDER_ERROR", message: `${provider} مضبوط لكن الطلب فشل. تحقق من صلاحية المفتاح والـQuota واسم الموديل.` };
+    const failure = aiFailure(error, provider);
+    return { configured: true, connected: false, provider, code: failure.code, message: failure.message };
   }
 }
 
@@ -109,33 +110,40 @@ export async function askSupport(input: { userId: string; displayName: string; a
     await settleReservedTokens(input.userId, reservation.reservedTokens, 0, 0).catch(() => undefined);
     console.error("Zark AI support fallback", error);
     const status = await getSupportStatus(input.userId);
-    return { answer: `${localAnswer}\n\n⚠️ تعذر اتصال Gemini الآن، لذلك استخدمت الرد المحلي. راجع GEMINI_API_KEY وGEMINI_MODEL في Railway.`, mode: "SMART_LOCAL", provider, setupRequired: false, aiError: true, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
+    const failure = aiFailure(error, provider);
+    return { answer: `${localAnswer}\n\n⚠️ ${failure.message}`, mode: "SMART_LOCAL", provider, setupRequired: false, aiError: true, aiErrorCode: failure.code, remainingTokens: status.remainingTokens, tokenBudget: status.dailyTokenBudget, suggestions: context.suggestions };
   }
 }
 
 const supportInstructions = "أنت مساعد Zark LFG System العربي. أجب باختصار ووضوح عن كل صفحات الموقع وأوامر البوت والعثور على اللاعبين والغرف والاهتمامات والإشعارات والملف والتقييم والبلاغات. اعتمد فقط على المعلومات والسياق المرفقين، ولا تطلب أسرارًا أو Tokens ولا تدّعي تنفيذ إجراء؛ الإجراءات ينفذها النظام بشكل مستقل وآمن.";
 
 function configuredAiProvider(): "GEMINI" | "OPENAI" | undefined {
-  if (process.env.GEMINI_API_KEY?.trim()) return "GEMINI";
-  if (process.env.OPENAI_API_KEY?.trim()) return "OPENAI";
+  if (cleanEnvValue("GEMINI_API_KEY")) return "GEMINI";
+  if (cleanEnvValue("OPENAI_API_KEY")) return "OPENAI";
   return undefined;
 }
 
 async function askGemini(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
+  const configuredModel = geminiModel();
   try {
-    return await askGeminiGenerateContent(message, summary, localAnswer, maxOutputTokens);
+    return await askGeminiGenerateContent(message, summary, localAnswer, maxOutputTokens, configuredModel);
   } catch (error) {
+    if (error instanceof AiProviderError && [401, 403, 429].includes(error.status)) throw error;
+    if (configuredModel !== "gemini-2.5-flash" && error instanceof AiProviderError && [400, 404].includes(error.status)) {
+      console.warn(`Gemini model ${configuredModel} failed; retrying gemini-2.5-flash`);
+      return askGeminiGenerateContent(message, summary, localAnswer, maxOutputTokens, "gemini-2.5-flash");
+    }
     console.warn("Gemini generateContent unavailable; trying Interactions", error instanceof Error ? error.message : error);
-    return askGeminiInteractions(message, summary, localAnswer, maxOutputTokens);
+    return askGeminiInteractions(message, summary, localAnswer, maxOutputTokens, configuredModel);
   }
 }
 
-async function askGeminiInteractions(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
+async function askGeminiInteractions(message: string, summary: string, localAnswer: string, maxOutputTokens: number, model = geminiModel()) {
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
     method: "POST",
-    headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!.trim(), "content-type": "application/json" },
+    headers: { "x-goog-api-key": cleanEnvValue("GEMINI_API_KEY")!, "content-type": "application/json" },
     body: JSON.stringify({
-      model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+      model,
       store: false,
       system_instruction: supportInstructions,
       input: supportPrompt(message, summary, localAnswer),
@@ -159,11 +167,10 @@ async function askGeminiInteractions(message: string, summary: string, localAnsw
   return { answer, inputTokens: body.usage?.total_input_tokens ?? 0, outputTokens: body.usage?.total_output_tokens ?? 0 };
 }
 
-async function askGeminiGenerateContent(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
-  const model = (process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash").replace(/^models\//, "");
+async function askGeminiGenerateContent(message: string, summary: string, localAnswer: string, maxOutputTokens: number, model = geminiModel()) {
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: "POST",
-    headers: { "x-goog-api-key": process.env.GEMINI_API_KEY!.trim(), "content-type": "application/json" },
+    headers: { "x-goog-api-key": cleanEnvValue("GEMINI_API_KEY")!, "content-type": "application/json" },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: supportInstructions }] },
       contents: [{ role: "user", parts: [{ text: supportPrompt(message, summary, localAnswer) }] }],
@@ -183,9 +190,9 @@ async function askGeminiGenerateContent(message: string, summary: string, localA
 async function askOpenAi(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers: { authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${cleanEnvValue("OPENAI_API_KEY")}`, "content-type": "application/json" },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-5-mini",
+      model: cleanEnvValue("OPENAI_MODEL") ?? "gpt-5-mini",
       store: false,
       max_output_tokens: maxOutputTokens,
       instructions: supportInstructions,
@@ -214,7 +221,34 @@ const siteKnowledge = [
 
 async function aiHttpError(provider: string, response: Response) {
   const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 350);
-  return new Error(`${provider} ${response.status}${detail ? `: ${detail}` : ""}`);
+  return new AiProviderError(provider, response.status, detail);
+}
+
+class AiProviderError extends Error {
+  constructor(public readonly provider: string, public readonly status: number, detail: string) {
+    super(`${provider} ${status}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
+function aiFailure(error: unknown, provider: "GEMINI" | "OPENAI") {
+  if (error instanceof AiProviderError) {
+    if (error.status === 429) return { code: "QUOTA_EXCEEDED", message: `${provider} وصل إلى حد الـQuota. افتح Google AI Studio وتحقق من Usage أو انتظر تجدد الحصة.` };
+    if ([400, 401, 403].includes(error.status)) return { code: "INVALID_KEY", message: `${provider} رفض المفتاح أو أن Generative Language API غير مفعّلة. انسخ المفتاح من Google AI Studio إلى GEMINI_API_KEY بدون علامات اقتباس أو مسافات.` };
+    if (error.status === 404) return { code: "MODEL_NOT_FOUND", message: `موديل Gemini غير متاح لهذا المفتاح. اضبط GEMINI_MODEL على gemini-2.5-flash.` };
+    if (error.status >= 500) return { code: "PROVIDER_UNAVAILABLE", message: `${provider} غير متاح مؤقتًا؛ الرد المحلي يعمل لحين عودة الخدمة.` };
+  }
+  return { code: "CONNECTION_FAILED", message: `تعذر الاتصال بـ${provider}. تحقق من شبكة Railway ثم استخدم زر اختبار الاتصال في لوحة الإدارة.` };
+}
+
+function geminiModel() {
+  return (cleanEnvValue("GEMINI_MODEL") || "gemini-2.5-flash").replace(/^models\//, "");
+}
+
+function cleanEnvValue(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+  const quoted = value.match(/^(["'])([\s\S]*)\1$/);
+  return (quoted?.[2] ?? value).trim();
 }
 
 async function reserveDailyTokens(userId: string, userLimit: number, globalLimit: number, maxOutputTokens: number, message: string) {

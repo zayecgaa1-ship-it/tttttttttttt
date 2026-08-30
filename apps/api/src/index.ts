@@ -13,7 +13,7 @@ import { closeEvents, initEvents, subscribe } from "./events.js";
 import { answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
-import { addReportMessage, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
+import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, createLfgCategory, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, recordServiceHeartbeat, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
@@ -270,6 +270,11 @@ app.put("/api/web-admin/reports/:kind/:id/status", async (request) => {
   const allowed = params.kind === "PLAYER" ? ["PENDING", "REVIEWED", "RESOLVED", "REJECTED", "DISMISSED"] : ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"];
   if (!allowed.includes(body.status)) throw Object.assign(new Error("حالة البلاغ غير صحيحة"), { statusCode: 400 });
   return updateReportStatus({ kind: params.kind, reportId: params.id, adminId: admin.userId, adminName: admin.displayName, status: body.status });
+});
+app.delete("/api/web-admin/reports/:kind/:id", async (request) => {
+  const admin = await requireWebAdmin(request);
+  const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
+  return deleteReportTicket(params.kind, params.id, admin.userId);
 });
 app.get("/api/state", async () => {
   const lfgCatalog = await getLfgCatalog();

@@ -203,8 +203,8 @@ export async function addGameQuestion(input: { gameSlug: string; prompt: string;
 
 export async function getAdminFeedback() {
   const [playerReports, bugReports] = await Promise.all([
-    db.report.findMany({ include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, reported: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
-    db.bugReport.findMany({ include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
+    db.report.findMany({ include: { reporter: { select: { id: true, displayName: true, avatarUrl: true, submittedReportCount: true } }, reported: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
+    db.bugReport.findMany({ include: { reporter: { select: { id: true, displayName: true, avatarUrl: true, submittedReportCount: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
   ]);
   return { playerReports, bugReports };
 }

@@ -214,6 +214,7 @@ async function loadMyReports(){
   const reports=await api('/api/me/reports');
   const items=[...reports.playerReports.map(report=>({kind:'PLAYER',id:report.id,title:`بلاغ لاعب: ${report.reason}`,subtitle:report.reported?.displayName?`ضد ${report.reported.displayName}`:'بلاغ لاعب',status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0})),...reports.bugReports.map(report=>({kind:'BUG',id:report.id,title:`خطأ: ${report.title}`,subtitle:'تقرير تقني',status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0}))].sort((a,b)=>new Date(b.date)-new Date(a.date));
   $('my-reports').innerHTML=items.length?items.map(report=>ticketListItem(report,'my')).join(''):empty('لا توجد بلاغات سابقة.');
+  if(activeUserTicket&&!items.some(item=>item.kind===activeUserTicket.kind&&item.id===activeUserTicket.id)){activeUserTicket=undefined;clearInterval(reportPresenceTimer);$('my-report-thread').hidden=true;history.replaceState(null,'',location.pathname);}
   document.querySelectorAll('[data-my-ticket]').forEach(button=>button.onclick=()=>openMyReport(button.dataset.kind,button.dataset.myTicket));
 }
 
@@ -277,7 +278,7 @@ async function bindAdmin(){
 
 async function loadAdminReports(){
   const reports=await api('/api/web-admin/feedback');
-  const items=[...reports.playerReports.map(report=>({kind:'PLAYER',id:report.id,title:`بلاغ: ${report.reason}`,subtitle:`${report.reporter.displayName} ضد ${report.reported.displayName}`,status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0})),...reports.bugReports.map(report=>({kind:'BUG',id:report.id,title:`خطأ: ${report.title}`,subtitle:`أرسله ${report.reporter.displayName}`,status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0}))].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const items=[...reports.playerReports.map(report=>({kind:'PLAYER',id:report.id,title:`بلاغ: ${report.reason}`,subtitle:`${report.reporter.displayName} ضد ${report.reported.displayName} · قدّم ${report.reporter.submittedReportCount||1} بلاغ`,status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0})),...reports.bugReports.map(report=>({kind:'BUG',id:report.id,title:`خطأ: ${report.title}`,subtitle:`أرسله ${report.reporter.displayName} · قدّم ${report.reporter.submittedReportCount||1} بلاغ`,status:report.status,date:report.updatedAt||report.createdAt,messages:report._count?.messages||0}))].sort((a,b)=>new Date(b.date)-new Date(a.date));
   $('admin-report-list').innerHTML=items.length?items.map(report=>ticketListItem(report,'admin')).join(''):empty('لا توجد بلاغات أو أخطاء حاليًا.');
   document.querySelectorAll('[data-admin-ticket]').forEach(button=>button.onclick=()=>openAdminReport(button.dataset.kind,button.dataset.adminTicket));
 }
@@ -288,6 +289,7 @@ async function openAdminReport(kind,id){
   $('admin-report-status').innerHTML=statuses.map(status=>`<option value="${status}" ${status===thread.status?'selected':''}>${reportStatusLabel(status)}</option>`).join('');
   $('admin-report-reply').onsubmit=async event=>{event.preventDefault();const input=$('admin-report-message'),result=$('admin-report-result');result.textContent='جارِ إرسال الرد...';try{const updated=await api(`/api/web-admin/reports/${kind}/${id}/messages`,{method:'POST',body:{message:input.value}});input.value='';renderTicketThread(updated,'admin');result.textContent='✅ تم إرسال الرد للمشتكي وسيصله DM.';await loadAdminReports();}catch(error){result.textContent=`❌ ${error.message}`;}};
   $('admin-report-status-save').onclick=async()=>{const result=$('admin-report-result');result.textContent='جارِ تحديث الحالة...';try{const updated=await api(`/api/web-admin/reports/${kind}/${id}/status`,{method:'PUT',body:{status:$('admin-report-status').value}});renderTicketThread(updated,'admin');result.textContent='✅ تم تحديث الحالة وإشعار المشتكي.';await loadAdminReports();}catch(error){result.textContent=`❌ ${error.message}`;}};
+  $('admin-report-delete').onclick=async()=>{if(!confirm('حذف التذكرة وكل رسائلها نهائيًا من قاعدة البيانات؟ سيبقى فقط عداد بلاغات العضو.'))return;const result=$('admin-report-result');result.textContent='جارِ الحذف النهائي...';try{const deleted=await api(`/api/web-admin/reports/${kind}/${id}`,{method:'DELETE'});activeAdminTicket=undefined;$('admin-report-thread').hidden=true;history.replaceState(null,'',location.pathname);await loadAdminReports();alert(`تم حذف التذكرة نهائيًا. إجمالي بلاغات العضو المحفوظ: ${deleted.submittedReportCount}`);}catch(error){result.textContent=`❌ ${error.message}`;}};
 }
 
 function ticketListItem(report,prefix){
