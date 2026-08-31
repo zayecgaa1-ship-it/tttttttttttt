@@ -298,7 +298,7 @@ async function loadAdminZarkContent(selectedSlug){
   const manageable=adminZarkContent;
   const select=$('admin-zark-game-filter'),formSelect=$('admin-question-game');
   const current=selectedSlug||select.value||manageable[0]?.slug;
-  const options=manageable.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)} (${game.questionCount})</option>`).join('');
+  const options=manageable.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)} (${game.questionCount}+)</option>`).join('');
   select.innerHTML=options;formSelect.innerHTML=options;
   select.value=manageable.some(game=>game.slug===current)?current:manageable[0]?.slug||'';
   formSelect.value=select.value;
@@ -310,8 +310,8 @@ async function loadAdminZarkContent(selectedSlug){
 function renderAdminQuestions(){
   const game=adminZarkContent.find(item=>item.slug===$('admin-zark-game-filter').value);
   if(!game){$('admin-question-list').innerHTML=empty('لا توجد ألعاب قابلة للإدارة.');return;}
-  $('admin-zark-game-summary').innerHTML=`<b>${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)}</b><small>${game.enabledQuestionCount} مفعّل من أصل ${game.questionCount} سؤال</small><p>${escapeHtml(game.description||'لعبة تحدي داخل Discord')}</p>`;
-  $('admin-question-count').textContent=`${game.questionCount} سؤال`;
+  $('admin-zark-game-summary').innerHTML=`<b>${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)}</b><small>${game.builtInQuestionCount||400}+ سؤال داخلي · ${game.enabledCustomQuestionCount||0}/${game.customQuestionCount||0} سؤال إداري مفعّل</small><p>${escapeHtml(game.description||'لعبة تحدي داخل Discord')}</p>`;
+  $('admin-question-count').textContent=`${game.questionCount}+ سؤال`;
   $('admin-question-list').innerHTML=game.questions.length?game.questions.map(question=>`<article class="question-item ${question.enabled?'':'disabled'}"><div class="question-preview">${question.mediaUrl?`<img src="${escapeHtml(question.mediaUrl)}" alt="">`:`<span>${escapeHtml(game.icon||gameIcon(game.slug))}</span>`}</div><div class="question-copy"><header><b>${escapeHtml(question.prompt)}</b><span>${question.enabled?'مفعّل':'معطّل'} · صعوبة ${question.difficulty}/5</span></header><p>الإجابات: ${question.acceptedAnswers.map(escapeHtml).join('، ')}</p><small>${new Date(question.updatedAt).toLocaleString('ar')}</small></div><div class="question-actions"><button class="button ghost small" type="button" data-edit-question="${question.id}">تعديل</button><button class="button danger small" type="button" data-delete-question="${question.id}">حذف</button></div></article>`).join(''):empty('لا توجد أسئلة لهذه اللعبة بعد. أضف أول سؤال من النموذج أعلاه.');
   document.querySelectorAll('[data-edit-question]').forEach(button=>button.onclick=()=>editAdminQuestion(button.dataset.editQuestion));
   document.querySelectorAll('[data-delete-question]').forEach(button=>button.onclick=()=>deleteAdminQuestion(button.dataset.deleteQuestion));
@@ -390,7 +390,7 @@ function roomCard(room){return `<article class="room-card" style="--room-accent:
 function rankingRows(rows,key,label){return rows.length?rows.slice(0,10).map((row,index)=>`<div class="rank-row"><span class="rank">${index<3?['🥇','🥈','🥉'][index]:`#${index+1}`}</span><span class="rank-player">${avatar(row.avatarUrl,row.displayName,'rank')}<b>${escapeHtml(row.displayName)}</b></span><span>${formatValue(row[key])} ${label}</span></div>`).join(''):empty('لا توجد بيانات كافية بعد.');}
 function statCards(items){return items.map(([value,label])=>`<article><b>${formatValue(value)}</b><span>${label}</span></article>`).join('')}
 function dataRow(label,value){return `<div class="data-row"><b>${escapeHtml(label)}</b><span>${escapeHtml(value)}</span></div>`}
-function gameIcon(slug){return {'translate':'🌐','flags':'🚩','capitals':'🌍','fast-type':'⌨️','complete-word':'🧩','word-order':'🔤','math':'🧮','emoji-guess':'😀','car-logos':'🚘','company-logos':'🏢','anime-silhouette':'🎭','game-logos':'🎮','true-false':'✅','letter-order':'🔡','who-am-i':'👤','trivia':'❓'}[slug]||'🎮'}
+function gameIcon(slug){return {'translate':'🌐','flags':'🚩','capitals':'🌍','fast-type':'⌨️','complete-word':'🧩','word-order':'🔤','math':'🧮','emoji-guess':'😀','car-logos':'🚘','company-logos':'🏢','anime-silhouette':'🎭','game-logos':'🎮','true-false':'✅','letter-order':'🔡','who-am-i':'👤','trivia':'❓','riddles':'🧠','gaming-quiz':'🎯'}[slug]||'🎮'}
 function normalizeRoomSearch(value){return String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim()}
 function smartRoomMatch(room,query){if(!query)return true;const canonical=Object.entries(roomSearchAliases).find(([,aliases])=>aliases.some(alias=>{const normalized=normalizeRoomSearch(alias);return query.includes(normalized)||normalized.includes(query)}))?.[0];const haystack=normalizeRoomSearch([room.id,room.gameName,room.gameSlug,room.hostName,room.title,room.gameMode,room.mapName,room.description,...(room.members||[]).map(member=>member.displayName)].filter(Boolean).join(' '));return haystack.includes(query)||(canonical&&room.gameSlug===canonical)}
 function availabilityText(value){return{FREE:'🟢 فاضي للعب',PLAYING:'🎮 ألعب الآن',STUDYING:'📚 أدرس',WORKING:'💼 أعمل',BUSY:'⛔ مشغول',SLEEPING:'😴 نايم',AWAY:'🌙 غير متاح'}[value]||'غير محدد'}

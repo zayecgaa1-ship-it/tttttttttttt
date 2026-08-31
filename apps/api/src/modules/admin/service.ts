@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../../../../../packages/db/src/client.js";
+import { raceGames } from "../../../../../packages/games/src/index.js";
 import type { GuildRuntimeSettings } from "../../../../../packages/shared/src/index.js";
 import { publish } from "../../events.js";
 import { serializable } from "../../db-transaction.js";
@@ -255,8 +256,13 @@ export async function getZarkGameContent() {
     icon: game.icon,
     category: game.category,
     enabled: game.enabled,
-    questionCount: game.questions.length,
-    enabledQuestionCount: game.questions.filter((question) => question.enabled).length,
+    // الأسئلة المضافة من لوحة التحكم تبقى منفصلة عن بنك اللعبة الداخلي، حتى
+    // لا يظهر للإدارة رقم مضلل مثل 0 رغم وجود 400+ سؤال جاهز للعبة.
+    builtInQuestionCount: raceGames.get(game.slug)?.questionCount ?? 0,
+    customQuestionCount: game.questions.length,
+    enabledCustomQuestionCount: game.questions.filter((question) => question.enabled).length,
+    questionCount: (raceGames.get(game.slug)?.questionCount ?? 0) + game.questions.length,
+    enabledQuestionCount: (raceGames.get(game.slug)?.questionCount ?? 0) + game.questions.filter((question) => question.enabled).length,
     questions: game.questions.map((question) => ({ ...question, createdAt: question.createdAt.toISOString(), updatedAt: question.updatedAt.toISOString() })),
   }));
 }

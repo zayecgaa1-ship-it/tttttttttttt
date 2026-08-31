@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateRacePoints, calculateWinnerPoints, evaluateAnswer, isCorrectAnswer, raceGames, seededRandom } from "./index.js";
+import { calculateRacePoints, calculateWinnerPoints, evaluateAnswer, isCorrectAnswer, minimumRaceQuestionsPerGame, raceGames, seededRandom } from "./index.js";
 
 test("normalizes Arabic hamza and diacritics", () => {
   assert.equal(isCorrectAnswer("الأُرْدُن", ["الاردن"]), true);
@@ -46,4 +46,8 @@ test("legacy logo and anime banks work without database placeholders", () => {
     assert.ok(prompt.prompt.length > 5);
     assert.ok(prompt.answers.length > 0);
   }
+});
+
+test("every Zark game keeps at least the configured question-bank minimum", () => {
+  for (const game of raceGames.values()) assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} fell below ${minimumRaceQuestionsPerGame} prompts`);
 });
