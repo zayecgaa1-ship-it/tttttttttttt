@@ -162,7 +162,7 @@ async function setWebPreference(gameSlug,interested,notificationsEnabled,button)
 async function snoozeWebPreference(gameSlug,minutes,button){if(!me){location.href='/auth/discord';return;}if(button?.disabled)return;if(button)button.disabled=true;try{await api(`/api/me/lfg-preferences/${gameSlug}/snooze`,{method:'POST',body:{minutes}});await renderInterests(state.lfgGames||[]);}catch(error){alert(error.message);if(button)button.disabled=false;}}
 
 function renderGames() {
-  $('zark-games').innerHTML = (state.zarkGames||[]).map(game=>`<button class="game-tile" data-game="${escapeHtml(game.slug)}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>أول إجابة تفوز</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>5–15 XP</span><span>.${escapeHtml(game.aliases?.[0]||game.name)}</span></footer></button>`).join('');
+  $('zark-games').innerHTML = (state.zarkGames||[]).map(game=>`<button class="game-tile" data-game="${escapeHtml(game.slug)}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>أول إجابة تفوز</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>${Math.max(400,Number(game.questionCount)||0)}+ سؤال</span><span>.${escapeHtml(game.aliases?.[0]||game.name)}</span></footer></button>`).join('');
   document.querySelectorAll('[data-game]').forEach(button=>button.onclick=()=>startRace(button.dataset.game));
   $('play-zark').onclick=()=>startRace();
 }

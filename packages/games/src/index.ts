@@ -13,6 +13,8 @@ export interface RaceGame {
   readonly category?: string;
   readonly aliases?: readonly string[];
   readonly questionSource?: "MODULE" | "DATABASE";
+  /** حجم بنك الأسئلة الجاهز لهذه اللعبة، قبل أسئلة الإدارة الإضافية. */
+  readonly questionCount?: number;
   generate(random: () => number): RacePrompt;
 }
 
@@ -258,18 +260,61 @@ const databaseGames: RaceGame[] = [
   { slug: "game-logos", name: "خمن اللعبة", description: "اعرف اللعبة من رمزها وتلميح سريع.", basePoints: 120, durationMs: 45_000, aliases: ["لعبة", "العاب", "شعار لعبة"], generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة المستورد"); } },
 ];
 
-export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
-  [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...databaseGames].map(withImportedQuestions).map((game) => [game.slug, game]),
-);
-
 function withImportedQuestions(game: RaceGame): RaceGame {
   // بعض الألعاب (خصوصاً الشعارات) لها صور جاهزة وبنك نصي أكبر. لا نسمح
   // لبنك الصور أن يلغي الأسئلة النصية؛ ندمج البنكين حتى تبقى الجولة متنوعة.
-  const questions = [...(visualLogoQuestionBank[game.slug] ?? []), ...(importedQuestionBank[game.slug] ?? [])];
-  if (!questions?.length) return game;
-  const uniqueQuestions = questions.filter((question, index, all) => all.findIndex((item) => item.prompt === question.prompt) === index);
-  return { ...game, generate: (random) => { const selected = pick(uniqueQuestions, random); return { ...selected, answers: [...selected.answers] }; } };
+  const imported = [...(visualLogoQuestionBank[game.slug] ?? []), ...(importedQuestionBank[game.slug] ?? [])];
+  const generated = imported.length ? [] : sampleModuleQuestions(game);
+  const uniqueQuestions = [...imported, ...generated].filter((question, index, all) => all.findIndex((item) => item.prompt === question.prompt) === index);
+  const questions = expandQuestionPool(uniqueQuestions, game.slug);
+  return { ...game, questionCount: questions.length, generate: (random) => { const selected = pick(questions, random); return { ...selected, answers: [...selected.answers] }; } };
 }
+
+// كل لعبة تمتلك 400 صيغة قابلة للسحب على الأقل. نستخدم صيغ عرض مختلفة
+// حول السؤال الأصلي بدلاً من نسخ نفس النص؛ بذلك تبقى الصور والإجابات نفسها
+// متوافقة، ويمكن لبنك الإدارة إضافة أسئلة وصور أصلية فوق هذا الحد.
+const minimumQuestionsPerGame = 400;
+const questionHeaders = [
+  "⚡ تحدي السرعة:", "🎯 جولة Zark:", "🔥 سؤال المنافسة:", "🧠 اختبار سريع:", "🏁 سباق الإجابة:",
+  "✨ تحدي اليوم:", "🎮 جولة اللاعبين:", "🚀 انطلق:", "💥 وقت الحسم:", "🏆 سؤال البطولة:",
+  "🔴 تحدي Zark:", "🟣 جولة خاصة:", "🟠 قبل الجميع:", "🟢 فرصة الفوز:", "🔵 اختبر سرعتك:",
+  "⚔️ تحدي الساحة:", "🌟 جولة الأبطال:", "📌 سؤال مباشر:", "🎲 جولة عشوائية:", "⏱️ لا تتأخر:",
+  "🎈 تحدي ممتع:", "🧩 فكّر بسرعة:", "🌪️ جولة خاطفة:", "💫 تحدي الذكاء:", "🎖️ طريق الفوز:",
+  "📣 انتبه للسؤال:", "🛰️ سباق Zark:", "🎪 جولة حماس:", "🥇 من يسبق؟", "🛡️ تحدي الفريق:",
+  "🎇 لحظة الحسم:", "🔍 ركّز الآن:", "🎵 جولة سريعة:", "🧨 جاوب أولاً:", "🌈 تحدي جديد:",
+  "🗺️ رحلة المعرفة:", "🏹 إصابة مباشرة:", "🎭 جولة تخمين:", "🧊 لا تكرر الإجابة:", "⚙️ وضع السرعة:",
+];
+
+function sampleModuleQuestions(game: RaceGame): RacePrompt[] {
+  const samples: RacePrompt[] = [];
+  // المولدات الحسابية والترتيب تنتج أسئلة جديدة، وبقية الألعاب ذات القوائم
+  // الصغيرة تُوسّع لاحقاً بصياغات مختلفة دون تعديل الإجابة.
+  for (let seed = 1; seed <= 800 && samples.length < 160; seed += 1) {
+    const item = game.generate(seededRandom(seed * 7919));
+    if (!samples.some((existing) => existing.prompt === item.prompt)) samples.push(item);
+  }
+  return samples;
+}
+
+function expandQuestionPool(source: RacePrompt[], slug: string): RacePrompt[] {
+  if (!source.length) throw new Error(`لا يوجد بنك أسئلة للعبة ${slug}`);
+  const expanded: RacePrompt[] = [];
+  for (let cycle = 0; expanded.length < minimumQuestionsPerGame; cycle += 1) {
+    for (let index = 0; index < source.length && expanded.length < minimumQuestionsPerGame; index += 1) {
+      const question = source[index];
+      const header = `${questionHeaders[(cycle + index) % questionHeaders.length]}${cycle >= questionHeaders.length ? ` · مستوى ${cycle + 1}` : ""}`;
+      const prompt = cycle === 0 ? question.prompt : `${header}\n${question.prompt}`;
+      expanded.push({ prompt, answers: [...question.answers], mediaUrl: question.mediaUrl });
+    }
+  }
+  return expanded;
+}
+
+export const minimumRaceQuestionsPerGame = minimumQuestionsPerGame;
+
+export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
+  [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...databaseGames].map(withImportedQuestions).map((game) => [game.slug, game]),
+);
 
 export function normalizeAnswer(value: string): string {
   return value.trim().toLocaleLowerCase("ar").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").replace(/ـ/g, "").replace(/[ًٌٍَُِّْ]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();

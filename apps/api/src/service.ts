@@ -29,7 +29,7 @@ export async function ensureSystemData() {
 export async function listZarkGames(): Promise<ZarkGameSummary[]> {
   await ensureSystemData();
   const games = await db.zarkGame.findMany({ where: { enabled: true }, select: { slug: true, name: true, description: true, kind: true, enabled: true, icon: true, category: true, aliases: true }, orderBy: { name: "asc" } });
-  return games.map((game) => ({ ...game, description: game.description ?? undefined, icon: game.icon ?? undefined }));
+  return games.map((game) => ({ ...game, description: game.description ?? undefined, icon: game.icon ?? undefined, questionCount: raceGames.get(game.slug)?.questionCount ?? 0 }));
 }
 
 export async function getOrCreateDaily(): Promise<DailyChallenge> {
@@ -279,7 +279,9 @@ async function generateRacePrompt(module: RaceGame, gameId: string, channelId?: 
   const recentPrompts = recent.map((match) => match.prompt);
   const questionWhere = { gameId, enabled: true, ...(recentPrompts.length ? { prompt: { notIn: recentPrompts } } : {}) };
   const count = await db.gameQuestion.count({ where: questionWhere });
-  if (count) {
+  // أسئلة الإدارة (خصوصاً الصور) تُضاف إلى البنك ولا تحجبه؛ هذا يبقي حد
+  // 400 سؤال لكل لعبة متاحاً حتى لو أضافت الإدارة سؤالاً واحداً فقط.
+  if (count && Math.random() < 0.45) {
     const question = await db.gameQuestion.findFirstOrThrow({ where: questionWhere, skip: Math.floor(Math.random() * count) });
     return { prompt: question.prompt, answers: question.acceptedAnswers, mediaUrl: question.mediaUrl ?? undefined };
   }

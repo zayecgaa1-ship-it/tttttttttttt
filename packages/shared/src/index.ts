@@ -61,6 +61,7 @@ export type ZarkGameSummary = {
   icon?: string;
   category: string;
   aliases: string[];
+  questionCount: number;
 };
 
 export type LfgGameSummary = {
