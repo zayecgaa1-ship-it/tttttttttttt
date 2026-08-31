@@ -109,6 +109,7 @@ model GuildSettings {
   websiteUrl                  String   @default("https://zark-ps.com")
   dmNotificationsEnabled      Boolean  @default(true)
   quickMatchEnabled           Boolean  @default(true)
+  autoSmartRoomsEnabled       Boolean  @default(false)
   ratingsEnabled              Boolean  @default(true)
   reportsEnabled              Boolean  @default(true)
   autoCreateRoomChannels      Boolean  @default(true)

@@ -11,10 +11,10 @@ import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, initEvents, subscribe } from "./events.js";
 import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
-import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
+import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
-import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
@@ -208,6 +208,7 @@ app.put("/api/web-admin/settings", async (request) => {
     websiteUrl: z.string().url().max(200),
     dmNotificationsEnabled: z.boolean(),
     quickMatchEnabled: z.boolean(),
+    autoSmartRoomsEnabled: z.boolean(),
     ratingsEnabled: z.boolean(),
     reportsEnabled: z.boolean(),
     autoCreateRoomChannels: z.boolean(),
@@ -224,6 +225,10 @@ app.put("/api/web-admin/settings", async (request) => {
     aiMaxOutputTokens: z.number().int().min(50).max(1000),
   }).parse(request.body);
   return updateGuildRuntimeSettings(admin.userId, body);
+});
+app.post("/api/settings/auto-smart-rooms", { preHandler: requireServiceKey }, async (request) => {
+  const body = z.object({ adminId: z.string().min(1).max(30), enabled: z.boolean() }).parse(request.body);
+  return setAutoSmartRoomsEnabled(body.adminId, body.enabled);
 });
 app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);
@@ -556,14 +561,18 @@ const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
 await app.listen({ port, host: "0.0.0.0" });
 console.log(`Zark API listening on http://localhost:${port}`);
 void processDueLfgRooms().catch((error) => app.log.error(error));
+void processAutoSmartRooms().catch((error) => app.log.error(error));
 const roomLifecycleTimer = setInterval(() => void processDueLfgRooms().catch((error) => app.log.error(error)), 30_000);
+const autoSmartRoomTimer = setInterval(() => void processAutoSmartRooms().catch((error) => app.log.error(error)), 5 * 60_000);
 roomLifecycleTimer.unref();
+autoSmartRoomTimer.unref();
 let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   app.log.info({ signal }, "Shutting down Zark API");
   clearInterval(roomLifecycleTimer);
+  clearInterval(autoSmartRoomTimer);
   await closeEvents();
   await app.close();
   await db.$disconnect();

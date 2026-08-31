@@ -85,6 +85,7 @@ export type GuildRuntimeSettings = {
   websiteUrl: string;
   dmNotificationsEnabled: boolean;
   quickMatchEnabled: boolean;
+  autoSmartRoomsEnabled: boolean;
   ratingsEnabled: boolean;
   reportsEnabled: boolean;
   autoCreateRoomChannels: boolean;

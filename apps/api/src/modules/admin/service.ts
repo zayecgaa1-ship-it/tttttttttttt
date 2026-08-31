@@ -54,6 +54,7 @@ export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
     websiteUrl: settings.websiteUrl || process.env.PUBLIC_SITE_URL || "https://zark-ps.com",
     dmNotificationsEnabled: settings.dmNotificationsEnabled,
     quickMatchEnabled: settings.quickMatchEnabled,
+    autoSmartRoomsEnabled: settings.autoSmartRoomsEnabled,
     ratingsEnabled: settings.ratingsEnabled,
     reportsEnabled: settings.reportsEnabled,
     autoCreateRoomChannels: settings.autoCreateRoomChannels,
@@ -87,6 +88,7 @@ export async function updateGuildRuntimeSettings(adminId: string, input: GuildSe
         websiteUrl: input.websiteUrl,
         dmNotificationsEnabled: input.dmNotificationsEnabled,
         quickMatchEnabled: input.quickMatchEnabled,
+        autoSmartRoomsEnabled: input.autoSmartRoomsEnabled,
         ratingsEnabled: input.ratingsEnabled,
         reportsEnabled: input.reportsEnabled,
         autoCreateRoomChannels: input.autoCreateRoomChannels,
@@ -114,6 +116,7 @@ export async function updateGuildRuntimeSettings(adminId: string, input: GuildSe
         websiteUrl: input.websiteUrl,
         dmNotificationsEnabled: input.dmNotificationsEnabled,
         quickMatchEnabled: input.quickMatchEnabled,
+        autoSmartRoomsEnabled: input.autoSmartRoomsEnabled,
         ratingsEnabled: input.ratingsEnabled,
         reportsEnabled: input.reportsEnabled,
         autoCreateRoomChannels: input.autoCreateRoomChannels,
@@ -132,6 +135,17 @@ export async function updateGuildRuntimeSettings(adminId: string, input: GuildSe
       },
     }),
     db.auditLog.create({ data: { adminId, action: "guild.settings_updated", targetId: guildId, details: input } }),
+  ]);
+  const settings = await getGuildRuntimeSettings();
+  publish({ type: "guild.settings_updated", adminId, settings });
+  return settings;
+}
+
+export async function setAutoSmartRoomsEnabled(adminId: string, enabled: boolean) {
+  const guildId = process.env.DISCORD_GUILD_ID ?? "default";
+  await db.$transaction([
+    db.guildSettings.upsert({ where: { guildId }, update: { autoSmartRoomsEnabled: enabled, updatedBy: adminId }, create: { guildId, autoSmartRoomsEnabled: enabled, updatedBy: adminId } }),
+    db.auditLog.create({ data: { adminId, action: "guild.auto_smart_rooms_changed", targetId: guildId, details: { enabled } } }),
   ]);
   const settings = await getGuildRuntimeSettings();
   publish({ type: "guild.settings_updated", adminId, settings });

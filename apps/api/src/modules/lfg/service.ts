@@ -43,6 +43,7 @@ const catalog = [
   { slug: "among-us", name: "Among Us", icon: "🚀", category: "party", minPlayers: 4, maxPlayers: 15 },
   { slug: "fall-guys", name: "Fall Guys", icon: "🎉", category: "party", minPlayers: 2, maxPlayers: 8 },
 ] as const;
+const autoOrganizer = { userId: "zark-auto-organizer", displayName: "Zark Organizer" };
 
 let catalogSeedPromise: Promise<void> | undefined;
 
@@ -237,6 +238,51 @@ export async function smartMatchLfg(input: { userId: string; displayName: string
     description: `رتّبه Zark حسب الاهتمام والتفرغ الآن: ${insight.availableNowCount} لاعب متاح.`,
   });
   return { room, insight, joinedExisting: false };
+}
+
+export async function processAutoSmartRooms() {
+  const settings = await getGuildRuntimeSettings();
+  if (!settings.autoSmartRoomsEnabled) return { created: false, reason: "disabled" as const };
+  const now = new Date();
+  const service = `auto-smart-rooms:${settings.guildId}`;
+  const claimed = await serializable(async (tx) => {
+    const previous = await tx.serviceHeartbeat.findUnique({ where: { service } });
+    if (previous && now.getTime() - previous.lastSeenAt.getTime() < 5 * 60_000) return false;
+    await tx.serviceHeartbeat.upsert({ where: { service }, update: { instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } }, create: { service, instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } } });
+    return true;
+  });
+  if (!claimed) return { created: false, reason: "cooldown" as const };
+  const cooldownSince = new Date(now.getTime() - 90 * 60_000);
+  const candidates = (await getLfgInterestInsights()).filter((item) => item.availableNowCount >= item.minPlayers);
+  let selected: { candidate: LfgInterestInsight; game: NonNullable<Awaited<ReturnType<typeof db.lfgGameCatalog.findUnique>>> } | undefined;
+  for (const insight of candidates) {
+    const catalogGame = await db.lfgGameCatalog.findUnique({ where: { slug: insight.gameSlug } });
+    if (!catalogGame) continue;
+    const [existing, recentAutoRoom] = await Promise.all([
+      db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, select: { id: true } }),
+      db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, title: { startsWith: "تجمع Zark تلقائي" }, createdAt: { gte: cooldownSince } }, select: { id: true } }),
+    ]);
+    if (!existing && !recentAutoRoom) {
+      selected = { candidate: insight, game: catalogGame };
+      break;
+    }
+  }
+  if (!selected) return { created: false, reason: candidates.length ? "active-room-exists" as const : "not-enough-available-players" as const };
+  const { candidate, game } = selected;
+  await upsertActor(autoOrganizer);
+  const room = await db.lfgRoom.create({
+    data: {
+      hostId: autoOrganizer.userId, lfgGameId: game.id, memberCount: 0,
+      maxPlayers: Math.min(game.maxPlayers, Math.max(game.minPlayers, candidate.availableNowCount)),
+      durationMinutes: settings.defaultRoomDurationMinutes, status: "OPEN", needsVoice: true,
+      title: `تجمع Zark تلقائي • ${candidate.interestPercent}% مهتمون`,
+      description: `اختاره Zark تلقائيًا: ${candidate.availableNowCount} عضوًا متفرغًا الآن من المهتمين باللعبة.`,
+      roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: new Date(now.getTime() + 30 * 60_000),
+    }, include: roomInclude,
+  });
+  const live = toLiveRoom(room);
+  publish({ type: "lfg.created", room: live });
+  return { created: true, room: live, insight: candidate };
 }
 
 export async function joinLfgRoom(roomId: string, input: { userId: string; displayName: string; avatarUrl?: string }) {
