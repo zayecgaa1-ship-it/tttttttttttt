@@ -140,6 +140,7 @@ if (!token) {
         if (interaction.commandName === "loyalty") return await loyalty(interaction);
         if (interaction.commandName === "weekly") return await weekly(interaction);
         if (interaction.commandName === "event-hour") return await eventHour(interaction);
+        if (interaction.commandName === "pulse") return await pulse(interaction);
         if (interaction.commandName === "leaderboard") return await gameLeaderboard(interaction, interaction.options.getString("type") ?? "game");
         if (interaction.commandName === "help") return await help(interaction);
         if (["availability", "وقت-فراغي"].includes(interaction.commandName)) return await availability(interaction);
@@ -278,6 +279,9 @@ if (!token) {
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
     if (interaction.customId === "zark_play_now") return play(interaction);
+    if (interaction.customId === "pulse:smart") return smartLfg(interaction);
+    if (interaction.customId === "pulse:availability") return availability(interaction);
+    if (interaction.customId === "pulse:loyalty") return loyalty(interaction);
     if (interaction.customId === "loyalty:buy-vip") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const data = await apiSend<{ points: number; vipUnlocked: boolean }>(`/api/users/${interaction.user.id}/loyalty/buy-vip`, "POST", {});
@@ -975,6 +979,32 @@ if (!token) {
     return interaction.reply({ embeds: [baseEmbed().setTitle("⚡ بدأت ساعة Zark").setDescription(`كل نقاط الولاء أصبحت **×${event.multiplier}** حتى <t:${Math.floor(new Date(event.until).getTime() / 1000)}:R>.\nشغّل /daily و/play وLFG لإشعال التفاعل!`)] });
   }
 
+  async function pulse(interaction: any) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const [profileData, loyaltyData, availabilityData, rooms, insights] = await Promise.all([
+      apiGet<UnifiedProfile>(`/api/profiles/${interaction.user.id}`),
+      apiGet<{ points: number; tier: { name: string } }>(`/api/users/${interaction.user.id}/loyalty`, true),
+      apiGet<UserAvailability>(`/api/users/${interaction.user.id}/availability`, true),
+      apiGet<LiveRoom[]>("/api/lfg"),
+      apiGet<LfgInterestInsight[]>("/api/lfg/insights", true),
+    ]);
+    const interests = new Set(profileData.lfg.interests.map((game) => game.slug));
+    const recommended = insights.find((item) => interests.has(item.gameSlug)) ?? insights[0];
+    const matchingRoom = rooms.find((room) => interests.has(room.gameSlug) && room.currentPlayers < room.maxPlayers);
+    const opportunity = matchingRoom
+      ? `🎯 غرفة مناسبة الآن: **${matchingRoom.gameName}** (${matchingRoom.currentPlayers}/${matchingRoom.maxPlayers})`
+      : recommended
+        ? `✨ أفضل فرصة: **${recommended.gameName}** — ${recommended.availableNowCount} متفرغ الآن من ${recommended.interestedCount} مهتم`
+        : "✨ حدد اهتماماتك لتصل لك اقتراحات أدق.";
+    const embed = baseEmbed().setTitle("📡 Zark Pulse").setDescription(`${profileActivityText(profileData)}\n\n💎 **${loyaltyData.points}** نقطة · ${loyaltyData.tier.name}\n🎮 ${opportunity}\n\n${availabilityData.currentActivity === "FREE" ? "أنت ظاهر كمتفرغ الآن—ممتاز للتجمع الذكي." : "حدّث وقت فراغك حتى لا تفوتك الدعوات المناسبة."}`);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId("pulse:smart").setLabel("تجمع ذكي").setEmoji("✨").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("pulse:availability").setLabel("وقت فراغي").setEmoji("🕐").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("pulse:loyalty").setLabel("ولائي").setEmoji("💎").setStyle(ButtonStyle.Primary),
+    );
+    return interaction.editReply({ embeds: [embed], components: [row] });
+  }
+
   async function help(interaction: any) {
     const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
       { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع اختيار 2–10 جولات\n`/daily` تحدي اليوم\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP\n`/leaderboard` متصدرو الألعاب والتفاعل" },
@@ -1438,6 +1468,7 @@ function buildCommands() {
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
     new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
+    new SlashCommandBuilder().setName("pulse").setDescription("لوحتك الشخصية: التفاعل والفرص المتاحة الآن"),
     new SlashCommandBuilder().setName("event-hour").setDescription("بدء فعالية نقاط مضاعفة — للإدارة").addIntegerOption((option) => option.setName("minutes").setDescription("المدة بالدقائق").setMinValue(15).setMaxValue(180)),
     new SlashCommandBuilder()
       .setName("play")
@@ -1484,4 +1515,4 @@ type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExi
 type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
-type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ name: string; icon?: string }>; rating: { average: number | null; count: number } } };
+type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
