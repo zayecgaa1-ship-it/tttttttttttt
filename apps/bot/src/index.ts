@@ -137,6 +137,7 @@ if (!token) {
         if (interaction.commandName === "daily") return await daily(interaction);
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1);
         if (interaction.commandName === "profile") return await profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
+        if (interaction.commandName === "loyalty") return await loyalty(interaction);
         if (interaction.commandName === "leaderboard") return await gameLeaderboard(interaction, interaction.options.getString("type") ?? "game");
         if (interaction.commandName === "help") return await help(interaction);
         if (["availability", "وقت-فراغي"].includes(interaction.commandName)) return await availability(interaction);
@@ -275,6 +276,12 @@ if (!token) {
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
     if (interaction.customId === "zark_play_now") return play(interaction);
+    if (interaction.customId === "loyalty:buy-vip") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const data = await apiSend<{ points: number; vipUnlocked: boolean }>(`/api/users/${interaction.user.id}/loyalty/buy-vip`, "POST", {});
+      await syncLoyaltyRoles(interaction.user.id);
+      return interaction.editReply({ content: `✅ تم شراء **Zark VIP**. رصيدك الآن: **${data.points}** نقطة.` });
+    }
     if (parts[0] === "lfg" && parts[1] === "rating-open") {
       await interaction.deferUpdate();
       const room = await apiGet<LiveRoom>(`/api/lfg/${parts[2]}`);
@@ -557,7 +564,7 @@ if (!token) {
 
   async function syncLoyaltyRoles(userId: string) {
     if (!guildId) return;
-    const [guild, loyalty] = await Promise.all([client.guilds.fetch(guildId), apiGet<{ lifetimePoints: number; vipUnlocked: boolean }>(`/api/users/${userId}/loyalty`)]);
+    const [guild, loyalty] = await Promise.all([client.guilds.fetch(guildId), apiGet<{ lifetimePoints: number; vipUnlocked: boolean }>(`/api/users/${userId}/loyalty`, true)]);
     const member = await guild.members.fetch(userId).catch(() => null);
     if (!member) return;
     const definitions = [
@@ -942,9 +949,18 @@ if (!token) {
     await interaction.editReply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
   }
 
+  async function loyalty(interaction: any) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const data = await apiGet<{ points: number; lifetimePoints: number; vipUnlocked: boolean; tier: { name: string }; nextTier?: { name: string; threshold: number }; vipPrice: number }>(`/api/users/${interaction.user.id}/loyalty`, true);
+    const next = data.nextTier ? `الرتبة التالية: **${data.nextTier.name}** عند **${data.nextTier.threshold}** نقطة تفاعل.` : "وصلت أعلى رتبة ولاء.";
+    const embed = baseEmbed().setTitle("💎 ولاء Zark").setDescription(`رصيدك: **${data.points}** نقطة\nإجمالي تفاعلك: **${data.lifetimePoints}** نقطة\nرتبتك: **${data.tier.name}**\n${next}\n\nتكسب نقاطًا من الفوز، تحدي اليوم، وإكمال جلسات LFG.`);
+    const components = !data.vipUnlocked ? [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("loyalty:buy-vip").setLabel(`شراء Zark VIP — ${data.vipPrice} نقطة`).setEmoji("💎").setStyle(ButtonStyle.Primary).setDisabled(data.points < data.vipPrice))] : [];
+    return interaction.editReply({ embeds: [embed], components });
+  }
+
   async function help(interaction: any) {
     const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
-      { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع اختيار 2–10 جولات\n`/daily` تحدي اليوم\n`/profile` ملفك الموحد\n`/leaderboard` متصدرو الألعاب والتفاعل" },
+      { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع اختيار 2–10 جولات\n`/daily` تحدي اليوم\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP\n`/leaderboard` متصدرو الألعاب والتفاعل" },
       { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
@@ -1403,6 +1419,7 @@ function buildCommands() {
   return [
     new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
+    new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("ابدأ لعبة Zark داخل Discord")

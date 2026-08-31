@@ -444,6 +444,10 @@ app.get("/api/users/:id/loyalty", { preHandler: requireServiceKey }, async (requ
   const params = z.object({ id: z.string() }).parse(request.params);
   return getLoyaltyProfile(params.id);
 });
+app.post("/api/users/:id/loyalty/buy-vip", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  return buyVip(params.id);
+});
 app.get("/api/loyalty/role-members", { preHandler: requireServiceKey }, async () => listLoyaltyRoleMembers());
 app.put("/api/users/:id/identity", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);

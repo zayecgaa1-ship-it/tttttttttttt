@@ -97,6 +97,7 @@ export async function answerDaily(input: { userId: string; displayName: string; 
 
   if ("capped" in result) return { correct: true as const, ...result };
   if (!result.duplicate) {
+    await awardLoyaltyPoints({ userId: input.userId, amount: 10, reason: "إجابة تحدي اليوم", referenceKey: `daily:${challenge.id}:${input.userId}` });
     publish({ type: "daily.answer", userId: input.userId, displayName: input.displayName, points: result.points });
     publish({ type: "leaderboard.updated" });
   }
