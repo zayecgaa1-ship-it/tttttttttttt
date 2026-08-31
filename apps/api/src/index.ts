@@ -11,7 +11,7 @@ import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, initEvents, subscribe } from "./events.js";
 import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
-import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
+import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
@@ -344,6 +344,7 @@ app.get("/api/lfg/search", async (request) => {
 app.get("/api/lfg/cleanup-resources", { preHandler: requireServiceKey }, listRoomCleanupResources);
 app.get("/api/lfg/games", async () => (await getLfgCatalog()).flatMap((category) => category.games));
 app.get("/api/lfg/catalog", getLfgCatalog);
+app.get("/api/lfg/insights", { preHandler: requireServiceKey }, getLfgInterestInsights);
 app.get("/api/lfg/:id", async (request) => getLfgRoom(z.object({ id: z.string() }).parse(request.params).id));
 app.put("/api/lfg/:id/listing", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
@@ -386,6 +387,10 @@ app.post("/api/lfg/:id/voice", { preHandler: requireServiceKey }, async (request
 app.post("/api/lfg/quick-match", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ userId: z.string().min(1), displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), gameSlug: z.string().min(1) }).parse(request.body);
   return quickMatchLfg(body);
+});
+app.post("/api/lfg/smart-match", { preHandler: requireServiceKey }, async (request) => {
+  const body = z.object({ userId: z.string().min(1), displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), gameSlug: z.string().min(1).optional() }).parse(request.body);
+  return smartMatchLfg(body);
 });
 app.post("/api/lfg/:id/join", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);

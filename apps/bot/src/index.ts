@@ -203,6 +203,7 @@ if (!token) {
     if (subcommand === "profile") return profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
     if (subcommand === "top") return lfgTop(interaction, interaction.options.getString("metric") ?? "engagement");
     if (subcommand === "rooms") return lfgRooms(interaction);
+    if (subcommand === "smart") return smartLfg(interaction);
     if (subcommand === "interests") return showInterests(interaction);
     if (subcommand === "report") return showPlayerReportModal(interaction, interaction.options.getUser("user", true).id);
     if (subcommand === "bug") return showBugReportModal(interaction);
@@ -430,10 +431,31 @@ if (!token) {
 
   async function showLfgGamePicker(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const catalog = await apiGet<Array<{ name: string; icon?: string; games: Array<{ slug: string; name: string; icon?: string; description?: string }> }>>("/api/lfg/catalog");
+    const [catalog, insights] = await Promise.all([
+      apiGet<Array<{ name: string; icon?: string; games: Array<{ slug: string; name: string; icon?: string; description?: string }> }>>("/api/lfg/catalog"),
+      apiGet<LfgInterestInsight[]>("/api/lfg/insights", true).catch(() => []),
+    ]);
+    const insightByGame = new Map(insights.map((item) => [item.gameSlug, item]));
     const games = catalog.flatMap((category) => category.games).slice(0, 25);
-    const menu = new StringSelectMenuBuilder().setCustomId("lfg:create:game").setPlaceholder("اختر اللعبة الخارجية").addOptions(games.map((game) => ({ label: game.name, value: game.slug, emoji: game.icon, description: game.description?.slice(0, 100) })));
-    await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل للمهتمين فقط.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+    const menu = new StringSelectMenuBuilder().setCustomId("lfg:create:game").setPlaceholder("اختر اللعبة الخارجية").addOptions(games.map((game) => {
+      const insight = insightByGame.get(game.slug);
+      return { label: game.name, value: game.slug, emoji: game.icon, description: insight ? `${insight.interestPercent}% مهتمون · ${insight.availableNowCount} فاضي الآن` : game.description?.slice(0, 100) };
+    }));
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل للمهتمين المتفرغين فقط. استخدم `/lfg smart` ليختار Zark أفضل لعبة تلقائيًا.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+  }
+
+  async function smartLfg(interaction: any) {
+    await interaction.deferReply();
+    const result = await apiSend<SmartMatchResult>("/api/lfg/smart-match", "POST", actor(interaction));
+    const listedRoom = await publishRoomListing(result.room);
+    const organizedRoom = listedRoom ?? result.room;
+    await ensureRoomSpace(organizedRoom);
+    if (!result.joinedExisting) await notifyInterestedPlayers(organizedRoom);
+    const action = result.joinedExisting ? "وجدت لك غرفة مناسبة وانضممت إليها" : "أنشأت غرفة منظمة حسب الاهتمام والتفرغ";
+    return interaction.editReply({
+      embeds: [roomEmbed(organizedRoom).setTitle(`✨ ${action}`).setDescription(`**${result.insight.interestPercent}%** من الأعضاء مهتمون بـ ${result.insight.gameName} · **${result.insight.availableNowCount}** متفرغون الآن.\n\n${organizedRoom.description ?? ""}`)],
+      components: [roomButtons(organizedRoom.id, organizedRoom.gameSlug, organizedRoom)],
+    });
   }
 
   async function createRoomFromInteraction(interaction: any, gameSlug: string, maxPlayers: number, durationMinutes: number, needsVoice: boolean, description?: string, gameMode?: string, scheduledFor?: string, mapName?: string) {
@@ -880,7 +902,7 @@ if (!token) {
   async function help(interaction: any) {
     const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
       { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع اختيار 2–10 جولات\n`/daily` تحدي اليوم\n`/profile` ملفك الموحد\n`/leaderboard` متصدرو الألعاب والتفاعل" },
-      { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
+      { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
       { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.ايموجي` `.سيارات` `.شركات` `.انمي` `.صح` `.معلومات`" },
@@ -1358,6 +1380,7 @@ function buildCommands() {
       .addSubcommand((command) => command.setName("profile").setDescription("ملف LFG").addUserOption((option) => option.setName("user").setDescription("العضو")))
       .addSubcommand((command) => command.setName("top").setDescription("أفضل لاعبي LFG").addStringOption((option) => option.setName("metric").setDescription("التصنيف").addChoices({ name: "التفاعل", value: "engagement" }, { name: "الجلسات", value: "sessions" }, { name: "التقييم", value: "rating" })))
       .addSubcommand((command) => command.setName("rooms").setDescription("اعرض الغرف المفتوحة"))
+      .addSubcommand((command) => command.setName("smart").setDescription("دع Zark ينظم أفضل تجمع حسب الاهتمام والتفرغ"))
       .addSubcommand((command) => command.setName("interests").setDescription("إدارة اهتمامات الألعاب والإشعارات"))
       .addSubcommand((command) => command.setName("report").setDescription("إبلاغ عن لاعب").addUserOption((option) => option.setName("user").setDescription("اللاعب").setRequired(true)))
       .addSubcommand((command) => command.setName("bug").setDescription("إرسال تقرير خطأ"))
@@ -1376,6 +1399,8 @@ type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
+type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
+type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
 type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };

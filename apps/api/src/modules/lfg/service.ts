@@ -74,6 +74,37 @@ export async function getLfgCatalog() {
   });
 }
 
+export type LfgInterestInsight = {
+  gameSlug: string;
+  gameName: string;
+  gameIcon?: string;
+  minPlayers: number;
+  maxPlayers: number;
+  interestedCount: number;
+  availableNowCount: number;
+  interestPercent: number;
+};
+
+export async function getLfgInterestInsights(): Promise<LfgInterestInsight[]> {
+  await seedLfgCatalog();
+  const now = new Date();
+  const [memberCount, games] = await Promise.all([
+    db.user.count(),
+    db.lfgGameCatalog.findMany({
+      where: { enabled: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      include: { preferences: { where: { interestStatus: "INTERESTED" }, include: { user: { include: { weeklyAvailability: true } } } } },
+    }),
+  ]);
+  return games.map((game) => {
+    const interestedCount = game.preferences.length;
+    const availableNowCount = game.preferences.filter((preference) => isUserAvailableForLfg(preference.user, now)).length;
+    return {
+      gameSlug: game.slug, gameName: game.name, gameIcon: game.icon ?? undefined, minPlayers: game.minPlayers, maxPlayers: game.maxPlayers,
+      interestedCount, availableNowCount, interestPercent: memberCount ? Math.round(interestedCount / memberCount * 100) : 0,
+    };
+  }).sort((a, b) => b.availableNowCount - a.availableNowCount || b.interestPercent - a.interestPercent || a.gameName.localeCompare(b.gameName, "ar"));
+}
+
 export async function getUserPreferences(userId: string) {
   return db.userGamePreference.findMany({ where: { userId }, include: { game: { include: { gameCategory: true } } }, orderBy: { game: { name: "asc" } } });
 }
@@ -185,6 +216,27 @@ export async function quickMatchLfg(input: { userId: string; displayName: string
   });
   if (room) return joinLfgRoom(room.id, input);
   return createLfgRoom({ ...input, maxPlayers: Math.min(game.maxPlayers, Math.max(game.minPlayers, 4)) });
+}
+
+export async function smartMatchLfg(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug?: string }) {
+  const settings = await getGuildRuntimeSettings();
+  if (!settings.quickMatchEnabled) throw new Error("التجميع الذكي معطّل مؤقتًا من الإدارة");
+  const insights = await getLfgInterestInsights();
+  const insight = input.gameSlug ? insights.find((item) => item.gameSlug === input.gameSlug) : insights[0];
+  if (!insight) throw new Error("لا توجد لعبة متاحة للتجميع الذكي الآن");
+  const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: insight.gameSlug } });
+  const existing = await db.lfgRoom.findFirst({
+    where: { lfgGameId: game.id, status: "OPEN", hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
+    orderBy: [{ memberCount: "desc" }, { createdAt: "asc" }],
+  });
+  if (existing) return { room: await joinLfgRoom(existing.id, input), insight, joinedExisting: true };
+  const targetPlayers = Math.min(game.maxPlayers, Math.max(game.minPlayers, insight.availableNowCount || game.minPlayers));
+  const room = await createLfgRoom({
+    ...input, gameSlug: game.slug, maxPlayers: targetPlayers,
+    title: `تجمع ذكي • ${insight.interestPercent}% مهتمون`,
+    description: `رتّبه Zark حسب الاهتمام والتفرغ الآن: ${insight.availableNowCount} لاعب متاح.`,
+  });
+  return { room, insight, joinedExisting: false };
 }
 
 export async function joinLfgRoom(roomId: string, input: { userId: string; displayName: string; avatarUrl?: string }) {
@@ -554,14 +606,13 @@ export async function getNotificationCandidates(roomId: string) {
       userId: { not: room.hostId },
       user: { memberships: { none: { status: "ACTIVE" } } },
     },
-    include: { user: true, game: true },
+    include: { user: { include: { weeklyAvailability: true } }, game: true },
     take: 50,
   });
   const now = new Date();
   const availableCandidates = candidates.filter((candidate) => {
     if (candidate.user.mentionPolicy === "NOBODY") return false;
-    const currentStatusActive = candidate.user.activityUntil && candidate.user.activityUntil > now;
-    return !currentStatusActive || !["PLAYING", "STUDYING", "WORKING", "BUSY", "SLEEPING"].includes(candidate.user.currentActivity);
+    return isUserAvailableForLfg(candidate.user, now);
   });
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
@@ -583,6 +634,16 @@ export async function getNotificationCandidates(roomId: string) {
     }
   }
   return selected;
+}
+
+function isUserAvailableForLfg(user: { currentActivity: string; activityUntil: Date | null; weeklyAvailability: Array<{ dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> }, now: Date) {
+  const activeUntil = user.activityUntil && user.activityUntil.getTime() > now.getTime();
+  if (user.currentActivity === "FREE" && (!user.activityUntil || activeUntil)) return true;
+  // أي حالة فعالة غير "فاضي" لها الأولوية على الجدول حتى لا نزعج عضوًا يدرس أو ينام.
+  if (activeUntil) return false;
+  const dayOfWeek = now.getDay();
+  const minute = now.getHours() * 60 + now.getMinutes();
+  return user.weeklyAvailability.some((slot) => slot.dayOfWeek === dayOfWeek && slot.activity === "FREE" && slot.startMinute <= minute && minute < slot.endMinute);
 }
 
 export async function markNotificationDelivery(roomId: string, userId: string, status: "SENT" | "IGNORED" | "FAILED") {
