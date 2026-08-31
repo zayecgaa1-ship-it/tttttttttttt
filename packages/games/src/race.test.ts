@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateRacePoints, calculateWinnerPoints, evaluateAnswer, isCorrectAnswer, minimumRaceQuestionsPerGame, raceGames, seededRandom } from "./index.js";
+import { calculateRacePoints, calculateWinnerPoints, evaluateAnswer, isCorrectAnswer, minimumRaceQuestionsPerGame, raceAnswerDurationMs, raceGames, seededRandom } from "./index.js";
 
 test("normalizes Arabic hamza and diacritics", () => {
   assert.equal(isCorrectAnswer("الأُرْدُن", ["الاردن"]), true);
@@ -51,4 +51,9 @@ test("legacy logo and anime banks work without database placeholders", () => {
 test("every Zark game keeps at least the configured question-bank minimum", () => {
   assert.equal(raceGames.size, 40, "Zark should expose exactly 40 games");
   for (const game of raceGames.values()) assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} fell below ${minimumRaceQuestionsPerGame} prompts`);
+});
+
+test("every Zark game gives exactly ten seconds to answer", () => {
+  assert.equal(raceAnswerDurationMs, 10_000);
+  for (const game of raceGames.values()) assert.equal(game.durationMs, 10_000, `${game.slug} must keep the shared ten-second answer window`);
 });

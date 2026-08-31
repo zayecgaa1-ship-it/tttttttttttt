@@ -346,9 +346,12 @@ function expandQuestionPool(source: RacePrompt[], slug: string): RacePrompt[] {
 }
 
 export const minimumRaceQuestionsPerGame = minimumQuestionsPerGame;
+export const raceAnswerDurationMs = 10_000;
 
 export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
-  [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames, ...databaseGames].map(withImportedQuestions).map((game) => [game.slug, game]),
+  [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames, ...databaseGames]
+    .map((game) => withImportedQuestions({ ...game, durationMs: raceAnswerDurationMs }))
+    .map((game) => [game.slug, game]),
 );
 
 export function normalizeAnswer(value: string): string {
