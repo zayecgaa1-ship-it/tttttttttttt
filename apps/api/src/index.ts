@@ -342,8 +342,8 @@ app.post("/api/daily/answer", { preHandler: requireServiceKey }, async (request,
 });
 app.get("/api/zark-games", listZarkGames);
 app.post("/api/play/start", { preHandler: requireServiceKey }, async (request) => {
-  const body = z.object({ gameSlug: z.string().optional(), channelId: z.string().min(1).max(40), rounds: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(10)]).default(1) }).parse(request.body ?? {});
-  return startZarkRace(body.gameSlug, { channelId: body.channelId, totalRounds: body.rounds });
+  const body = z.object({ gameSlug: z.string().optional(), channelId: z.string().min(1).max(40), rounds: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(10)]).default(1), seconds: z.number().int().min(10).max(60).optional() }).parse(request.body ?? {});
+  return startZarkRace(body.gameSlug, { channelId: body.channelId, totalRounds: body.rounds, durationSeconds: body.seconds });
 });
 app.post("/api/play/:id/answer", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);

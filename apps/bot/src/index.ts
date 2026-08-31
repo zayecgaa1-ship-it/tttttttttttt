@@ -135,7 +135,7 @@ if (!token) {
       if (interaction.isAutocomplete()) return await completePlayAutocomplete(interaction);
       if (interaction.isChatInputCommand()) {
         if (interaction.commandName === "daily") return await daily(interaction);
-        if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1);
+        if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1, interaction.options.getInteger("seconds") ?? undefined);
         if (interaction.commandName === "profile") return await profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
         if (interaction.commandName === "loyalty") return await loyalty(interaction);
         if (interaction.commandName === "weekly") return await weekly(interaction);
@@ -422,11 +422,11 @@ if (!token) {
     activeDailyChannels.set(interaction.channelId, { messageId: sent.id, challengeId: challenge.id });
   }
 
-  async function play(interaction: any, gameSlug?: string, rounds = 1) {
+  async function play(interaction: any, gameSlug?: string, rounds = 1, seconds?: number) {
     if (gameSlug === "help") return playHelp(interaction);
     if (activeDailyChannels.has(interaction.channelId)) throw new Error("تحدي اليوم شغال في هذه القناة. انتظر حتى ينتهي قبل بدء لعبة أخرى.");
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
-    const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: interaction.channelId, rounds });
+    const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: interaction.channelId, rounds, seconds });
     await interaction.editReply(await gameMessagePayload(match));
     const sent = await interaction.fetchReply();
     activateRace(interaction.channelId, match, sent.id, interaction.channel);
@@ -1542,7 +1542,8 @@ function buildCommands() {
         { name: "4 جولات", value: 4 },
         { name: "5 جولات", value: 5 },
         { name: "10 جولات", value: 10 },
-      )),
+      ))
+      .addIntegerOption((option) => option.setName("seconds").setDescription("وقت الإجابة بالثواني — من 10 إلى 60، الافتراضي 15").setMinValue(10).setMaxValue(60)),
     new SlashCommandBuilder().setName("profile").setDescription("اعرض ملف Zark + LFG الموحد").addUserOption((option) => option.setName("user").setDescription("العضو — اتركه فارغًا لملفك")),
     new SlashCommandBuilder().setName("leaderboard").setDescription("متصدرو اليوم").addStringOption((option) => option.setName("type").setDescription("نوع النقاط").addChoices({ name: "ألعاب Zark", value: "game" }, { name: "تفاعل LFG", value: "engagement" })),
     availabilityCommand("availability"),

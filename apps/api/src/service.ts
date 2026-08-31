@@ -105,7 +105,7 @@ export async function answerDaily(input: { userId: string; displayName: string; 
   return { correct: true as const, ...result };
 }
 
-export async function startZarkRace(gameSlug?: string, options: { channelId?: string; totalRounds?: number } = {}) {
+export async function startZarkRace(gameSlug?: string, options: { channelId?: string; totalRounds?: number; durationSeconds?: number } = {}) {
   await ensureSystemData();
   const modules = Array.from(raceGames.values());
   const module = gameSlug ? raceGames.get(gameSlug) : modules[Math.floor(Math.random() * modules.length)];
@@ -114,9 +114,12 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
   if (!game.enabled) throw new Error("اللعبة معطّلة حاليًا");
   const totalRounds = options.totalRounds ?? 1;
   if (!allowedRoundCounts.has(totalRounds)) throw new Error("عدد الجولات يجب أن يكون 1 أو 2 أو 3 أو 4 أو 5 أو 10");
+  const durationSeconds = options.durationSeconds;
+  if (durationSeconds !== undefined && (!Number.isInteger(durationSeconds) || durationSeconds < 10 || durationSeconds > 60)) throw new Error("وقت الإجابة يجب أن يكون من 10 إلى 60 ثانية");
+  const durationMs = durationSeconds === undefined ? module.durationMs : durationSeconds * 1_000;
   const generated = await generateRacePrompt(module, game.id, options.channelId);
   const startedAt = new Date();
-  const endsAt = new Date(startedAt.getTime() + module.durationMs);
+  const endsAt = new Date(startedAt.getTime() + durationMs);
   const seriesId = randomUUID();
   let match;
   try {
@@ -138,7 +141,7 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
           prompt: generated.prompt,
           answer: generated.answers.join("|||"),
           mediaUrl: generated.mediaUrl,
-          durationMs: module.durationMs,
+          durationMs,
           startedAt,
           endsAt,
           lockExpiresAt: options.channelId ? new Date(endsAt.getTime() + 90_000) : undefined,
@@ -170,7 +173,8 @@ export async function advanceZarkRace(matchId: string) {
   if (!module) throw new Error("تعذر تحميل اللعبة للجولة التالية");
   const generated = await generateRacePrompt(module, current.gameId, current.channelId ?? undefined);
   const startedAt = new Date();
-  const endsAt = new Date(startedAt.getTime() + module.durationMs);
+  // Every round in one match series keeps the time chosen by its starter.
+  const endsAt = new Date(startedAt.getTime() + current.durationMs);
   let next;
   try {
     next = await serializable(async (tx) => {
@@ -192,7 +196,7 @@ export async function advanceZarkRace(matchId: string) {
           prompt: generated.prompt,
           answer: generated.answers.join("|||"),
           mediaUrl: generated.mediaUrl,
-          durationMs: module.durationMs,
+          durationMs: locked.durationMs,
           startedAt,
           endsAt,
           lockExpiresAt: locked.channelId ? new Date(endsAt.getTime() + 90_000) : undefined,
