@@ -221,6 +221,25 @@ if (!token) {
   }
 
   async function handleSelect(interaction: any) {
+    if (interaction.customId.startsWith("lfg:host-mute:") || interaction.customId.startsWith("lfg:host-kick:")) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const [, action, roomId] = interaction.customId.split(":");
+      const room = await apiGet<LiveRoom>(`/api/lfg/${roomId}`);
+      if (room.hostId !== interaction.user.id) return interaction.editReply({ content: "هذه أدوات مضيف الغرفة فقط." });
+      const targetId = interaction.values[0];
+      if (targetId === interaction.user.id) return interaction.editReply({ content: "لا يمكنك تطبيق هذا الإجراء على نفسك." });
+      const member = await interaction.guild?.members.fetch(targetId).catch(() => null);
+      if (!member) return interaction.editReply({ content: "لم أتمكن من العثور على اللاعب داخل السيرفر." });
+      if (action === "host-mute") {
+        if (member.voice.channelId !== room.voiceChannelId) return interaction.editReply({ content: "اللاعب ليس داخل Voice هذه الغرفة الآن." });
+        const muted = !member.voice.serverMute;
+        await member.voice.setMute(muted, `Zark room host control: ${room.id}`);
+        return interaction.editReply({ content: muted ? `🔇 تم ميوت ${member}.` : `🔊 تم إلغاء ميوت ${member}.` });
+      }
+      await apiSend<LiveRoom>(`/api/lfg/${roomId}/kick`, "POST", { actorId: interaction.user.id, userId: targetId });
+      if (member.voice.channelId === room.voiceChannelId) await member.voice.disconnect(`Zark room host kick: ${room.id}`).catch(() => undefined);
+      return interaction.editReply({ content: `🚪 تم إخراج ${member} من الغرفة والـVoice.` });
+    }
     if (interaction.customId.startsWith("lfg:rating-player:")) {
       await interaction.deferUpdate();
       const roomId = interaction.customId.split(":")[3];
@@ -763,7 +782,7 @@ if (!token) {
   }
 
   function roomControlComponents(room: LiveRoom) {
-    const rows: ActionRowBuilder<ButtonBuilder>[] = [roomButtons(room.id, room.gameSlug, room)];
+    const rows: Array<ActionRowBuilder<any>> = [roomButtons(room.id, room.gameSlug, room)];
     const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`lfg:start:${room.id}`).setLabel("ابدأ اللعب").setEmoji("▶️").setStyle(ButtonStyle.Success).setDisabled(room.status === "ACTIVE"),
       new ButtonBuilder().setCustomId(`lfg:complete:${room.id}`).setLabel("إنهاء ناجح").setEmoji("✅").setStyle(ButtonStyle.Primary),
@@ -771,6 +790,12 @@ if (!token) {
     );
     if (room.voiceChannelId && guildId) controls.addComponents(new ButtonBuilder().setLabel("دخول Voice").setEmoji("🎙️").setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guildId}/${room.voiceChannelId}`));
     rows.push(controls);
+    const targets = room.members.filter((member) => member.id !== room.hostId).slice(0, 25);
+    if (targets.length) {
+      const options = targets.map((member) => ({ label: trimText(member.displayName, 100), value: member.id, emoji: member.voiceActive ? "🎙️" : "👤" }));
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:host-mute:${room.id}`).setPlaceholder("🔇 ميوت/إلغاء ميوت لاعب — للمضيف").addOptions(options)));
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:host-kick:${room.id}`).setPlaceholder("🚪 إخراج لاعب من الغرفة — للمضيف").addOptions(options)));
+    }
     return rows;
   }
 
@@ -1177,9 +1202,10 @@ if (!token) {
   }
 
   function activateRace(channelId: string, match: ZarkMatch, messageId: string, channel: any) {
-    const timeout = setTimeout(() => void expireActiveRace(channelId, match.id, channel).catch((error) => console.error("Race expiration failed", error)), Math.max(500, new Date(match.endsAt).getTime() - Date.now()));
+    const endsAtMs = new Date(match.endsAt).getTime();
+    const timeout = setTimeout(() => void expireActiveRace(channelId, match.id, channel).catch((error) => console.error("Race expiration failed", error)), Math.max(50, endsAtMs - Date.now() + 50));
     timeout.unref();
-    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout });
+    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs });
   }
 
   function clearActiveRace(channelId: string, matchId: string) {
@@ -1192,6 +1218,13 @@ if (!token) {
   async function expireActiveRace(channelId: string, matchId: string, channel: any) {
     const active = activeRaceChannels.get(channelId);
     if (!active || active.matchId !== matchId) return;
+    const remaining = active.endsAtMs - Date.now();
+    if (remaining > 0) {
+      clearTimeout(active.timeout);
+      active.timeout = setTimeout(() => void expireActiveRace(channelId, matchId, channel).catch((error) => console.error("Race expiration failed", error)), remaining + 50);
+      active.timeout.unref();
+      return;
+    }
     clearActiveRace(channelId, matchId);
     const prompt = await channel.messages?.fetch(active.messageId).catch(() => null);
     await prompt?.delete().catch(() => undefined);
@@ -1534,7 +1567,7 @@ function availabilityCommand(name: string) {
 
 type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number };
 type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; prompt: string; mediaUrl?: string; endsAt: string };
-type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout> };
+type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number };
 type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };

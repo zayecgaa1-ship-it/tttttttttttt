@@ -226,7 +226,9 @@ export async function createLfgRoom(input: { userId: string; displayName: string
         scheduledFor,
         // التجمع المجدول لا يُغلق بعد 10 دقائق. عند موعده نعطيه 30 دقيقة
         // ليتجمع، ثم تحذير 15 دقيقة قبل الإغلاق.
-        autoDeleteAt: null,
+        // A live room gets 30 minutes to gather and enter voice. Once two
+        // members enter, recordLfgVoiceEvent starts the session and clears it.
+        autoDeleteAt: scheduledFor ? null : new Date(Date.now() + 30 * 60_000),
         title: input.title?.trim() || null,
         description: input.description,
         gameMode: input.gameMode,
@@ -339,7 +341,7 @@ export async function joinLfgRoom(roomId: string, input: { userId: string; displ
     const gathersRoom = Boolean(room.attendanceWarningAt && room.memberCount + 1 >= room.lfgGame.minPlayers);
     const reserved = await tx.lfgRoom.updateMany({
       where: { id: roomId, memberCount: { lt: room.maxPlayers }, status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] }, locked: false },
-      data: { memberCount: { increment: 1 }, version: { increment: 1 }, emptySince: null, autoDeleteAt: gathersRoom ? null : room.status === "SCHEDULED" ? room.autoDeleteAt : null, attendanceWarningAt: gathersRoom ? null : room.attendanceWarningAt, hostId: room.memberCount === 0 ? input.userId : room.hostId },
+      data: { memberCount: { increment: 1 }, version: { increment: 1 }, emptySince: null, autoDeleteAt: room.autoDeleteAt, attendanceWarningAt: gathersRoom ? null : room.attendanceWarningAt, hostId: room.memberCount === 0 ? input.userId : room.hostId },
     });
     if (reserved.count !== 1) throw new Error("الغرفة ممتلئة");
     await tx.lfgMember.upsert({
@@ -381,7 +383,7 @@ export async function leaveLfgRoom(roomId: string, userId: string) {
         version: { increment: 1 },
         status: room.status === "SCHEDULED" ? "SCHEDULED" : room.status === "ACTIVE" ? "ACTIVE" : "OPEN",
         emptySince: emptyAt,
-        autoDeleteAt: emptyAt ? new Date(emptyAt.getTime() + settings.roomGraceMinutes * 60_000) : room.status === "SCHEDULED" ? room.autoDeleteAt : null,
+        autoDeleteAt: room.startedAt && emptyAt ? new Date(emptyAt.getTime() + 10 * 60_000) : room.autoDeleteAt,
       },
     });
     return { previousHostId: room.hostId, newHostId };
@@ -389,6 +391,38 @@ export async function leaveLfgRoom(roomId: string, userId: string) {
   const room = await getLfgRoom(roomId);
   publish({ type: "lfg.member_left", room, userId });
   if (hostChange.previousHostId !== hostChange.newHostId) publish({ type: "lfg.host_changed", roomId, previousHostId: hostChange.previousHostId, newHostId: hostChange.newHostId });
+  return room;
+}
+
+/** Removes a participant at the host's request. The Discord bot performs the
+ * matching voice disconnect; this service remains the source of truth. */
+export async function kickLfgMember(roomId: string, actorId: string, userId: string) {
+  if (actorId === userId) throw new Error("You cannot remove yourself");
+  await serializable(async (tx) => {
+    const room = await tx.lfgRoom.findUniqueOrThrow({ where: { id: roomId } });
+    if (room.hostId !== actorId) throw new Error("Only the room host can remove players");
+    if (!["SCHEDULED", "OPEN", "FULL", "ACTIVE"].includes(room.status)) throw new Error("The room is closed");
+    const member = await tx.lfgMember.findUnique({ where: { roomId_userId: { roomId, userId } } });
+    if (!member || member.status !== "ACTIVE") throw new Error("The player is no longer in this room");
+    const now = new Date();
+    const extraVoiceSeconds = member.voiceJoinedAt ? Math.max(0, Math.floor((now.getTime() - member.voiceJoinedAt.getTime()) / 1000)) : 0;
+    await tx.lfgMember.update({ where: { roomId_userId: { roomId, userId } }, data: { status: "LEFT", leftAt: now, voiceJoinedAt: null, voiceSeconds: { increment: extraVoiceSeconds }, played: member.played || extraVoiceSeconds >= 60 } });
+    const memberCount = Math.max(0, room.memberCount - 1);
+    const connected = await tx.lfgMember.count({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } } });
+    const roomIsEmpty = connected === 0 && Boolean(room.startedAt);
+    await tx.lfgRoom.update({
+      where: { id: roomId },
+      data: {
+        memberCount,
+        status: room.status === "SCHEDULED" ? "SCHEDULED" : room.status === "ACTIVE" ? "ACTIVE" : memberCount >= room.maxPlayers ? "FULL" : "OPEN",
+        emptySince: roomIsEmpty ? now : room.emptySince,
+        autoDeleteAt: roomIsEmpty ? new Date(now.getTime() + 10 * 60_000) : room.autoDeleteAt,
+        version: { increment: 1 },
+      },
+    });
+  });
+  const room = await getLfgRoom(roomId);
+  publish({ type: "lfg.member_left", room, userId });
   return room;
 }
 
@@ -574,8 +608,9 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
     if (input.action === "JOIN") {
       if (!member.voiceJoinedAt) await tx.lfgMember.update({ where: { roomId_userId: { roomId, userId: input.userId } }, data: { voiceJoinedAt: now } });
       const voiceMembers = await tx.lfgMember.findMany({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } } });
-      const scheduleReady = !room.scheduledFor || room.scheduledFor.getTime() <= now.getTime();
-      const shouldStart = scheduleReady && voiceMembers.length >= 2 && room.status !== "ACTIVE";
+      const scheduledStartReady = Boolean(room.scheduledFor && room.scheduledFor.getTime() <= now.getTime());
+      const joinedWithinGatheringWindow = !room.scheduledFor && now.getTime() <= room.createdAt.getTime() + 30 * 60_000;
+      const shouldStart = (scheduledStartReady || joinedWithinGatheringWindow) && voiceMembers.length >= 2 && room.status !== "ACTIVE";
       await tx.lfgRoom.update({
         where: { id: roomId },
         data: {
@@ -593,7 +628,7 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
       await tx.lfgMember.update({ where: { roomId_userId: { roomId, userId: input.userId } }, data: { voiceJoinedAt: null, voiceSeconds: { increment: elapsed }, played: member.played || room.status === "ACTIVE" || elapsed >= 60 } });
       const connected = await tx.lfgMember.count({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } } });
       if (connected === 0 && room.startedAt) {
-        await tx.lfgRoom.update({ where: { id: roomId }, data: { emptySince: now, autoDeleteAt: new Date(now.getTime() + settings.roomGraceMinutes * 60_000), version: { increment: 1 } } });
+        await tx.lfgRoom.update({ where: { id: roomId }, data: { emptySince: now, autoDeleteAt: new Date(now.getTime() + 10 * 60_000), version: { increment: 1 } } });
       }
     }
   });

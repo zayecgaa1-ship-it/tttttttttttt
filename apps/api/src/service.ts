@@ -241,6 +241,9 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
 export async function expireZarkRace(matchId: string) {
   const match = await db.zarkMatch.findUnique({ where: { id: matchId }, include: { results: { include: { user: true }, orderBy: { rank: "asc" } } } });
   if (!match) throw new Error("الجولة غير موجودة");
+  // The server is the authority for the deadline. A stale/duplicated bot timer
+  // must never move a round forward before its persisted end time.
+  if (match.status === "OPEN" && Date.now() < match.endsAt.getTime()) throw new Error("Race timer has not finished yet");
   if (match.status === "OPEN") await db.zarkMatch.update({ where: { id: matchId }, data: { status: "EXPIRED" } });
   const winner = match.results[0];
   return {

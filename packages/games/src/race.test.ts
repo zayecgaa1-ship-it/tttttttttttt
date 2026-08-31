@@ -53,7 +53,7 @@ test("every Zark game keeps at least the configured question-bank minimum", () =
   for (const game of raceGames.values()) assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} fell below ${minimumRaceQuestionsPerGame} prompts`);
 });
 
-test("every Zark game gives exactly ten seconds to answer", () => {
-  assert.equal(raceAnswerDurationMs, 10_000);
-  for (const game of raceGames.values()) assert.equal(game.durationMs, 10_000, `${game.slug} must keep the shared ten-second answer window`);
+test("every Zark game gives exactly fifteen seconds to answer", () => {
+  assert.equal(raceAnswerDurationMs, 15_000);
+  for (const game of raceGames.values()) assert.equal(game.durationMs, 15_000, `${game.slug} must keep the shared fifteen-second answer window`);
 });

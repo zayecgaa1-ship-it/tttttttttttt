@@ -346,7 +346,8 @@ function expandQuestionPool(source: RacePrompt[], slug: string): RacePrompt[] {
 }
 
 export const minimumRaceQuestionsPerGame = minimumQuestionsPerGame;
-export const raceAnswerDurationMs = 10_000;
+// The API persists this duration and Discord renders the same deadline.
+export const raceAnswerDurationMs = 15_000;
 
 export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
   [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames, ...databaseGames]
