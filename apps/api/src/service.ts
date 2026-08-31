@@ -6,6 +6,7 @@ import type { RaceGame } from "../../../packages/games/src/index.js";
 import type { DailyChallenge, LeaderboardRow, ZarkGameSummary } from "../../../packages/shared/src/index.js";
 import { enforceRateLimit, publish } from "./events.js";
 import { serializable } from "./db-transaction.js";
+import { awardLoyaltyPoints } from "./modules/loyalty/service.js";
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const splitAnswers = (answer: string) => answer.split("|||");
@@ -227,6 +228,7 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
     return { duplicate: false as const, rank, points, typoCount: evaluation.typoCount, elapsedMs };
   });
   if (!("capped" in result) && !result.duplicate) {
+    await awardLoyaltyPoints({ userId: input.userId, amount: 20, reason: "فوز في لعبة Zark", referenceKey: `zark-win:${matchId}:${input.userId}` });
     publish({ type: "zark.match_answered", matchId, userId: input.userId, displayName: input.displayName, points: result.points, rank: result.rank });
     publish({ type: "leaderboard.updated" });
   }

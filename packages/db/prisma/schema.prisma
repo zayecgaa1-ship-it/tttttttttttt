@@ -144,6 +144,9 @@ model User {
   xp                        Int                  @default(0)
   wins                      Int                  @default(0)
   streak                    Int                  @default(0)
+  loyaltyPoints             Int                  @default(0)
+  lifetimeLoyaltyPoints     Int                  @default(0)
+  vipUnlocked               Boolean              @default(false)
   submittedReportCount      Int                  @default(0)
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
@@ -162,6 +165,19 @@ model User {
   aiUsage                   AiUsageDaily[]
   weeklyAvailability        UserAvailability[]
   roomRatings               LfgRoomRating[]
+  loyaltyTransactions       LoyaltyTransaction[]
+}
+
+model LoyaltyTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  amount       Int
+  reason       String
+  referenceKey String   @unique
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model UserAvailability {

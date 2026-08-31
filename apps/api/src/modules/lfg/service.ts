@@ -4,6 +4,7 @@ import type { LiveRoom } from "../../../../../packages/shared/src/index.js";
 import { enforceRateLimit, publish } from "../../events.js";
 import { serializable } from "../../db-transaction.js";
 import { getGuildRuntimeSettings } from "../admin/service.js";
+import { awardLoyaltyPoints } from "../loyalty/service.js";
 
 const categories = [
   { slug: "sandbox", name: "عالم مفتوح وبناء", icon: "🧱", sortOrder: 1 },
@@ -127,6 +128,20 @@ export async function getSmartRoomDashboard() {
     recommendations: recommendations.slice(0, 8),
     peakTimes: [...hours.values()].sort((a, b) => b.players - a.players || a.dayOfWeek - b.dayOfWeek || a.hour - b.hour).slice(0, 6),
   };
+}
+
+export async function getSmartRoomHistory() {
+  const rooms = await db.lfgRoom.findMany({
+    where: { title: { startsWith: "تجمع Zark تلقائي" } },
+    include: { lfgGame: { select: { name: true, icon: true } } },
+    orderBy: { createdAt: "desc" }, take: 12,
+  });
+  const deliveries = rooms.length ? await db.notificationDelivery.groupBy({ by: ["roomId", "status"], where: { roomId: { in: rooms.map((room) => room.id) } }, _count: { _all: true } }) : [];
+  return rooms.map((room) => {
+    const roomDeliveries = deliveries.filter((delivery) => delivery.roomId === room.id);
+    const count = (status: string) => roomDeliveries.find((delivery) => delivery.status === status)?._count._all ?? 0;
+    return { id: room.id, gameName: room.lfgGame.name, gameIcon: room.lfgGame.icon, status: room.status, createdAt: room.createdAt.toISOString(), description: room.description, invited: roomDeliveries.reduce((total, item) => total + item._count._all, 0), sent: count("SENT"), ignored: count("IGNORED") };
+  });
 }
 
 export async function getUserPreferences(userId: string) {
@@ -379,7 +394,7 @@ export async function leaveLfgRoom(roomId: string, userId: string) {
 
 export async function completeLfgRoom(roomId: string, actorId?: string) {
   if (actorId) await assertRoomHost(roomId, actorId);
-  await serializable(async (tx) => {
+  const rewardedUsers = await serializable(async (tx) => {
     const room = await tx.lfgRoom.findUnique({ where: { id: roomId }, include: { members: { where: { status: "ACTIVE" } } } });
     if (!room || !["FULL", "ACTIVE", "OPEN"].includes(room.status)) throw new Error("لا يمكن إكمال هذه الغرفة");
     const now = new Date();
@@ -401,7 +416,9 @@ export async function completeLfgRoom(roomId: string, actorId?: string) {
       const points = member.userId === room.hostId ? 5 : 2;
       await tx.engagementPoint.upsert({ where: { userId_source: { userId: member.userId, source: `lfg_completed:${roomId}` } }, update: {}, create: { userId: member.userId, points, source: `lfg_completed:${roomId}` } });
     }
+    return eligible.map((member) => member.userId);
   });
+  await Promise.all(rewardedUsers.map((userId) => awardLoyaltyPoints({ userId, amount: 35, reason: "إكمال جلسة LFG", referenceKey: `lfg-completed:${roomId}:${userId}` })));
   const room = await getLfgRoom(roomId);
   publish({ type: "lfg.completed", roomId, room });
   publish({ type: "leaderboard.updated" });

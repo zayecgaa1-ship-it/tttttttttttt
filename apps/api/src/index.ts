@@ -11,11 +11,12 @@ import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, initEvents, subscribe } from "./events.js";
 import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
-import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
+import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
+import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers } from "./modules/loyalty/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true });
@@ -75,6 +76,8 @@ app.get("/api/me", async (request) => {
   return { user: { userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, isAdmin } };
 });
 app.get("/api/me/profile", async (request) => getUnifiedProfile((await requireWebUser(request)).userId, true));
+app.get("/api/me/loyalty", async (request) => getLoyaltyProfile((await requireWebUser(request)).userId));
+app.post("/api/me/loyalty/buy-vip", async (request) => buyVip((await requireWebUser(request)).userId));
 app.put("/api/me/profile/settings", async (request) => {
   const user = await requireWebUser(request);
   const body = z.object({ bio: z.string().max(160).nullable().optional(), profileAccent: z.string().regex(/^#[0-9a-fA-F]{6}$/), activityVisible: z.boolean(), rivalNotificationsEnabled: z.boolean() }).parse(request.body);
@@ -237,6 +240,10 @@ app.post("/api/web-admin/ai/diagnostics", async (request) => {
 app.get("/api/web-admin/smart-rooms", async (request) => {
   await requireWebAdmin(request);
   return getSmartRoomDashboard();
+});
+app.get("/api/web-admin/smart-rooms/history", async (request) => {
+  await requireWebAdmin(request);
+  return getSmartRoomHistory();
 });
 app.post("/api/web-admin/lfg/:id/close", async (request) => {
   const admin = await requireWebAdmin(request);
@@ -433,6 +440,11 @@ app.get("/api/users/:id/lfg-preferences", { preHandler: requireServiceKey }, asy
   const params = z.object({ id: z.string() }).parse(request.params);
   return getUserPreferences(params.id);
 });
+app.get("/api/users/:id/loyalty", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  return getLoyaltyProfile(params.id);
+});
+app.get("/api/loyalty/role-members", { preHandler: requireServiceKey }, async () => listLoyaltyRoleMembers());
 app.put("/api/users/:id/identity", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
   const body = z.object({ displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional() }).parse(request.body);

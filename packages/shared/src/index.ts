@@ -117,6 +117,7 @@ export type ZarkEvent =
   | { type: "zark.match_answered"; matchId: string; userId: string; displayName: string; points: number; rank: number }
   | { type: "zark.series_completed"; seriesId: string; channelId?: string; totalRounds: number }
   | { type: "daily.answer"; userId: string; displayName: string; points: number }
+  | { type: "loyalty.updated"; userId: string; points: number; lifetimePoints: number; vipUnlocked: boolean }
   | { type: "leaderboard.updated" }
   | { type: "lfg.created"; room: LiveRoom }
   | { type: "lfg.updated"; room: LiveRoom }

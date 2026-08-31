@@ -49,6 +49,7 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
       weeklyAvailability: user.weeklyAvailability.map((slot) => ({ id: slot.id, dayOfWeek: slot.dayOfWeek, startMinute: slot.startMinute, endMinute: slot.endMinute, activity: slot.activity })),
     },
     zark: { xp: user.xp, wins: user.wins, streak: user.streak, level: levelFromXp(user.xp), games: user.gameProfiles.map((profile) => ({ slug: profile.game.slug, name: profile.game.name, xp: profile.xp, wins: profile.wins, losses: profile.losses, streak: profile.streak })) },
+    loyalty: { points: user.loyaltyPoints, lifetimePoints: user.lifetimeLoyaltyPoints, vipUnlocked: user.vipUnlocked },
     lfg: {
       engagement: engagement._sum.points ?? 0,
       completedSessions: completed.length,

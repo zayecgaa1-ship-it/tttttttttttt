@@ -104,14 +104,16 @@ if (!token) {
     }
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
-    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle()]);
+    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
     const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces().catch((error) => console.error("LFG cleanup cycle failed", error)), 30_000);
     const bumpTimer = setInterval(() => void runBumpReminderCycle().catch((error) => console.error("Bump reminder failed", error)), 60_000);
+    const loyaltyTimer = setInterval(() => void syncLoyaltyRoleMembers().catch((error) => console.error("Loyalty role sync failed", error)), 5 * 60_000);
     heartbeatTimer.unref();
     cleanupTimer.unref();
     bumpTimer.unref();
+    loyaltyTimer.unref();
   });
   client.on(Events.Error, (error) => console.error("Discord client error", error));
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -491,7 +493,7 @@ if (!token) {
   }
 
   async function handleDomainEvent(raw: string) {
-    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string } } };
+    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string; userId?: string } } };
     const eventType = message.event?.eventType;
     const payload = message.event?.payload;
     const room = payload?.room;
@@ -515,6 +517,10 @@ if (!token) {
     }
     if (eventType === "report.status_changed" && payload?.reportId && payload.reportKind && payload.reporterId) {
       await notifyReportOwner(payload.reporterId, payload.reportKind, payload.reportId, `📌 تم تحديث حالة تذكرتك إلى **${payload.status ?? "محدّثة"}**.`);
+      return;
+    }
+    if (eventType === "loyalty.updated" && payload?.userId) {
+      await syncLoyaltyRoles(payload.userId);
       return;
     }
     if (!room) return;
@@ -547,6 +553,30 @@ if (!token) {
       await syncRoomListing(room);
       await finalizeRoomSpace(room);
     }
+  }
+
+  async function syncLoyaltyRoles(userId: string) {
+    if (!guildId) return;
+    const [guild, loyalty] = await Promise.all([client.guilds.fetch(guildId), apiGet<{ lifetimePoints: number; vipUnlocked: boolean }>(`/api/users/${userId}/loyalty`)]);
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return;
+    const definitions = [
+      { name: "Zark Loyal", eligible: loyalty.lifetimePoints >= 500, color: 0xe50914 },
+      { name: "Zark Elite", eligible: loyalty.lifetimePoints >= 1500, color: 0xf1c40f },
+      { name: "Zark VIP", eligible: loyalty.vipUnlocked, color: 0x9b59b6 },
+    ];
+    for (const definition of definitions) {
+      let role = guild.roles.cache.find((item) => item.name === definition.name);
+      if (!role && definition.eligible) role = await guild.roles.create({ name: definition.name, color: definition.color, reason: "Zark loyalty rewards" }).catch(() => undefined);
+      if (!role || !role.editable) continue;
+      if (definition.eligible && !member.roles.cache.has(role.id)) await member.roles.add(role).catch(() => undefined);
+      if (!definition.eligible && member.roles.cache.has(role.id)) await member.roles.remove(role).catch(() => undefined);
+    }
+  }
+
+  async function syncLoyaltyRoleMembers() {
+    const users = await apiGet<Array<{ id: string }>>("/api/loyalty/role-members");
+    for (const user of users) await syncLoyaltyRoles(user.id);
   }
 
   async function publishReportNotification(kind: "PLAYER" | "BUG", reportId: string, isReply: boolean) {
