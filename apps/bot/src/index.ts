@@ -143,6 +143,7 @@ if (!token) {
         if (interaction.commandName === "pulse") return await pulse(interaction);
         if (interaction.commandName === "leaderboard") return await gameLeaderboard(interaction, interaction.options.getString("type") ?? "game");
         if (interaction.commandName === "help") return await help(interaction);
+        if (interaction.commandName === "help-plus") return await helpPlus(interaction);
         if (["availability", "وقت-فراغي"].includes(interaction.commandName)) return await availability(interaction);
         if (interaction.commandName === "lfg") return await handleLfgCommand(interaction);
       }
@@ -191,7 +192,8 @@ if (!token) {
         return;
       }
       const alias = dotAliases.get(message.content.trim().toLocaleLowerCase("ar"));
-      if (alias === "help") await playHelpForMessage(message);
+      if (["help+", ".help+", "مساعدة+", ".مساعدة+"].includes(message.content.trim().toLocaleLowerCase("ar"))) await helpPlusForMessage(message);
+      else if (alias === "help") await playHelpForMessage(message);
       else if (alias) await startRaceForMessage(message, alias);
       else if (message.content.trim() === ".وقت فراغي") {
         const current = await apiGet<UserAvailability>(`/api/users/${message.author.id}/availability`, true);
@@ -1017,6 +1019,32 @@ if (!token) {
     return interaction.reply({ embeds: [embed], components: [website], flags: MessageFlags.Ephemeral });
   }
 
+  function helpPlusPayload() {
+    const start = baseEmbed().setTitle("🚀 Zark من البداية").setDescription("1. استخدم `/pulse` لمعرفة أفضل فرصة لك الآن.\n2. اضبط اهتماماتك عبر `/lfg interests`.\n3. حدّث وقتك عبر `/availability` أو `/وقت-فراغي`.\n4. اضغط **تجمع ذكي** أو استخدم `/lfg smart` ليجد لك Zark لاعبين.");
+    const playGuide = baseEmbed().setTitle("🎮 الألعاب والتحديات").addFields(
+      { name: "بدء لعبة", value: "`/play` ثم اختر اللعبة وعدد الجولات. أثناء اللعبة لديك **10 ثوانٍ** فقط للإجابة؛ أول إجابة صحيحة تفوز." },
+      { name: "اختصارات سريعة", value: "`.أعلام` `.ترجم` `.سيارات` `.شركات` `.انمي` `.ألغاز` أو `/play help`." },
+      { name: "تحدي اليوم", value: "`/daily` ينشر تحديًا يوميًا. أكمله لتربح XP ونقاط ولاء ومكافأة مهمة يومية." },
+      { name: "النقاط والرتب", value: "`/loyalty` يعرض رصيدك. تربح نقاطًا من الفوز والجلسات والتحدي اليومي؛ VIP يمكن شراؤها بالنقاط." },
+    );
+    const lfgGuide = baseEmbed().setTitle("👥 غرف LFG والإدارة").addFields(
+      { name: "إنشاء أو دخول", value: "`/lfg create` لإنشاء غرفة، و`/lfg rooms` لرؤية الغرف واختيار **دخول**. Roblox يطلب اسم الماب." },
+      { name: "الإشعارات", value: "من `/lfg interests` اختر الألعاب التي تحبها. يمكنك إيقاف التنبيه أو الغفوة بدون إلغاء الاهتمام." },
+      { name: "بعد الجلسة", value: "أكمل الغرفة من أزرارها لتحصل على نقاط وتصل رسالة تقييم خاصة لكل لاعب." },
+      { name: "للإدارة", value: "`/lfg auto` لعرض أو تغيير التجمعات التلقائية، و`/event-hour` لتشغيل نقاط ×2، و`/weekly` لمتصدرين الأسبوع." },
+    );
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع Zark").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
+    return { embeds: [start, playGuide, lfgGuide], components: [row] };
+  }
+
+  async function helpPlus(interaction: any) {
+    return interaction.reply({ ...helpPlusPayload(), flags: MessageFlags.Ephemeral });
+  }
+
+  async function helpPlusForMessage(message: any) {
+    return message.reply(helpPlusPayload());
+  }
+
   async function availability(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const current = await apiGet<UserAvailability>(`/api/users/${interaction.user.id}/availability`, true);
@@ -1465,6 +1493,7 @@ if (!token) {
 function buildCommands() {
   return [
     new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
+    new SlashCommandBuilder().setName("help-plus").setDescription("شرح كامل ومبسط لكل أنظمة Zark"),
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
     new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
