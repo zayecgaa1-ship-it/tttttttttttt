@@ -270,7 +270,8 @@ export async function processAutoSmartRooms() {
   const service = `auto-smart-rooms:${settings.guildId}`;
   const claimed = await serializable(async (tx) => {
     const previous = await tx.serviceHeartbeat.findUnique({ where: { service } });
-    if (previous && now.getTime() - previous.lastSeenAt.getTime() < 5 * 60_000) return false;
+    // Keep a small margin so timer drift between Railway instances does not skip an entire cycle.
+    if (previous && now.getTime() - previous.lastSeenAt.getTime() < 4.5 * 60_000) return false;
     await tx.serviceHeartbeat.upsert({ where: { service }, update: { instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } }, create: { service, instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } } });
     return true;
   });

@@ -462,7 +462,10 @@ if (!token) {
 
   async function setAutoSmartRooms(interaction: any) {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("هذا الأمر للإدارة التي تملك صلاحية Manage Server فقط");
-    const enabled = interaction.options.getBoolean("enabled", true);
+    const enabled = interaction.options.getBoolean("enabled");
+    if (enabled === null) {
+      return interaction.reply({ embeds: [baseEmbed().setTitle("🤖 حالة التجميع التلقائي").setDescription(runtimeSettings.autoSmartRoomsEnabled ? "✅ مفعّل: يفحص Zark الاهتمام والتفرغ كل 5 دقائق." : "⏸️ متوقف حاليًا. فعّله عبر `/lfg auto enabled:true`.")], flags: MessageFlags.Ephemeral });
+    }
     const settings = await apiSend<GuildRuntimeSettings>("/api/settings/auto-smart-rooms", "POST", { adminId: interaction.user.id, enabled });
     runtimeSettings = settings;
     return interaction.reply({ embeds: [baseEmbed().setTitle(enabled ? "🤖 تم تفعيل التجميع التلقائي" : "⏸️ تم إيقاف التجميع التلقائي").setDescription(enabled ? "سيفحص Zark الاهتمام والتفرغ كل 5 دقائق، وينشئ غرفة فقط عندما يتوفر الحد الأدنى من اللاعبين." : "لن ينشئ Zark غرفًا تلقائيًا حتى تعيد التفعيل.")], flags: MessageFlags.Ephemeral });
@@ -1391,7 +1394,7 @@ function buildCommands() {
       .addSubcommand((command) => command.setName("top").setDescription("أفضل لاعبي LFG").addStringOption((option) => option.setName("metric").setDescription("التصنيف").addChoices({ name: "التفاعل", value: "engagement" }, { name: "الجلسات", value: "sessions" }, { name: "التقييم", value: "rating" })))
       .addSubcommand((command) => command.setName("rooms").setDescription("اعرض الغرف المفتوحة"))
       .addSubcommand((command) => command.setName("smart").setDescription("دع Zark ينظم أفضل تجمع حسب الاهتمام والتفرغ"))
-      .addSubcommand((command) => command.setName("auto").setDescription("إدارة إنشاء الغرف التلقائي — للإدارة").addBooleanOption((option) => option.setName("enabled").setDescription("تفعيل أو إيقاف").setRequired(true)))
+      .addSubcommand((command) => command.setName("auto").setDescription("حالة أو إدارة إنشاء الغرف التلقائي — للإدارة").addBooleanOption((option) => option.setName("enabled").setDescription("تفعيل أو إيقاف؛ اتركه فارغًا لمعرفة الحالة")))
       .addSubcommand((command) => command.setName("interests").setDescription("إدارة اهتمامات الألعاب والإشعارات"))
       .addSubcommand((command) => command.setName("report").setDescription("إبلاغ عن لاعب").addUserOption((option) => option.setName("user").setDescription("اللاعب").setRequired(true)))
       .addSubcommand((command) => command.setName("bug").setDescription("إرسال تقرير خطأ"))
@@ -1410,7 +1413,7 @@ type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
-type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
+type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
 type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
