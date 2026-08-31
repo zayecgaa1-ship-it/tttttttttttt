@@ -36,6 +36,8 @@
         <div class="section-heading compact"><div><span class="eyebrow">LIVE OVERVIEW</span><h2>حالة النظام</h2></div><span id="admin-system-status" class="live-chip">● جارِ الفحص</span></div>
         <div id="admin-stats" class="stats"></div>
         <div id="admin-service-grid" class="service-grid"></div>
+        <div class="section-heading compact"><div><span class="eyebrow">SMART MATCHING</span><h2>اقتراح التجمعات القادمة</h2></div><span class="subtle">حسب الاهتمام ووقت الفراغ</span></div>
+        <div id="admin-smart-rooms" class="admin-room-list"></div>
       </section>
 
       <section class="admin-section" data-admin-panel="settings" hidden>
@@ -115,6 +117,7 @@
             <label>الاسم<input id="admin-game-name" required></label>
             <div class="form-row"><label>الأيقونة<input id="admin-game-icon"></label><label>التصنيف<input id="admin-game-category" placeholder="sandbox"></label></div>
             <div class="form-row"><label>أقل عدد<input id="admin-game-min" type="number" min="2" value="2"></label><label>أعلى عدد<input id="admin-game-max" type="number" min="2" value="10"></label></div>
+            <label>حد التجمع التلقائي<input id="admin-game-auto-min" type="number" min="2" placeholder="استخدم الحد الأدنى للعبة"><small>لن ينشئ Zark تجمعًا لهذه اللعبة إلا عند توفر هذا العدد من المهتمين الفاضيين.</small></label>
             <label>الوصف<textarea id="admin-game-description"></textarea></label>
             <button class="button primary" type="submit">حفظ اللعبة</button>
             <p id="admin-game-result" class="form-result"></p>

@@ -336,6 +336,7 @@ model LfgGameCatalog {
   categoryId   String?
   minPlayers   Int                  @default(2)
   maxPlayers   Int                  @default(10)
+  autoMinAvailable Int?
   sortOrder    Int                  @default(0)
   enabled      Boolean              @default(true)
   createdAt    DateTime             @default(now())
@@ -352,6 +353,7 @@ model UserGamePreference {
   lfgGameId            String
   interestStatus       GameInterestStatus @default(INTERESTED)
   notificationsEnabled Boolean            @default(true)
+  autoInvitesEnabled  Boolean            @default(true)
   mutedUntil           DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt

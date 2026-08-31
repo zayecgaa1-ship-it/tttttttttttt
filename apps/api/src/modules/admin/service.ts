@@ -233,7 +233,7 @@ export async function createLfgCategory(input: { slug: string; name: string; ico
   return db.lfgGameCategory.create({ data: { slug: input.slug, name: input.name, icon: input.icon, sortOrder: input.sortOrder ?? 0 } });
 }
 
-export async function upsertLfgGame(input: { slug: string; name: string; description?: string; icon?: string; categorySlug?: string; minPlayers?: number; maxPlayers?: number; enabled?: boolean }) {
+export async function upsertLfgGame(input: { slug: string; name: string; description?: string; icon?: string; categorySlug?: string; minPlayers?: number; maxPlayers?: number; autoMinAvailable?: number | null; enabled?: boolean }) {
   const category = input.categorySlug ? await db.lfgGameCategory.findUnique({ where: { slug: input.categorySlug } }) : null;
   if (input.categorySlug && !category) throw new Error("تصنيف LFG غير موجود");
   const data = {
@@ -244,6 +244,7 @@ export async function upsertLfgGame(input: { slug: string; name: string; descrip
     categoryId: category?.id,
     minPlayers: Math.max(2, input.minPlayers ?? 2),
     maxPlayers: Math.max(input.minPlayers ?? 2, input.maxPlayers ?? 10),
+    autoMinAvailable: input.autoMinAvailable ? Math.max(input.minPlayers ?? 2, Math.min(input.maxPlayers ?? 10, input.autoMinAvailable)) : null,
     enabled: input.enabled ?? true,
   };
   return db.lfgGameCatalog.upsert({ where: { slug: input.slug }, update: data, create: { slug: input.slug, ...data } });

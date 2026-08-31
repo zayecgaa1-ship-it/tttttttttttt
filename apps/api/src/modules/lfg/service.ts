@@ -80,6 +80,7 @@ export type LfgInterestInsight = {
   gameName: string;
   gameIcon?: string;
   minPlayers: number;
+  autoMinAvailable: number;
   maxPlayers: number;
   interestedCount: number;
   availableNowCount: number;
@@ -100,10 +101,32 @@ export async function getLfgInterestInsights(): Promise<LfgInterestInsight[]> {
     const interestedCount = game.preferences.length;
     const availableNowCount = game.preferences.filter((preference) => isUserAvailableForLfg(preference.user, now)).length;
     return {
-      gameSlug: game.slug, gameName: game.name, gameIcon: game.icon ?? undefined, minPlayers: game.minPlayers, maxPlayers: game.maxPlayers,
+      gameSlug: game.slug, gameName: game.name, gameIcon: game.icon ?? undefined, minPlayers: game.minPlayers,
+      autoMinAvailable: Math.min(game.maxPlayers, Math.max(game.minPlayers, game.autoMinAvailable ?? game.minPlayers)), maxPlayers: game.maxPlayers,
       interestedCount, availableNowCount, interestPercent: memberCount ? Math.round(interestedCount / memberCount * 100) : 0,
     };
   }).sort((a, b) => b.availableNowCount - a.availableNowCount || b.interestPercent - a.interestPercent || a.gameName.localeCompare(b.gameName, "ar"));
+}
+
+export async function getSmartRoomDashboard() {
+  const [recommendations, slots] = await Promise.all([
+    getLfgInterestInsights(),
+    db.userAvailability.findMany({ where: { activity: "FREE" }, select: { dayOfWeek: true, startMinute: true, endMinute: true } }),
+  ]);
+  const hours = new Map<string, { dayOfWeek: number; hour: number; players: number }>();
+  for (const slot of slots) {
+    for (let minute = slot.startMinute; minute < slot.endMinute; minute += 60) {
+      const hour = Math.floor(minute / 60);
+      const key = `${slot.dayOfWeek}:${hour}`;
+      const current = hours.get(key) ?? { dayOfWeek: slot.dayOfWeek, hour, players: 0 };
+      current.players += 1;
+      hours.set(key, current);
+    }
+  }
+  return {
+    recommendations: recommendations.slice(0, 8),
+    peakTimes: [...hours.values()].sort((a, b) => b.players - a.players || a.dayOfWeek - b.dayOfWeek || a.hour - b.hour).slice(0, 6),
+  };
 }
 
 export async function getUserPreferences(userId: string) {
@@ -122,14 +145,14 @@ export async function syncLfgUserIdentity(input: { userId: string; displayName: 
   return user;
 }
 
-export async function updateUserPreference(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug: string; interested: boolean; notificationsEnabled: boolean }) {
+export async function updateUserPreference(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug: string; interested: boolean; notificationsEnabled: boolean; autoInvitesEnabled?: boolean }) {
   await seedLfgCatalog();
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: input.gameSlug } });
   await upsertActor(input);
   const preference = await db.userGamePreference.upsert({
     where: { userId_lfgGameId: { userId: input.userId, lfgGameId: game.id } },
-    update: { interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, mutedUntil: null },
-    create: { userId: input.userId, lfgGameId: game.id, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled },
+    update: { interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, mutedUntil: null, ...(input.autoInvitesEnabled === undefined ? {} : { autoInvitesEnabled: input.interested && input.autoInvitesEnabled }) },
+    create: { userId: input.userId, lfgGameId: game.id, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, autoInvitesEnabled: input.interested && (input.autoInvitesEnabled ?? true) },
     include: { game: true },
   });
   publish({ type: "user.interest_changed", userId: input.userId, gameSlug: game.slug, interested: input.interested, notificationsEnabled: preference.notificationsEnabled });
@@ -253,7 +276,7 @@ export async function processAutoSmartRooms() {
   });
   if (!claimed) return { created: false, reason: "cooldown" as const };
   const cooldownSince = new Date(now.getTime() - 90 * 60_000);
-  const candidates = (await getLfgInterestInsights()).filter((item) => item.availableNowCount >= item.minPlayers);
+  const candidates = (await getLfgInterestInsights()).filter((item) => item.availableNowCount >= item.autoMinAvailable);
   let selected: { candidate: LfgInterestInsight; game: NonNullable<Awaited<ReturnType<typeof db.lfgGameCatalog.findUnique>>> } | undefined;
   for (const insight of candidates) {
     const catalogGame = await db.lfgGameCatalog.findUnique({ where: { slug: insight.gameSlug } });
@@ -273,10 +296,10 @@ export async function processAutoSmartRooms() {
   const room = await db.lfgRoom.create({
     data: {
       hostId: autoOrganizer.userId, lfgGameId: game.id, memberCount: 0,
-      maxPlayers: Math.min(game.maxPlayers, Math.max(game.minPlayers, candidate.availableNowCount)),
+      maxPlayers: Math.min(game.maxPlayers, Math.max(candidate.autoMinAvailable, candidate.availableNowCount)),
       durationMinutes: settings.defaultRoomDurationMinutes, status: "OPEN", needsVoice: true,
       title: `تجمع Zark تلقائي • ${candidate.interestPercent}% مهتمون`,
-      description: `اختاره Zark تلقائيًا: ${candidate.availableNowCount} عضوًا متفرغًا الآن من المهتمين باللعبة.`,
+      description: `اختاره Zark تلقائيًا: ${candidate.availableNowCount} عضوًا متفرغًا الآن من المهتمين باللعبة (الحد التلقائي: ${candidate.autoMinAvailable}).`,
       roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: new Date(now.getTime() + 30 * 60_000),
     }, include: roomInclude,
   });
@@ -643,11 +666,13 @@ export async function getNotificationCandidates(roomId: string) {
   const settings = await getGuildRuntimeSettings();
   if (!settings.dmNotificationsEnabled || settings.maxDmPerDay === 0) return [];
   const room = await db.lfgRoom.findUniqueOrThrow({ where: { id: roomId } });
+  const isAutomaticRoom = room.title?.startsWith("تجمع Zark تلقائي") ?? false;
   const candidates = await db.userGamePreference.findMany({
     where: {
       lfgGameId: room.lfgGameId,
       interestStatus: "INTERESTED",
       notificationsEnabled: true,
+      ...(isAutomaticRoom ? { autoInvitesEnabled: true } : {}),
       OR: [{ mutedUntil: null }, { mutedUntil: { lt: new Date() } }],
       userId: { not: room.hostId },
       user: { memberships: { none: { status: "ACTIVE" } } },

@@ -11,7 +11,7 @@ import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, initEvents, subscribe } from "./events.js";
 import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
-import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
+import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getUserPreferences, joinLfgRoom, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
@@ -98,7 +98,7 @@ app.get("/api/me/lfg-preferences", async (request) => getUserPreferences((await 
 app.put("/api/me/lfg-preferences/:game", async (request) => {
   const user = await requireWebUser(request);
   const params = z.object({ game: z.string() }).parse(request.params);
-  const body = z.object({ interested: z.boolean(), notificationsEnabled: z.boolean() }).parse(request.body);
+  const body = z.object({ interested: z.boolean(), notificationsEnabled: z.boolean(), autoInvitesEnabled: z.boolean().optional() }).parse(request.body);
   return updateUserPreference({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, gameSlug: params.game, ...body });
 });
 app.post("/api/me/lfg-preferences/:game/snooze", async (request) => {
@@ -234,6 +234,10 @@ app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);
   return diagnoseSupportAi(admin.userId);
 });
+app.get("/api/web-admin/smart-rooms", async (request) => {
+  await requireWebAdmin(request);
+  return getSmartRoomDashboard();
+});
 app.post("/api/web-admin/lfg/:id/close", async (request) => {
   const admin = await requireWebAdmin(request);
   const params = z.object({ id: z.string() }).parse(request.params);
@@ -249,7 +253,7 @@ app.post("/api/web-admin/lfg/categories", async (request) => {
 app.put("/api/web-admin/lfg/games/:slug", async (request) => {
   await requireWebAdmin(request);
   const params = z.object({ slug: z.string() }).parse(request.params);
-  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), enabled: z.boolean().optional() }).parse(request.body);
+  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), autoMinAvailable: z.number().int().min(2).max(100).nullable().optional(), enabled: z.boolean().optional() }).parse(request.body);
   return upsertLfgGame({ slug: params.slug, ...body });
 });
 app.post("/api/web-admin/zark-games/:slug/questions", async (request) => {
@@ -436,7 +440,7 @@ app.put("/api/users/:id/identity", { preHandler: requireServiceKey }, async (req
 });
 app.put("/api/users/:id/lfg-preferences/:game", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string(), game: z.string() }).parse(request.params);
-  const body = z.object({ displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), interested: z.boolean(), notificationsEnabled: z.boolean() }).parse(request.body);
+  const body = z.object({ displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), interested: z.boolean(), notificationsEnabled: z.boolean(), autoInvitesEnabled: z.boolean().optional() }).parse(request.body);
   return updateUserPreference({ userId: params.id, gameSlug: params.game, ...body });
 });
 app.post("/api/users/:id/lfg-preferences/:game/mute", { preHandler: requireServiceKey }, async (request) => {
@@ -502,7 +506,7 @@ app.post("/api/admin/lfg/categories", { preHandler: requireServiceKey }, async (
 });
 app.put("/api/admin/lfg/games/:slug", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ slug: z.string() }).parse(request.params);
-  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), enabled: z.boolean().optional() }).parse(request.body);
+  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), autoMinAvailable: z.number().int().min(2).max(100).nullable().optional(), enabled: z.boolean().optional() }).parse(request.body);
   return upsertLfgGame({ slug: params.slug, ...body });
 });
 app.post("/api/admin/zark-games/:slug/questions", { preHandler: requireServiceKey }, async (request) => {
