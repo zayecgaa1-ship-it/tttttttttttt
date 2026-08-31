@@ -16,7 +16,7 @@ import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailabilit
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
-import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers } from "./modules/loyalty/service.js";
+import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true });
@@ -78,6 +78,7 @@ app.get("/api/me", async (request) => {
 app.get("/api/me/profile", async (request) => getUnifiedProfile((await requireWebUser(request)).userId, true));
 app.get("/api/me/loyalty", async (request) => getLoyaltyProfile((await requireWebUser(request)).userId));
 app.post("/api/me/loyalty/buy-vip", async (request) => buyVip((await requireWebUser(request)).userId));
+app.get("/api/loyalty/weekly", weeklyLoyaltyLeaderboard);
 app.put("/api/me/profile/settings", async (request) => {
   const user = await requireWebUser(request);
   const body = z.object({ bio: z.string().max(160).nullable().optional(), profileAccent: z.string().regex(/^#[0-9a-fA-F]{6}$/), activityVisible: z.boolean(), rivalNotificationsEnabled: z.boolean() }).parse(request.body);
@@ -236,6 +237,11 @@ app.post("/api/settings/auto-smart-rooms", { preHandler: requireServiceKey }, as
 app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);
   return diagnoseSupportAi(admin.userId);
+});
+app.post("/api/web-admin/loyalty/boost", async (request) => {
+  const admin = await requireWebAdmin(request);
+  const body = z.object({ minutes: z.number().int().min(15).max(180).default(60) }).parse(request.body);
+  return startLoyaltyBoost(admin.userId, body.minutes);
 });
 app.get("/api/web-admin/smart-rooms", async (request) => {
   await requireWebAdmin(request);
@@ -447,6 +453,10 @@ app.get("/api/users/:id/loyalty", { preHandler: requireServiceKey }, async (requ
 app.post("/api/users/:id/loyalty/buy-vip", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
   return buyVip(params.id);
+});
+app.post("/api/loyalty/boost", { preHandler: requireServiceKey }, async (request) => {
+  const body = z.object({ adminId: z.string().min(1), minutes: z.number().int().min(15).max(180).default(60) }).parse(request.body);
+  return startLoyaltyBoost(body.adminId, body.minutes);
 });
 app.get("/api/loyalty/role-members", { preHandler: requireServiceKey }, async () => listLoyaltyRoleMembers());
 app.put("/api/users/:id/identity", { preHandler: requireServiceKey }, async (request) => {

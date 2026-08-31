@@ -419,6 +419,7 @@ export async function completeLfgRoom(roomId: string, actorId?: string) {
     return eligible.map((member) => member.userId);
   });
   await Promise.all(rewardedUsers.map((userId) => awardLoyaltyPoints({ userId, amount: 35, reason: "إكمال جلسة LFG", referenceKey: `lfg-completed:${roomId}:${userId}` })));
+  await Promise.all(rewardedUsers.map((userId) => awardLoyaltyPoints({ userId, amount: 20, reason: "مهمة يومية: جلسة LFG", referenceKey: `mission:lfg:${new Date().toISOString().slice(0, 10)}:${userId}` })));
   const room = await getLfgRoom(roomId);
   publish({ type: "lfg.completed", roomId, room });
   publish({ type: "leaderboard.updated" });

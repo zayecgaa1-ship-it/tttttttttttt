@@ -16,10 +16,13 @@ export function loyaltyTier(points: number) {
 
 export async function awardLoyaltyPoints(input: { userId: string; amount: number; reason: string; referenceKey: string }) {
   if (input.amount <= 0) return null;
+  const settings = await db.guildSettings.findUnique({ where: { guildId: process.env.DISCORD_GUILD_ID ?? "default" }, select: { loyaltyBoostUntil: true, loyaltyBoostMultiplier: true } });
+  const multiplier = settings?.loyaltyBoostUntil && settings.loyaltyBoostUntil.getTime() > Date.now() ? Math.max(1, settings.loyaltyBoostMultiplier) : 1;
+  const amount = input.amount * multiplier;
   try {
     const result = await serializable(async (tx) => {
-      const transaction = await tx.loyaltyTransaction.create({ data: input });
-      const user = await tx.user.update({ where: { id: input.userId }, data: { loyaltyPoints: { increment: input.amount }, lifetimeLoyaltyPoints: { increment: input.amount } } });
+      const transaction = await tx.loyaltyTransaction.create({ data: { ...input, amount, reason: multiplier > 1 ? `${input.reason} ×${multiplier}` : input.reason } });
+      const user = await tx.user.update({ where: { id: input.userId }, data: { loyaltyPoints: { increment: amount }, lifetimeLoyaltyPoints: { increment: amount } } });
       return { transaction, user };
     });
     publish({ type: "loyalty.updated", userId: input.userId, points: result.user.loyaltyPoints, lifetimePoints: result.user.lifetimeLoyaltyPoints, vipUnlocked: result.user.vipUnlocked });
@@ -51,4 +54,22 @@ export async function buyVip(userId: string) {
 
 export async function listLoyaltyRoleMembers() {
   return db.user.findMany({ where: { OR: [{ vipUnlocked: true }, { lifetimeLoyaltyPoints: { gte: 500 } }] }, select: { id: true }, take: 1_000 });
+}
+
+export async function weeklyLoyaltyLeaderboard() {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60_000);
+  const rows = await db.loyaltyTransaction.groupBy({ by: ["userId"], where: { amount: { gt: 0 }, createdAt: { gte: since } }, _sum: { amount: true }, orderBy: { _sum: { amount: "desc" } }, take: 10 });
+  const users = await db.user.findMany({ where: { id: { in: rows.map((row) => row.userId) } }, select: { id: true, displayName: true, avatarUrl: true } });
+  const byId = new Map(users.map((user) => [user.id, user]));
+  return rows.map((row, index) => ({ rank: index + 1, userId: row.userId, displayName: byId.get(row.userId)?.displayName ?? "لاعب Zark", avatarUrl: byId.get(row.userId)?.avatarUrl ?? undefined, points: row._sum.amount ?? 0 }));
+}
+
+export async function startLoyaltyBoost(adminId: string, minutes = 60) {
+  const guildId = process.env.DISCORD_GUILD_ID ?? "default";
+  const until = new Date(Date.now() + Math.min(180, Math.max(15, minutes)) * 60_000);
+  await db.$transaction([
+    db.guildSettings.upsert({ where: { guildId }, update: { loyaltyBoostUntil: until, loyaltyBoostMultiplier: 2, updatedBy: adminId }, create: { guildId, loyaltyBoostUntil: until, loyaltyBoostMultiplier: 2, updatedBy: adminId } }),
+    db.auditLog.create({ data: { adminId, action: "loyalty.boost_started", targetId: guildId, details: { until: until.toISOString(), multiplier: 2 } } }),
+  ]);
+  return { multiplier: 2, until: until.toISOString() };
 }

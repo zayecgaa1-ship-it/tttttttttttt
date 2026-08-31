@@ -98,6 +98,7 @@ export async function answerDaily(input: { userId: string; displayName: string; 
   if ("capped" in result) return { correct: true as const, ...result };
   if (!result.duplicate) {
     await awardLoyaltyPoints({ userId: input.userId, amount: 10, reason: "إجابة تحدي اليوم", referenceKey: `daily:${challenge.id}:${input.userId}` });
+    await awardLoyaltyPoints({ userId: input.userId, amount: 15, reason: "مهمة يومية: تحدي اليوم", referenceKey: `mission:daily:${dayKey()}:${input.userId}` });
     publish({ type: "daily.answer", userId: input.userId, displayName: input.displayName, points: result.points });
     publish({ type: "leaderboard.updated" });
   }
@@ -230,6 +231,7 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
   });
   if (!("capped" in result) && !result.duplicate) {
     await awardLoyaltyPoints({ userId: input.userId, amount: 20, reason: "فوز في لعبة Zark", referenceKey: `zark-win:${matchId}:${input.userId}` });
+    await awardLoyaltyPoints({ userId: input.userId, amount: 15, reason: "مهمة يومية: فوز Zark", referenceKey: `mission:win:${dayKey()}:${input.userId}` });
     publish({ type: "zark.match_answered", matchId, userId: input.userId, displayName: input.displayName, points: result.points, rank: result.rank });
     publish({ type: "leaderboard.updated" });
   }

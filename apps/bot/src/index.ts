@@ -138,6 +138,8 @@ if (!token) {
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1);
         if (interaction.commandName === "profile") return await profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
         if (interaction.commandName === "loyalty") return await loyalty(interaction);
+        if (interaction.commandName === "weekly") return await weekly(interaction);
+        if (interaction.commandName === "event-hour") return await eventHour(interaction);
         if (interaction.commandName === "leaderboard") return await gameLeaderboard(interaction, interaction.options.getString("type") ?? "game");
         if (interaction.commandName === "help") return await help(interaction);
         if (["availability", "وقت-فراغي"].includes(interaction.commandName)) return await availability(interaction);
@@ -958,6 +960,21 @@ if (!token) {
     return interaction.editReply({ embeds: [embed], components });
   }
 
+  async function weekly(interaction: any) {
+    await interaction.deferReply();
+    const rows = await apiGet<Array<{ rank: number; displayName: string; points: number }>>("/api/loyalty/weekly");
+    const medals = ["🥇", "🥈", "🥉"];
+    const body = rows.length ? rows.map((row) => `${medals[row.rank - 1] ?? `#${row.rank}`} **${row.displayName}** — ${row.points} نقطة`).join("\n") : "لا توجد نقاط أسبوعية بعد — ابدأ بتحدي اليوم أو جلسة LFG!";
+    return interaction.editReply({ embeds: [baseEmbed().setTitle("🏆 متصدرو الولاء الأسبوعي").setDescription(body).setFooter({ text: "النقاط تحسب من آخر 7 أيام" })] });
+  }
+
+  async function eventHour(interaction: any) {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("هذا الأمر للإدارة فقط");
+    const minutes = interaction.options.getInteger("minutes") ?? 60;
+    const event = await apiSend<{ multiplier: number; until: string }>("/api/loyalty/boost", "POST", { adminId: interaction.user.id, minutes });
+    return interaction.reply({ embeds: [baseEmbed().setTitle("⚡ بدأت ساعة Zark").setDescription(`كل نقاط الولاء أصبحت **×${event.multiplier}** حتى <t:${Math.floor(new Date(event.until).getTime() / 1000)}:R>.\nشغّل /daily و/play وLFG لإشعال التفاعل!`)] });
+  }
+
   async function help(interaction: any) {
     const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
       { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع اختيار 2–10 جولات\n`/daily` تحدي اليوم\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP\n`/leaderboard` متصدرو الألعاب والتفاعل" },
@@ -1420,6 +1437,8 @@ function buildCommands() {
     new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
     new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
+    new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
+    new SlashCommandBuilder().setName("event-hour").setDescription("بدء فعالية نقاط مضاعفة — للإدارة").addIntegerOption((option) => option.setName("minutes").setDescription("المدة بالدقائق").setMinValue(15).setMaxValue(180)),
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("ابدأ لعبة Zark داخل Discord")
