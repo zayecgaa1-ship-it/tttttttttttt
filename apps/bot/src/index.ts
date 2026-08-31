@@ -60,6 +60,10 @@ const playChoices = [
   ["🚘 شعارات السيارات", "car-logos"], ["🏢 شعارات الشركات", "company-logos"], ["🎭 بطل الأنمي", "anime-silhouette"],
   ["🎮 خمن اللعبة", "game-logos"],
   ["✅ صح أو خطأ", "true-false"], ["🔡 ترتيب الحروف", "letter-order"], ["👤 من أنا؟", "who-am-i"], ["❓ معلومات عامة", "trivia"], ["🧠 ألغاز سريعة", "riddles"], ["🎮 اختبار اللاعبين", "gaming-quiz"],
+  ["🐾 عالم الحيوانات", "animals"], ["🔬 علوم", "science"], ["🪐 الفضاء", "space"], ["⚽ كرة القدم", "football"], ["💻 تقنية", "technology"], ["🎬 أفلام", "movies"],
+  ["📺 مسلسلات", "series"], ["🎵 موسيقى", "music"], ["🍕 مأكولات", "food"], ["🌿 الطبيعة", "nature"], ["🎨 ألوان", "colors"], ["🗣️ لغات", "languages"],
+  ["🏛️ تاريخ", "history"], ["💡 اختراعات", "inventions"], ["🌐 الإنترنت", "internet"], ["🧩 منطق", "logic"], ["📝 مرادفات", "synonyms"], ["↔️ أضداد", "antonyms"],
+  ["🗺️ بلدان العالم", "countries"], ["🏅 رياضات", "sports"], ["🌍 جغرافيا", "geography"], ["📚 كتب وقصص", "books"],
 ] as const;
 
 const dotAliases = new Map([
@@ -67,6 +71,7 @@ const dotAliases = new Map([
   [".اكمل", "complete-word"], [".أكمل", "complete-word"], [".ترتيب", "word-order"], [".حساب", "math"], [".ايموجي", "emoji-guess"], [".أنمي", "anime-silhouette"], [".انمي", "anime-silhouette"],
   [".صح", "true-false"], [".حروف", "letter-order"], [".منانا", "who-am-i"], [".معلومات", "trivia"],
   [".سيارات", "car-logos"], [".شركات", "company-logos"], [".لعبة", "game-logos"], [".العاب", "game-logos"], [".ألغاز", "riddles"], [".الغاز", "riddles"], [".قيمنق", "gaming-quiz"],
+  [".حيوانات", "animals"], [".علوم", "science"], [".فضاء", "space"], [".كرة", "football"], [".تقنية", "technology"], [".افلام", "movies"], [".أفلام", "movies"], [".مسلسلات", "series"], [".موسيقى", "music"], [".مأكولات", "food"], [".طبيعة", "nature"], [".ألوان", "colors"], [".الوان", "colors"], [".لغات", "languages"], [".تاريخ", "history"], [".اختراعات", "inventions"], [".انترنت", "internet"], [".إنترنت", "internet"], [".منطق", "logic"], [".مرادفات", "synonyms"], [".أضداد", "antonyms"], [".اضداد", "antonyms"], [".بلدان", "countries"], [".رياضات", "sports"], [".جغرافيا", "geography"], [".كتب", "books"],
   [".مساعدة العاب", "help"], [".play help", "help"],
 ]);
 
@@ -124,6 +129,7 @@ if (!token) {
 
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
+      if (interaction.isAutocomplete()) return await completePlayAutocomplete(interaction);
       if (interaction.isChatInputCommand()) {
         if (interaction.commandName === "daily") return await daily(interaction);
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1);
@@ -387,6 +393,15 @@ if (!token) {
     activateRace(interaction.channelId, match, sent.id, interaction.channel);
   }
 
+  async function completePlayAutocomplete(interaction: any) {
+    if (interaction.commandName !== "play") return interaction.respond([]);
+    const focused = interaction.options.getFocused(true);
+    if (focused.name !== "game") return interaction.respond([]);
+    const query = String(focused.value ?? "").trim().toLocaleLowerCase("ar");
+    const choices = playChoices.filter(([label, value]) => !query || label.toLocaleLowerCase("ar").includes(query) || value.includes(query)).slice(0, 25);
+    return interaction.respond(choices.map(([name, value]) => ({ name, value })));
+  }
+
   async function startRaceForMessage(message: any, gameSlug: string) {
     if (activeDailyChannels.has(message.channelId)) throw new Error("توجد لعبة شغالة في هذه القناة. انتظر حتى تنتهي.");
     const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: message.channelId, rounds: 1 });
@@ -399,7 +414,8 @@ if (!token) {
       { name: "🌍 معرفة وسرعة", value: "`.اعلام` · `.ترجم` · `.عواصم` · `.معلومات` · `.حساب`" },
       { name: "⌨️ كلمات", value: "`.اسرع` · `.اكمل` · `.ترتيب` · `.حروف` · `.صح` · `.منانا`" },
       { name: "🎯 شعارات وتخمين", value: "`.ايموجي` · `.سيارات` · `.شركات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
-      { name: "🔁 جولات", value: "من `/play` اختر 2 أو 3 أو 4 أو 5 أو 10 جولات. بنك Zark يحتوي أكثر من **1100** سؤال ولا يكرر آخر أسئلة القناة." },
+      { name: "🌟 ألعاب إضافية", value: "`.حيوانات` `.علوم` `.فضاء` `.كرة` `.تقنية` `.افلام` `.مسلسلات` `.موسيقى` `.مأكولات` `.طبيعة` `.الوان` `.لغات` `.تاريخ` `.اختراعات` `.انترنت` `.منطق` `.مرادفات` `.اضداد` `.بلدان` `.رياضات` `.جغرافيا` `.كتب`" },
+      { name: "🔁 جولات", value: "اكتب اسم اللعبة في `/play` للبحث ضمن **40 لعبة**، ثم اختر 2 أو 3 أو 4 أو 5 أو 10 جولات. كل لعبة تحتوي 400+ سؤال." },
     );
   }
 
@@ -1325,7 +1341,7 @@ function buildCommands() {
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("ابدأ لعبة Zark داخل Discord")
-      .addStringOption((option) => option.setName("game").setDescription("اختر اللعبة أو help للاختصارات").addChoices(...playChoices.map(([name, value]) => ({ name, value }))))
+      .addStringOption((option) => option.setName("game").setDescription("اكتب اسم اللعبة للبحث بين 40 لعبة أو help").setAutocomplete(true))
       .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات — اختياري، الافتراضي جولة واحدة").addChoices(
         { name: "جولتان", value: 2 },
         { name: "3 جولات", value: 3 },

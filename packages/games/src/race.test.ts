@@ -49,5 +49,6 @@ test("legacy logo and anime banks work without database placeholders", () => {
 });
 
 test("every Zark game keeps at least the configured question-bank minimum", () => {
+  assert.equal(raceGames.size, 40, "Zark should expose exactly 40 games");
   for (const game of raceGames.values()) assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} fell below ${minimumRaceQuestionsPerGame} prompts`);
 });
