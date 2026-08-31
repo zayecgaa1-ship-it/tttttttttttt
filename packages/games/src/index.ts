@@ -199,6 +199,58 @@ const trivia: RaceGame = {
   },
 };
 
+const riddles: RaceGame = {
+  slug: "riddles",
+  name: "ألغاز سريعة",
+  description: "حل اللغز قبل الجميع وخذ نقاط الجولة.",
+  basePoints: 115,
+  durationMs: 50_000,
+  aliases: ["ألغاز", "الغاز", "لغز"],
+  generate: (random) => {
+    const item = pick([
+      ["ما الشيء الذي كلما أخذت منه كبر؟", ["الحفرة", "حفرة"]],
+      ["ما الشيء الذي له أسنان ولا يعض؟", ["المشط", "مشط"]],
+      ["ما الشيء الذي يكتب ولا يقرأ؟", ["القلم", "قلم"]],
+      ["ما الشيء الذي له رقبة بلا رأس؟", ["الزجاجة", "زجاجة"]],
+      ["ما الشيء الذي يمشي بلا أرجل ويدخل الأذنين؟", ["الصوت", "صوت"]],
+      ["ما الشيء الذي إذا زاد نقص؟", ["العمر", "عمر"]],
+      ["ما الشيء الذي له وجه ويدان بلا جسم؟", ["الساعة", "ساعة"]],
+      ["ما الشيء الذي يجففك وهو مبلل؟", ["المنشفة", "منشفة"]],
+      ["ما الشيء الذي يرى كل شيء بلا عيون؟", ["المرآة", "مرآة"]],
+      ["ما الشيء الذي لا يتحرك إلا بالضرب؟", ["المسمار", "مسمار"]],
+      ["ما الشيء الذي يولد كبيرًا ثم يصغر؟", ["الشمعة", "شمعة"]],
+      ["ما الشيء الذي يملأ الغرفة ولا يشغل حيزًا؟", ["الضوء", "ضوء"]],
+    ] as const, random);
+    return { prompt: `🧠 لغز: **${item[0]}**`, answers: [...item[1]] };
+  },
+};
+
+const gamingQuiz: RaceGame = {
+  slug: "gaming-quiz",
+  name: "اختبار اللاعبين",
+  description: "أسئلة سريعة من عالم الألعاب.",
+  basePoints: 115,
+  durationMs: 45_000,
+  aliases: ["قيمنق", "gaming", "ألعاب"],
+  generate: (random) => {
+    const item = pick([
+      ["في أي لعبة تظهر شخصية Steve؟", ["ماينكرافت", "minecraft"]],
+      ["ما اسم اللعبة التي فيها Battle Royale وبناء؟", ["فورتنايت", "fortnite"]],
+      ["أي لعبة فيها سيارات تلعب كرة قدم؟", ["روكيت ليق", "rocket league"]],
+      ["في أي لعبة توجد خريطة San Andreas؟", ["جي تي اي", "gta", "gta v", "جراند ثفت اوتو"]],
+      ["ما اسم لعبة البقاء مع Creeper؟", ["ماينكرافت", "minecraft"]],
+      ["أي لعبة تنافسية مشهورة تضع قنبلة Spike؟", ["فالورانت", "valorant"]],
+      ["أي لعبة تحتوي على Impostor؟", ["امونق اس", "among us", "amongus"]],
+      ["أي لعبة Battle Royale فيها Erangel؟", ["ببجي", "pubg", "playerunknowns battlegrounds"]],
+      ["ما اسم منصة الألعاب التي تضم Brookhaven؟", ["روبلوكس", "roblox"]],
+      ["في أي لعبة نجد Poké Ball؟", ["بوكيمون", "pokemon"]],
+      ["أي لعبة سباق سيارات من تطوير Psyonix؟", ["روكيت ليق", "rocket league"]],
+      ["أي لعبة تصويب فيها Dust II؟", ["كاونتر سترايك", "counter strike", "cs2", "cs go"]],
+    ] as const, random);
+    return { prompt: `🎮 اختبار اللاعبين: **${item[0]}**`, answers: [...item[1]] };
+  },
+};
+
 const databaseGames: RaceGame[] = [
   { slug: "car-logos", name: "شعارات السيارات", description: "اعرف شركة السيارة من الشعار.", basePoints: 120, durationMs: 45_000, aliases: ["سيارات", "لوجو سيارات"], questionSource: "DATABASE", generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة"); } },
   { slug: "company-logos", name: "شعارات الشركات", description: "تعرف على الشركة من شعارها.", basePoints: 120, durationMs: 45_000, aliases: ["شركات", "لوجو شركات"], questionSource: "DATABASE", generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة"); } },
@@ -207,13 +259,16 @@ const databaseGames: RaceGame[] = [
 ];
 
 export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
-  [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, ...databaseGames].map(withImportedQuestions).map((game) => [game.slug, game]),
+  [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...databaseGames].map(withImportedQuestions).map((game) => [game.slug, game]),
 );
 
 function withImportedQuestions(game: RaceGame): RaceGame {
-  const questions = visualLogoQuestionBank[game.slug] ?? importedQuestionBank[game.slug];
+  // بعض الألعاب (خصوصاً الشعارات) لها صور جاهزة وبنك نصي أكبر. لا نسمح
+  // لبنك الصور أن يلغي الأسئلة النصية؛ ندمج البنكين حتى تبقى الجولة متنوعة.
+  const questions = [...(visualLogoQuestionBank[game.slug] ?? []), ...(importedQuestionBank[game.slug] ?? [])];
   if (!questions?.length) return game;
-  return { ...game, generate: (random) => { const selected = pick(questions, random); return { ...selected, answers: [...selected.answers] }; } };
+  const uniqueQuestions = questions.filter((question, index, all) => all.findIndex((item) => item.prompt === question.prompt) === index);
+  return { ...game, generate: (random) => { const selected = pick(uniqueQuestions, random); return { ...selected, answers: [...selected.answers] }; } };
 }
 
 export function normalizeAnswer(value: string): string {

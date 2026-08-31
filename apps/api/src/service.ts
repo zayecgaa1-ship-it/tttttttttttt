@@ -111,7 +111,7 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
   if (!game.enabled) throw new Error("اللعبة معطّلة حاليًا");
   const totalRounds = options.totalRounds ?? 1;
   if (!allowedRoundCounts.has(totalRounds)) throw new Error("عدد الجولات يجب أن يكون 1 أو 2 أو 3 أو 4 أو 5 أو 10");
-  const generated = await generateRacePrompt(module, game.id);
+  const generated = await generateRacePrompt(module, game.id, options.channelId);
   const startedAt = new Date();
   const endsAt = new Date(startedAt.getTime() + module.durationMs);
   const seriesId = randomUUID();
@@ -165,7 +165,7 @@ export async function advanceZarkRace(matchId: string) {
   if (existingNext) return { completed: false as const, nextMatch: publicZarkMatch(existingNext, existingNext.game), standings: await zarkSeriesStandings(seriesId) };
   const module = raceGames.get(current.game.slug);
   if (!module) throw new Error("تعذر تحميل اللعبة للجولة التالية");
-  const generated = await generateRacePrompt(module, current.gameId);
+  const generated = await generateRacePrompt(module, current.gameId, current.channelId ?? undefined);
   const startedAt = new Date();
   const endsAt = new Date(startedAt.getTime() + module.durationMs);
   let next;
@@ -270,10 +270,28 @@ export async function leaderboard(period: "daily" | "weekly" | "monthly" | "all"
   });
 }
 
-async function generateRacePrompt(module: RaceGame, gameId: string) {
-  const count = await db.gameQuestion.count({ where: { gameId, enabled: true } });
-  if (!count) return module.generate(Math.random);
-  const question = await db.gameQuestion.findFirstOrThrow({ where: { gameId, enabled: true }, skip: Math.floor(Math.random() * count) });
+async function generateRacePrompt(module: RaceGame, gameId: string, channelId?: string) {
+  // لا نعيد السؤال نفسه في الجولات القريبة في القناة نفسها. نحتفظ بآخر 30
+  // سؤالاً، وهي أكثر من الحد الأقصى للجولات المتاحة، مع رجوع آمن إن صغر البنك.
+  const recent = channelId ? await db.zarkMatch.findMany({
+    where: { gameId, channelId }, orderBy: { startedAt: "desc" }, take: 30, select: { prompt: true },
+  }) : [];
+  const recentPrompts = recent.map((match) => match.prompt);
+  const questionWhere = { gameId, enabled: true, ...(recentPrompts.length ? { prompt: { notIn: recentPrompts } } : {}) };
+  const count = await db.gameQuestion.count({ where: questionWhere });
+  if (count) {
+    const question = await db.gameQuestion.findFirstOrThrow({ where: questionWhere, skip: Math.floor(Math.random() * count) });
+    return { prompt: question.prompt, answers: question.acceptedAnswers, mediaUrl: question.mediaUrl ?? undefined };
+  }
+  // يمكن أن تكون الأسئلة في ملفات المشروع (أكثر من 1100 سؤال). نعيد السحب
+  // عدة مرات قبل السماح بالعودة إلى سؤال قديم.
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const prompt = module.generate(Math.random);
+    if (!recentPrompts.includes(prompt.prompt)) return prompt;
+  }
+  const fallbackCount = await db.gameQuestion.count({ where: { gameId, enabled: true } });
+  if (!fallbackCount) return module.generate(Math.random);
+  const question = await db.gameQuestion.findFirstOrThrow({ where: { gameId, enabled: true }, skip: Math.floor(Math.random() * fallbackCount) });
   return { prompt: question.prompt, answers: question.acceptedAnswers, mediaUrl: question.mediaUrl ?? undefined };
 }
 

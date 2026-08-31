@@ -21,6 +21,7 @@ export type LiveRoom = {
   scheduledFor?: string;
   readyNotifiedAt?: string;
   reminderDeliveredAt?: string;
+  attendanceWarningAt?: string;
   startedAt?: string;
   playEndsAt?: string;
   completedAt?: string;
@@ -121,6 +122,7 @@ export type ZarkEvent =
   | { type: "lfg.member_left"; room: LiveRoom; userId: string }
   | { type: "lfg.room_created"; room: LiveRoom }
   | { type: "lfg.room_ready"; room: LiveRoom }
+  | { type: "lfg.attendance_warning"; room: LiveRoom }
   | { type: "lfg.started"; room: LiveRoom }
   | { type: "lfg.voice_joined"; room: LiveRoom; userId: string }
   | { type: "lfg.voice_left"; room: LiveRoom; userId: string }

@@ -404,6 +404,7 @@ model LfgRoom {
   scheduledFor        DateTime?
   readyNotifiedAt     DateTime?
   reminderDeliveredAt DateTime?
+  attendanceWarningAt DateTime?
   startedAt           DateTime?
   playEndsAt          DateTime?
   emptySince          DateTime?
@@ -421,6 +422,7 @@ model LfgRoom {
   @@index([listingChannelId, status])
   @@index([status, autoDeleteAt])
   @@index([status, scheduledFor])
+  @@index([status, attendanceWarningAt])
   @@index([status, playEndsAt])
   @@index([status, ratingRequestedAt, completedAt])
 }

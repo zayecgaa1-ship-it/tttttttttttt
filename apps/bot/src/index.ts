@@ -54,18 +54,20 @@ let runtimeSettings: GuildRuntimeSettings = {
 };
 
 const playChoices = [
+  ["📘 help — اختصارات الألعاب", "help"],
   ["🌍 ترجم", "translate"], ["🚩 أعلام", "flags"], ["🌐 عواصم ودول", "capitals"], ["⌨️ أسرع كتابة", "fast-type"],
   ["🧩 إكمل الكلمة", "complete-word"], ["🔤 ترتيب الجملة", "word-order"], ["🎯 حساب سريع", "math"], ["😀 خمن الإيموجي", "emoji-guess"],
   ["🚘 شعارات السيارات", "car-logos"], ["🏢 شعارات الشركات", "company-logos"], ["🎭 بطل الأنمي", "anime-silhouette"],
   ["🎮 خمن اللعبة", "game-logos"],
-  ["✅ صح أو خطأ", "true-false"], ["🔡 ترتيب الحروف", "letter-order"], ["👤 من أنا؟", "who-am-i"], ["❓ معلومات عامة", "trivia"],
+  ["✅ صح أو خطأ", "true-false"], ["🔡 ترتيب الحروف", "letter-order"], ["👤 من أنا؟", "who-am-i"], ["❓ معلومات عامة", "trivia"], ["🧠 ألغاز سريعة", "riddles"], ["🎮 اختبار اللاعبين", "gaming-quiz"],
 ] as const;
 
 const dotAliases = new Map([
   [".ترجم", "translate"], [".اعلام", "flags"], [".أعلام", "flags"], [".عواصم", "capitals"], [".اسرع", "fast-type"], [".أسرع", "fast-type"],
   [".اكمل", "complete-word"], [".أكمل", "complete-word"], [".ترتيب", "word-order"], [".حساب", "math"], [".ايموجي", "emoji-guess"], [".أنمي", "anime-silhouette"], [".انمي", "anime-silhouette"],
   [".صح", "true-false"], [".حروف", "letter-order"], [".منانا", "who-am-i"], [".معلومات", "trivia"],
-  [".سيارات", "car-logos"], [".شركات", "company-logos"], [".لعبة", "game-logos"], [".العاب", "game-logos"],
+  [".سيارات", "car-logos"], [".شركات", "company-logos"], [".لعبة", "game-logos"], [".العاب", "game-logos"], [".ألغاز", "riddles"], [".الغاز", "riddles"], [".قيمنق", "gaming-quiz"],
+  [".مساعدة العاب", "help"], [".play help", "help"],
 ]);
 
 if (!token) {
@@ -176,7 +178,8 @@ if (!token) {
         return;
       }
       const alias = dotAliases.get(message.content.trim().toLocaleLowerCase("ar"));
-      if (alias) await startRaceForMessage(message, alias);
+      if (alias === "help") await playHelpForMessage(message);
+      else if (alias) await startRaceForMessage(message, alias);
       else if (message.content.trim() === ".وقت فراغي") {
         const current = await apiGet<UserAvailability>(`/api/users/${message.author.id}/availability`, true);
         await message.reply(availabilityPanelPayload(current));
@@ -375,6 +378,7 @@ if (!token) {
   }
 
   async function play(interaction: any, gameSlug?: string, rounds = 1) {
+    if (gameSlug === "help") return playHelp(interaction);
     if (activeDailyChannels.has(interaction.channelId)) throw new Error("تحدي اليوم شغال في هذه القناة. انتظر حتى ينتهي قبل بدء لعبة أخرى.");
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
     const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: interaction.channelId, rounds });
@@ -388,6 +392,24 @@ if (!token) {
     const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: message.channelId, rounds: 1 });
     const sent = await message.channel.send(await gameMessagePayload(match));
     activateRace(message.channelId, match, sent.id, message.channel);
+  }
+
+  function playHelpEmbed() {
+    return baseEmbed().setTitle("🎮 اختصارات ألعاب Zark").setDescription("اختر لعبة من `/play`، أو اكتب الاختصار مباشرة في الشات. لا يمكن بدء لعبة ثانية في نفس القناة حتى تنتهي الحالية.").addFields(
+      { name: "🌍 معرفة وسرعة", value: "`.اعلام` · `.ترجم` · `.عواصم` · `.معلومات` · `.حساب`" },
+      { name: "⌨️ كلمات", value: "`.اسرع` · `.اكمل` · `.ترتيب` · `.حروف` · `.صح` · `.منانا`" },
+      { name: "🎯 شعارات وتخمين", value: "`.ايموجي` · `.سيارات` · `.شركات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
+      { name: "🔁 جولات", value: "من `/play` اختر 2 أو 3 أو 4 أو 5 أو 10 جولات. بنك Zark يحتوي أكثر من **1100** سؤال ولا يكرر آخر أسئلة القناة." },
+    );
+  }
+
+  async function playHelp(interaction: any) {
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ embeds: [playHelpEmbed()] });
+  }
+
+  async function playHelpForMessage(message: any) {
+    return message.reply({ embeds: [playHelpEmbed()] });
   }
 
   async function showLfgGamePicker(interaction: any) {
@@ -456,6 +478,10 @@ if (!token) {
       const readyRoom = await apiGet<LiveRoom>(`/api/lfg/${room.id}`);
       await notifyScheduledMembers(readyRoom);
       await apiSend(`/api/lfg/${room.id}/reminder-delivered`, "POST", {});
+    }
+    if (eventType === "lfg.attendance_warning") {
+      await syncRoomListing(room);
+      await notifyScheduledAttendanceWarning(room);
     }
     if (["lfg.member_joined", "lfg.member_left", "lfg.updated", "lfg.started", "lfg.voice_joined", "lfg.voice_left", "lfg.room_created"].includes(eventType ?? "")) {
       await syncRoomListing(room);
@@ -774,6 +800,16 @@ if (!token) {
     }));
   }
 
+  async function notifyScheduledAttendanceWarning(room: LiveRoom) {
+    const closeUnix = room.autoDeleteAt ? Math.floor(new Date(room.autoDeleteAt).getTime() / 1000) : undefined;
+    const content = `⚠️ **تجمع ${room.gameName} لم يكتمل بعد.** إذا لم ينضم لاعبون إضافيون خلال 15 دقيقة، ستُغلق الغرفة تلقائيًا${closeUnix ? ` <t:${closeUnix}:R>` : ""}.`;
+    const targetId = room.textChannelId ?? room.listingChannelId;
+    if (!targetId) return;
+    const channel = await client.channels.fetch(targetId).catch(() => null);
+    if (!channel?.isTextBased() || !("send" in channel)) return;
+    await channel.send({ content, allowedMentions: { users: [room.hostId] } }).catch(() => undefined);
+  }
+
   async function deliverPendingRatingRequests() {
     const rooms = await apiGet<LiveRoom[]>("/api/lfg/rating-requests/pending", true);
     for (const room of rooms) await sendRatingRequests(room);
@@ -791,7 +827,8 @@ if (!token) {
         await Promise.all(room.members.map(async (member) => {
           const user = await client.users.fetch(member.id).catch(() => null);
           if (!user) return;
-          await user.send({ embeds: [baseEmbed().setTitle(`⭐ قيّم جلسة ${room.gameName}`).setDescription("انتهت الجلسة بنجاح. يمكنك تقييم الغرفة وكل لاعب شارك معك، أو إلغاء التقييم بالكامل.\n\nالتقييم خاص وآمن، ولا يمكن تقييم نفسك.")], components: [row] }).catch(() => undefined);
+          const hostHint = member.id === room.hostId ? `\n\n👑 **اقتراح للمضيف:** قيّم الالتزام والحضور والتعاون. اللاعبون الذين قضوا وقتاً أطول في Voice يستحقون تقييماً أعلى.` : "";
+          await user.send({ embeds: [baseEmbed().setTitle(`⭐ قيّم جلسة ${room.gameName}`).setDescription(`انتهت الجلسة بنجاح. يمكنك تقييم الغرفة وكل لاعب شارك معك، أو إلغاء التقييم بالكامل.\n\nالتقييم خاص وآمن، ولا يمكن تقييم نفسك.${hostHint}`)], components: [row] }).catch(() => undefined);
         }));
       }
       await apiSend(`/api/lfg/${room.id}/rating-requests/delivered`, "POST", {});
@@ -806,7 +843,8 @@ if (!token) {
     if (players.length) components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:rating-player:${room.id}`).setPlaceholder("اختر لاعبًا لتقييمه").addOptions(players.map((member) => ({ label: trimText(member.displayName, 100), value: member.id, emoji: member.id === room.hostId ? "👑" : "👤" })))));
     components.push(ratingStarsRow(`lfg:rating-room:${room.id}`));
     components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`lfg:rating-skip:${room.id}`).setLabel("إنهاء وإغلاق").setEmoji("✅").setStyle(ButtonStyle.Secondary)));
-    return { content: "", embeds: [baseEmbed().setTitle(`⭐ تقييم ${room.gameName}`).setDescription(`${notice ? `${notice}\n\n` : ""}${players.length ? "اختر لاعبًا من القائمة لتقييمه.\n" : ""}صف النجوم بالأسفل مخصص لتقييم **الغرفة والتنظيم**.`)], components };
+    const hostSuggestion = raterId === room.hostId ? "\n👑 اقتراح: أعطِ 5 نجوم للحضور المتعاون، و3 للمتوسط، و1–2 عند الغياب أو الإزعاج." : "";
+    return { content: "", embeds: [baseEmbed().setTitle(`⭐ تقييم ${room.gameName}`).setDescription(`${notice ? `${notice}\n\n` : ""}${players.length ? "اختر لاعبًا من القائمة لتقييمه.\n" : ""}صف النجوم بالأسفل مخصص لتقييم **الغرفة والتنظيم**.${hostSuggestion}`)], components };
   }
 
   function ratingStarsRow(prefix: string) {
@@ -1287,7 +1325,7 @@ function buildCommands() {
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("ابدأ لعبة Zark داخل Discord")
-      .addStringOption((option) => option.setName("game").setDescription("اختر اللعبة أو اتركها عشوائية").addChoices(...playChoices.map(([name, value]) => ({ name, value }))))
+      .addStringOption((option) => option.setName("game").setDescription("اختر اللعبة أو help للاختصارات").addChoices(...playChoices.map(([name, value]) => ({ name, value }))))
       .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات — اختياري، الافتراضي جولة واحدة").addChoices(
         { name: "جولتان", value: 2 },
         { name: "3 جولات", value: 3 },
@@ -1322,7 +1360,7 @@ type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
-type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
+type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ name: string; icon?: string }>; rating: { average: number | null; count: number } } };
