@@ -17,6 +17,8 @@ const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) =>
 // Only these channels accept user image uploads. Configure the three channel
 // IDs in Railway, comma-separated. Scam links are removed everywhere.
 const mediaAllowedChannelIds = new Set((process.env.DISCORD_MEDIA_ALLOWED_CHANNEL_IDS ?? "").split(",").map((id) => id.trim()).filter((id) => /^\d{17,20}$/.test(id)));
+const configuredHackAlertChannelId = process.env.DISCORD_HACK_ALERT_CHANNEL_ID?.trim();
+const hackAlertChannelName = "ممنوع-الارسال";
 const disboardBotId = process.env.DISBOARD_BOT_ID?.trim() || "302050872383242240";
 const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/zark-room-card-bg.png");
 const activeDailyChannels = new Map<string, ActiveDaily>();
@@ -91,6 +93,7 @@ if (!token) {
   const roomByVoiceChannel = new Map<string, string>();
   const mentionStatusCooldown = new Map<string, number>();
   const moderationAlertCooldown = new Map<string, number>();
+  let hackAlertChannelId = configuredHackAlertChannelId && /^\d{17,20}$/.test(configuredHackAlertChannelId) ? configuredHackAlertChannelId : undefined;
   let botEventSubscriber: ReturnType<typeof createClient> | undefined;
 
   if (guildId && clientId) {
@@ -109,7 +112,7 @@ if (!token) {
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
     if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: blocking user image uploads in every channel until DISCORD_MEDIA_ALLOWED_CHANNEL_IDS is set.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
-    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers()]);
+    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
     const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces().catch((error) => console.error("LFG cleanup cycle failed", error)), 30_000);
@@ -173,6 +176,10 @@ if (!token) {
         await apiSend("/api/bot/bump-reminder/completed", "POST", { guildId: message.guildId, userId: bumperId }).catch((error) => console.error("Failed to record DISBOARD bump", error));
         console.log(`DISBOARD bump recorded for guild ${message.guildId}; next reminder in 2 hours`);
       }
+      return;
+    }
+    if (message.guildId && message.channelId === hackAlertChannelId) {
+      await handleHackAlertMessage(message);
       return;
     }
     if (await enforceMessageSafety(message)) return;
@@ -896,6 +903,55 @@ if (!token) {
     await warnPossiblyCompromisedMember(message, scam ? "رابط أو نص احتيالي" : "صورة مرسلة خارج قنوات الصور المسموحة");
     await sendModerationAlert(message, scam ? "رابط أو نص احتيالي" : "صورة خارج قنوات الصور المسموحة");
     return true;
+  }
+
+  async function ensureHackAlertChannel() {
+    if (!guildId) return;
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return;
+    let channel = hackAlertChannelId ? await guild.channels.fetch(hackAlertChannelId).catch(() => null) : null;
+    if (!channel) channel = guild.channels.cache.find((item: any) => item.type === ChannelType.GuildText && item.name === hackAlertChannelName) ?? null;
+    if (!channel) {
+      channel = await guild.channels.create({
+        name: hackAlertChannelName,
+        type: ChannelType.GuildText,
+        topic: "🛡️ ممنوع الإرسال هنا. أي رسالة من عضو تشغّل حماية الحساب وتُحذف رسائله الأخيرة احترازيًا.",
+        reason: "Zark compromised-account warning channel",
+      });
+      await channel.send("🛡️ **تنبيه حماية:** لا ترسل أي رسالة هنا. إذا أرسل حسابٌ رسالة في هذه القناة، سيعتبره Zark احتمال اختراق ويحذف رسائله خلال آخر 10 دقائق ويبلغ الإدارة.").catch(() => undefined);
+    }
+    hackAlertChannelId = channel.id;
+  }
+
+  async function handleHackAlertMessage(message: any) {
+    await message.delete().catch(() => undefined);
+    const deletedCount = await purgeRecentMessagesFromAuthor(message, 10 * 60_000);
+    await warnPossiblyCompromisedMember(message, "إرسال رسالة في قناة الحماية الممنوع الإرسال فيها");
+    await sendModerationAlert(message, `اشتباه اختراق عبر قناة الحماية — حُذفت ${deletedCount} رسالة من آخر 10 دقائق`);
+    await message.channel.send("🛡️ تم تشغيل حماية الحساب وحذف الرسائل الأخيرة احترازيًا. لا ترسل أي شيء في هذه القناة.").catch(() => undefined);
+  }
+
+  async function purgeRecentMessagesFromAuthor(message: any, windowMs: number) {
+    const guild = message.guild;
+    if (!guild) return 0;
+    const cutoff = Date.now() - windowMs;
+    let deletedCount = 0;
+    const channels = [...guild.channels.cache.values()].filter((channel: any) => channel.isTextBased?.() && channel.messages?.fetch);
+    for (const channel of channels) {
+      let before: string | undefined;
+      for (let page = 0; page < 10; page += 1) {
+        const batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) }).catch(() => null);
+        if (!batch?.size) break;
+        const candidates = [...batch.values()].filter((candidate: any) => candidate.author?.id === message.author.id && candidate.createdTimestamp >= cutoff && candidate.deletable);
+        for (const candidate of candidates) {
+          await candidate.delete().then(() => { deletedCount += 1; }).catch(() => undefined);
+        }
+        const oldest = [...batch.values()].at(-1) as any;
+        if (batch.size < 100 || !oldest || oldest.createdTimestamp < cutoff) break;
+        before = oldest.id;
+      }
+    }
+    return deletedCount;
   }
 
   async function warnPossiblyCompromisedMember(message: any, reason: string) {
