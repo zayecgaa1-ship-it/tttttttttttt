@@ -14,6 +14,9 @@ const guildId = process.env.DISCORD_GUILD_ID;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const lfgListingChannelId = process.env.DISCORD_LFG_CHANNEL_ID;
 const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter((role) => /^\d{17,20}$/.test(role));
+// Only these channels accept user image uploads. Configure the three channel
+// IDs in Railway, comma-separated. Scam links are removed everywhere.
+const mediaAllowedChannelIds = new Set((process.env.DISCORD_MEDIA_ALLOWED_CHANNEL_IDS ?? "").split(",").map((id) => id.trim()).filter((id) => /^\d{17,20}$/.test(id)));
 const disboardBotId = process.env.DISBOARD_BOT_ID?.trim() || "302050872383242240";
 const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/zark-room-card-bg.png");
 const activeDailyChannels = new Map<string, ActiveDaily>();
@@ -87,6 +90,7 @@ if (!token) {
   const ratingRequestsInFlight = new Set<string>();
   const roomByVoiceChannel = new Map<string, string>();
   const mentionStatusCooldown = new Map<string, number>();
+  const moderationAlertCooldown = new Map<string, number>();
   let botEventSubscriber: ReturnType<typeof createClient> | undefined;
 
   if (guildId && clientId) {
@@ -103,6 +107,7 @@ if (!token) {
       console.error("Bot settings load failed; using environment defaults", error);
     }
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
+    if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: set DISCORD_MEDIA_ALLOWED_CHANNEL_IDS before enabling image-only channel protection.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
     const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
@@ -170,6 +175,7 @@ if (!token) {
       }
       return;
     }
+    if (await enforceMessageSafety(message)) return;
     const player = { userId: message.author.id, displayName: message.member?.displayName ?? message.author.username, answer: message.content };
     try {
       const race = activeRaceChannels.get(message.channelId);
@@ -857,11 +863,13 @@ if (!token) {
   async function replyWithMentionedMemberStatus(message: any) {
     const mentioned = message.mentions?.users?.find((user: any) => !user.bot);
     if (!mentioned) return;
-    const cooldownKey = `${message.guildId ?? "dm"}:${message.author.id}:${mentioned.id}`;
+    // Status is shared information, so rate-limit per mentioned member rather
+    // than per author: repeated pings by different people cannot spam a room.
+    const cooldownKey = `${message.guildId ?? "dm"}:${mentioned.id}`;
     const lastReply = mentionStatusCooldown.get(cooldownKey) ?? 0;
-    if (Date.now() - lastReply < 20_000) return;
+    if (Date.now() - lastReply < 15 * 60_000) return;
     mentionStatusCooldown.set(cooldownKey, Date.now());
-    if (mentionStatusCooldown.size > 500) for (const [key, timestamp] of mentionStatusCooldown) if (Date.now() - timestamp > 60_000) mentionStatusCooldown.delete(key);
+    if (mentionStatusCooldown.size > 500) for (const [key, timestamp] of mentionStatusCooldown) if (Date.now() - timestamp > 15 * 60_000) mentionStatusCooldown.delete(key);
     try {
       const data = await apiGet<UnifiedProfile>(`/api/profiles/${mentioned.id}`);
       const description = data.settings.activityVisible
@@ -870,6 +878,46 @@ if (!token) {
       await message.reply({ content: description, allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
     } catch {
       await message.reply({ content: `ℹ️ **${mentioned.displayName ?? mentioned.username}** لم يحدد حالته في Zark بعد.`, allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
+    }
+  }
+
+  async function enforceMessageSafety(message: any) {
+    if (!message.guildId) return false;
+    const attachments = [...(message.attachments?.values?.() ?? [])];
+    const hasImage = attachments.some((attachment: any) => isImageAttachment(attachment));
+    const text = `${message.content ?? ""} ${attachments.map((attachment: any) => `${attachment.name ?? ""} ${attachment.url ?? ""}`).join(" ")}`;
+    const scam = looksLikeScamBroadcast(text);
+    // Once the allowlist is configured, block every user image outside it. This
+    // safely stops hacked accounts from broadcasting screenshot scams at once.
+    const blockedImage = hasImage && mediaAllowedChannelIds.size > 0 && !mediaAllowedChannelIds.has(message.channelId);
+    if (!scam && !blockedImage) return false;
+    await message.delete().catch(() => undefined);
+    await sendModerationAlert(message, scam ? "رابط أو نص احتيالي" : "صورة خارج قنوات الصور المسموحة");
+    return true;
+  }
+
+  function isImageAttachment(attachment: any) {
+    return String(attachment.contentType ?? "").startsWith("image/") || /\.(?:png|jpe?g|gif|webp|bmp|heic)$/iu.test(String(attachment.name ?? ""));
+  }
+
+  function looksLikeScamBroadcast(value: string) {
+    const text = value.toLocaleLowerCase("en").replace(/[\u200B-\u200D\uFEFF]/g, "");
+    const knownScamDomain = /(?:feastwin|vyro(?:casino)?|bonus(?:-)?claim|crypto(?:-)?bonus)\.(?:com|net|org)\b/iu.test(text);
+    const hasLink = /https?:\/\/|(?:www\.)/iu.test(text);
+    const lureWords = ["mrbeast", "bonus", "promocode", "withdraw", "withdrawal", "usdt", "crypto", "rakeback", "claim reward"];
+    const lureCount = lureWords.filter((word) => text.includes(word)).length;
+    return knownScamDomain || (hasLink && lureCount >= 2);
+  }
+
+  async function sendModerationAlert(message: any, reason: string) {
+    const key = `${message.guildId}:${message.author.id}`;
+    const now = Date.now();
+    if (now - (moderationAlertCooldown.get(key) ?? 0) < 15 * 60_000) return;
+    moderationAlertCooldown.set(key, now);
+    const channelId = runtimeSettings.reportChannelId || process.env.DISCORD_REPORT_CHANNEL_ID;
+    const channel = channelId ? await client.channels.fetch(channelId).catch(() => null) : null;
+    if (channel?.isTextBased() && "send" in channel) {
+      await channel.send({ content: `🛡️ حذفت رسالة مشبوهة من <@${message.author.id}> في <#${message.channelId}> — السبب: **${reason}**.`, allowedMentions: { users: [], roles: [], parse: [] } }).catch(() => undefined);
     }
   }
 
