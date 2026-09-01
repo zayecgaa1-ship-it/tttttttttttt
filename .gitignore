@@ -5,3 +5,5 @@ dist/
 .prisma/
 /zark_database_backup.sql
 /backups/
+/.opera-gx-cdp-profile/
+/artifacts/
