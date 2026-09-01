@@ -107,7 +107,7 @@ if (!token) {
       console.error("Bot settings load failed; using environment defaults", error);
     }
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
-    if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: set DISCORD_MEDIA_ALLOWED_CHANNEL_IDS before enabling image-only channel protection.");
+    if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: blocking user image uploads in every channel until DISCORD_MEDIA_ALLOWED_CHANNEL_IDS is set.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
     const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
@@ -887,9 +887,10 @@ if (!token) {
     const hasImage = attachments.some((attachment: any) => isImageAttachment(attachment));
     const text = `${message.content ?? ""} ${attachments.map((attachment: any) => `${attachment.name ?? ""} ${attachment.url ?? ""}`).join(" ")}`;
     const scam = looksLikeScamBroadcast(text);
-    // Once the allowlist is configured, block every user image outside it. This
-    // safely stops hacked accounts from broadcasting screenshot scams at once.
-    const blockedImage = hasImage && mediaAllowedChannelIds.size > 0 && !mediaAllowedChannelIds.has(message.channelId);
+    // Fail closed: while the allowlist is empty all member image uploads are
+    // blocked. Once the three IDs are configured, only those channels allow
+    // images. This stops a hacked account immediately after deployment.
+    const blockedImage = hasImage && !mediaAllowedChannelIds.has(message.channelId);
     if (!scam && !blockedImage) return false;
     await message.delete().catch(() => undefined);
     await warnPossiblyCompromisedMember(message, scam ? "رابط أو نص احتيالي" : "صورة مرسلة خارج قنوات الصور المسموحة");
