@@ -892,8 +892,16 @@ if (!token) {
     const blockedImage = hasImage && mediaAllowedChannelIds.size > 0 && !mediaAllowedChannelIds.has(message.channelId);
     if (!scam && !blockedImage) return false;
     await message.delete().catch(() => undefined);
+    await warnPossiblyCompromisedMember(message, scam ? "رابط أو نص احتيالي" : "صورة مرسلة خارج قنوات الصور المسموحة");
     await sendModerationAlert(message, scam ? "رابط أو نص احتيالي" : "صورة خارج قنوات الصور المسموحة");
     return true;
+  }
+
+  async function warnPossiblyCompromisedMember(message: any, reason: string) {
+    await message.author.send({
+      content: `🛡️ **تنبيه حماية من Zark**\nحذفنا رسالة من حسابك لأنّها بدت مشبوهة (${reason}). إذا لم ترسلها بنفسك فقد يكون حسابك مخترقًا.\n\nغيّر كلمة مرور Discord فورًا، فعّل التحقق بخطوتين (2FA)، وسجّل الخروج من الجلسات والأجهزة التي لا تعرفها. لا تدخل روابط جوائز أو Crypto أو Bonus من رسائل غير موثوقة.`,
+      allowedMentions: { parse: [] },
+    }).catch(() => undefined);
   }
 
   function isImageAttachment(attachment: any) {
