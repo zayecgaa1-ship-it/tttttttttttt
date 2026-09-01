@@ -112,16 +112,18 @@ if (!token) {
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
     if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: blocking user image uploads in every channel until DISCORD_MEDIA_ALLOWED_CHANNEL_IDS is set.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
-    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel()]);
+    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
     const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces().catch((error) => console.error("LFG cleanup cycle failed", error)), 30_000);
     const bumpTimer = setInterval(() => void runBumpReminderCycle().catch((error) => console.error("Bump reminder failed", error)), 60_000);
     const loyaltyTimer = setInterval(() => void syncLoyaltyRoleMembers().catch((error) => console.error("Loyalty role sync failed", error)), 5 * 60_000);
+    const roomInviteTimer = setInterval(() => void deliverOpenRoomInvites().catch((error) => console.error("Room invitation recovery failed", error)), 60_000);
     heartbeatTimer.unref();
     cleanupTimer.unref();
     bumpTimer.unref();
     loyaltyTimer.unref();
+    roomInviteTimer.unref();
   });
   client.on(Events.Error, (error) => console.error("Discord client error", error));
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -492,7 +494,7 @@ if (!token) {
       const insight = insightByGame.get(game.slug);
       return { label: game.name, value: game.slug, emoji: game.icon, description: insight ? `${insight.interestPercent}% مهتمون · ${insight.availableNowCount} فاضي الآن` : game.description?.slice(0, 100) };
     }));
-    await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل للمهتمين المتفرغين فقط. استخدم `/lfg smart` ليختار Zark أفضل لعبة تلقائيًا.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل رسالة خاصة لكل المهتمين الذين فعّلوا إشعارات اللعبة. استخدم `/lfg smart` ليختار Zark أفضل لعبة تلقائيًا.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
   }
 
   async function smartLfg(interaction: any) {
@@ -997,6 +999,15 @@ if (!token) {
     notifiedRooms.add(room.id);
     try { await sendRoomInvites(room); }
     catch (error) { notifiedRooms.delete(room.id); throw error; }
+  }
+
+  // Redis delivers events immediately. This short recovery cycle covers room
+  // creation from the website if Redis is temporarily unavailable.
+  async function deliverOpenRoomInvites() {
+    const rooms = await apiGet<LiveRoom[]>("/api/lfg");
+    for (const room of rooms) {
+      if (["SCHEDULED", "OPEN", "FULL", "ACTIVE"].includes(room.status)) await notifyInterestedPlayers(room);
+    }
   }
 
   async function sendRoomInvites(room: LiveRoom) {

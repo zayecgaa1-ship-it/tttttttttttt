@@ -734,21 +734,11 @@ export async function getNotificationCandidates(roomId: string) {
     include: { user: { include: { weeklyAvailability: true } }, game: true },
     take: 50,
   });
-  const now = new Date();
-  const availableCandidates = candidates.filter((candidate) => {
-    if (candidate.user.mentionPolicy === "NOBODY") return false;
-    return isUserAvailableForLfg(candidate.user, now);
-  });
-  const dayStart = new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const cooldownStart = new Date(Date.now() - settings.notificationCooldownMinutes * 60_000);
-  const deliveries = await db.notificationDelivery.findMany({ where: { userId: { in: availableCandidates.map((candidate) => candidate.userId) }, createdAt: { gte: dayStart } } });
+  // Marking a game as interested is an explicit opt-in for room invitations.
+  // Availability is only used by the smart organiser, not for suppressing a
+  // room alert that the member has explicitly requested.
   const selected = [];
-  for (const candidate of availableCandidates) {
-    const userDeliveries = deliveries.filter((delivery) => delivery.userId === candidate.userId);
-    if (userDeliveries.length >= settings.maxDmPerDay) continue;
-    if (userDeliveries.some((delivery) => delivery.roomId === roomId)) continue;
-    if (userDeliveries.some((delivery) => delivery.lfgGameId === room.lfgGameId && delivery.createdAt >= cooldownStart)) continue;
+  for (const candidate of candidates) {
     try {
       await db.notificationDelivery.create({ data: { userId: candidate.userId, lfgGameId: room.lfgGameId, roomId, dedupeKey: `${roomId}:${candidate.userId}` } });
       selected.push(candidate);
