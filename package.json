@@ -19,6 +19,7 @@
     "opera:gx:status": "node scripts/opera-gx-cdp.mjs status",
     "opera:gx:test": "node scripts/opera-gx-smoke.mjs",
     "opera:gx:ready": "npm run opera:gx:start && npm run opera:gx:test",
+    "guide:capture": "node scripts/capture-zark-guide.mjs",
     "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
     "db:prepare": "prisma db execute --file packages/db/prisma/safe-zark-series.sql --schema packages/db/prisma/schema.prisma",
     "db:push": "npm run db:prepare && prisma db push --schema packages/db/prisma/schema.prisma",
