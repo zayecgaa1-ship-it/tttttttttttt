@@ -130,6 +130,22 @@ export async function setTradeStatus(identifier: string, user: WebUser, status: 
   return { id: updated.id, code: tradeCode(updated.publicId), status: updated.status };
 }
 
+/** Permanently removes the offer and every Trade record attached to it.
+ * A small global admin audit entry is intentionally retained for accountability. */
+export async function deleteTradePermanently(identifier: string, user: WebUser) {
+  if (!(await isCurrentTradeModerator(user))) throw httpError("لا تملك صلاحية الحذف النهائي لعروض Trade", 403);
+  const trade = await requireTrade(identifier);
+  await db.$transaction(async (tx) => {
+    // TradeAuditLog uses SetNull by design, so delete it explicitly: this is a
+    // real purge requested by the administrator, not merely a status change.
+    await tx.tradeAuditLog.deleteMany({ where: { tradeId: trade.id } });
+    await tx.trade.delete({ where: { id: trade.id } });
+  });
+  await db.auditLog.create({ data: { adminId: user.userId, action: "trade.permanently_deleted", targetId: trade.id, details: { code: tradeCode(trade.publicId), ownerId: trade.ownerId } } });
+  publish({ type: "trade.deleted", tradeId: trade.id, publicId: trade.publicId, ownerId: trade.ownerId, discordChannelId: trade.discordChannelId ?? undefined, discordMessageId: trade.discordMessageId ?? undefined });
+  return { deleted: true, code: tradeCode(trade.publicId) };
+}
+
 export async function expressInterest(identifier: string, user: WebUser) {
   await enforceRateLimit("trade-interest", user.userId, 15, 60 * 60);
   const trade = await requireTrade(identifier);
@@ -336,12 +352,16 @@ export async function readTradeNotifications(userId: string) {
 
 export async function tradeModerationDashboard(user: WebUser) {
   if (!(await isCurrentTradeModerator(user))) throw httpError("لا تملك صلاحية إدارة Trade", 403);
-  const [byStatus, openReports, recentAudit] = await Promise.all([
+  const [byStatus, openReports, recentAudit, recentTrades] = await Promise.all([
     db.trade.groupBy({ by: ["status"], _count: { _all: true } }),
     db.tradeReport.findMany({ where: { status: { in: ["OPEN", "REVIEWING"] } }, include: { trade: { select: { publicId: true, itemName: true } }, reporter: { select: { id: true, displayName: true } }, reportedUser: { select: { id: true, displayName: true } } }, orderBy: { createdAt: "desc" }, take: 100 }),
     db.tradeAuditLog.findMany({ include: { actor: { select: { id: true, displayName: true } } }, orderBy: { createdAt: "desc" }, take: 100 }),
+    db.trade.findMany({
+      select: { publicId: true, itemName: true, haveText: true, wantText: true, status: true, createdAt: true, owner: { select: { displayName: true } }, game: { select: { name: true } } },
+      orderBy: { createdAt: "desc" }, take: 100,
+    }),
   ]);
-  return { byStatus, openReports: openReports.map((item) => ({ ...item, trade: { ...item.trade, code: tradeCode(item.trade.publicId) } })), recentAudit };
+  return { byStatus, openReports: openReports.map((item) => ({ ...item, trade: { ...item.trade, code: tradeCode(item.trade.publicId) } })), recentAudit, recentTrades: recentTrades.map((item) => ({ ...item, code: tradeCode(item.publicId) })) };
 }
 
 export async function resolveTradeReport(reportId: string, user: WebUser, input: { status: "DISMISSED" | "ACTIONED" | "REVIEWING"; resolution?: string; tradeAction?: "NONE" | "REMOVE" | "DISPUTE" | "CLOSE" }) {

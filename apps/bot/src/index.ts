@@ -587,7 +587,7 @@ if (!token) {
   }
 
   async function handleDomainEvent(raw: string) {
-    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string; userId?: string; tradeId?: string; publicId?: number; ownerId?: string; senderId?: string; broadcastId?: string } } };
+    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string; userId?: string; tradeId?: string; publicId?: number; ownerId?: string; senderId?: string; broadcastId?: string; discordChannelId?: string; discordMessageId?: string } } };
     const eventType = message.event?.eventType;
     const payload = message.event?.payload;
     const room = payload?.room;
@@ -623,6 +623,10 @@ if (!token) {
     }
     if (eventType === "trade.created" && payload?.tradeId) {
       await publishTradeListing(payload.tradeId);
+      return;
+    }
+    if (eventType === "trade.deleted" && payload?.tradeId) {
+      await deleteTradeListing(payload.discordChannelId, payload.discordMessageId);
       return;
     }
     if (["trade.updated", "trade.status_changed"].includes(eventType ?? "") && payload?.tradeId) {
@@ -794,6 +798,14 @@ if (!token) {
     if (!message) return publishTradeListing(tradeId);
     const imageUrl = message.embeds[0]?.image?.url;
     await message.edit({ embeds: [tradeEmbed(trade, imageUrl)], components: [tradeLinkRow(trade)] });
+  }
+
+  async function deleteTradeListing(channelId?: string, messageId?: string) {
+    if (!channelId || !messageId) return;
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased() || !("messages" in channel)) return;
+    const message = await channel.messages.fetch(messageId).catch(() => null);
+    await message?.delete().catch(() => undefined);
   }
 
   function tradeEmbed(trade: TradeView, imageUrl?: string) {

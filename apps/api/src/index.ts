@@ -18,7 +18,7 @@ import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuesti
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
-import { answerTradeCompletion, createTrade, decideInterest, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
+import { answerTradeCompletion, createTrade, decideInterest, deleteTradePermanently, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
 import { claimBroadcast, createBroadcast, getPendingBroadcast, listBroadcasts, updateBroadcastProgress } from "./modules/broadcast/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
@@ -161,6 +161,13 @@ app.post("/api/web-admin/trades/:id/remove", async (request) => {
   const user = await requireWebUser(request);
   if (!(await isCurrentTradeModerator(user))) throw new HttpError("لا تملك صلاحية إدارة Trade", 403);
   return setTradeStatus(z.object({ id: z.string() }).parse(request.params).id, user, "REMOVED");
+});
+app.delete("/api/web-admin/trades/:id", async (request) => {
+  const user = await requireWebUser(request);
+  if (!(await isCurrentTradeModerator(user))) throw new HttpError("لا تملك صلاحية إدارة Trade", 403);
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ confirmation: z.literal("حذف") }).parse(request.body);
+  return deleteTradePermanently(params.id, user);
 });
 app.get("/api/loyalty/weekly", weeklyLoyaltyLeaderboard);
 app.put("/api/me/profile/settings", async (request) => {

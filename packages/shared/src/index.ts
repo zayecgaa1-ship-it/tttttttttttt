@@ -155,6 +155,7 @@ export type ZarkEvent =
   | { type: "trade.created"; tradeId: string; publicId: number; ownerId: string }
   | { type: "trade.updated"; tradeId: string; publicId: number; status: string }
   | { type: "trade.status_changed"; tradeId: string; publicId: number; status: string; ownerId: string }
+  | { type: "trade.deleted"; tradeId: string; publicId: number; ownerId: string; discordChannelId?: string; discordMessageId?: string }
   | { type: "trade.interest_created"; tradeId: string; publicId: number; ownerId: string; userId: string }
   | { type: "trade.interest_decided"; tradeId: string; publicId: number; userId: string; decision: string; conversationId?: string }
   | { type: "trade.message_created"; tradeId: string; conversationId: string; messageId: string; senderId: string; recipientId: string }
