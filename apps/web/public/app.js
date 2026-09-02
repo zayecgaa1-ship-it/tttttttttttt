@@ -29,6 +29,7 @@ async function boot() {
   renderShell();
   state = await api('/api/state');
   await renderPage();
+  renderOnboarding();
   const stream = new EventSource('/api/stream');
   let timer;
   stream.onmessage = () => {
@@ -43,11 +44,44 @@ function renderShell() {
   if (me?.isOwner) links.push(['security','/security.html','الحماية']);
   $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark LFG System"><span>ZARK LFG SYSTEM<small>PLAY. CONNECT. COMPETE.</small></span></a><div class="nav-links" id="nav-links">${links.map(([key,href,label]) => `<a class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user">${me ? `<a href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:''}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="القائمة">☰</button></div></nav>`;
   $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div></div></div>`;
+  $('nav-links').insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
+  $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
+  document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a>');
   $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
+  $('open-onboarding').onclick = () => renderOnboarding(true);
   if(me&&!$('zark-ai-widget')){
     document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد Zark"><img src="/assets/zark-bot-avatar.png" alt=""><span>اسأل Zark</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/zark-bot-avatar.png" alt=""><div><b>مساعد Zark</b><small id="floating-ai-status">دعم ذكي</small></div><button id="floating-ai-clear" type="button" title="حذف المحادثة">🗑️</button><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
     bindFloatingSupport().catch(console.error);
   }
+}
+
+function renderOnboarding(force=false) {
+  const key='zark-onboarding-v1';
+  if (!force && localStorage.getItem(key)) return;
+  document.getElementById('zark-onboarding')?.remove();
+  const steps = [
+    {icon:'🔐',title:'سجّل دخولك عبر Discord',text:'اضغط «دخول Discord» لربط حسابك بأمان. هذا يفتح ملفك، الإشعارات، إنشاء الغرف والتقييم.',link:'/auth/discord',cta:'تسجيل الدخول'},
+    {icon:'👤',title:'جهّز ملفك ووقت فراغك',text:'من «ملفي» اختر حالتك الآن وحدد الأيام والساعات التي تكون فيها متفرغًا. هذا يساعد Zark على ترشيح التجمعات المناسبة.',link:'/profile.html',cta:'فتح ملفي'},
+    {icon:'❤️',title:'اختر الألعاب التي تهمك',text:'من صفحة LFG اضغط «مهتم» بجانب ألعابك. فعّل الإشعارات أو الغفوة، واختر إن كنت تريد دعوات Zark التلقائية.',link:'/lfg.html#interests',cta:'اختيار الاهتمامات'},
+    {icon:'⚡',title:'أنشئ غرفة أو ادخل غرفة',text:'في LFG اختر اللعبة وعدد اللاعبين ووقت البدء. «الآن» لا يحتاج وقتًا، و«لاحقًا» يطلب موعد التجمع. بعدها يرسل البوت الدعوات ويجهز Voice عند الحاجة.',link:'/lfg.html',cta:'فتح LFG'},
+    {icon:'🏆',title:'العب، قيّم، واطلب الدعم',text:'بعد الجلسة يصل التقييم في الخاص. استخدم الدعم أو البلاغات عند أي مشكلة، ويمكنك سؤال مساعد Zark من الزر أسفل الصفحة.',link:'/reports.html',cta:'فتح الدعم'},
+  ];
+  let index=0;
+  const modal=document.createElement('section');
+  modal.id='zark-onboarding';
+  modal.className='onboarding-backdrop';
+  modal.setAttribute('role','dialog');
+  modal.setAttribute('aria-modal','true');
+  const close=()=>{localStorage.setItem(key,'1');modal.remove();};
+  const paint=()=>{
+    const step=steps[index];
+    modal.innerHTML=`<article class="onboarding-card"><button class="onboarding-skip" type="button">تخطي ×</button><div class="onboarding-progress">${steps.map((_,i)=>`<i class="${i===index?'active':i<index?'done':''}"></i>`).join('')}</div><span class="onboarding-icon">${step.icon}</span><small>دليل البداية السريع · ${index+1}/${steps.length}</small><h2>${step.title}</h2><p>${step.text}</p><div class="onboarding-actions"><button class="button ghost" type="button" ${index===0?'disabled':''} data-tour-prev>السابق</button><a class="button primary" href="${step.link}">${step.cta}</a><button class="button light" type="button" data-tour-next>${index===steps.length-1?'إنهاء':'التالي'}</button></div></article>`;
+    modal.querySelector('.onboarding-skip').onclick=close;
+    modal.querySelector('[data-tour-prev]')?.addEventListener('click',()=>{index-=1;paint();});
+    modal.querySelector('[data-tour-next]').onclick=()=>{if(index===steps.length-1)close();else{index+=1;paint();}};
+  };
+  modal.addEventListener('click',event=>{if(event.target===modal)close();});
+  paint();document.body.appendChild(modal);
 }
 
 async function renderPage(realtime = false) {
