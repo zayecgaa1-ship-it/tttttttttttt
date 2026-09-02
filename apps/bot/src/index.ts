@@ -94,7 +94,7 @@ const dotAliases = new Map([
 if (!token) {
   console.warn("DISCORD_TOKEN غير مضبوط؛ تم تخطي تشغيل بوت Discord.");
 } else {
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildVoiceStates] });
+  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildVoiceStates] });
   const commands = buildCommands();
   const listingInFlight = new Set<string>();
   const roomSpaceInFlight = new Set<string>();
@@ -130,13 +130,16 @@ if (!token) {
     const loyaltyTimer = setInterval(() => void syncLoyaltyRoleMembers().catch((error) => console.error("Loyalty role sync failed", error)), 5 * 60_000);
     const roomInviteTimer = setInterval(() => void deliverOpenRoomInvites().catch((error) => console.error("Room invitation recovery failed", error)), 60_000);
     const securityRestoreTimer = setInterval(() => void restoreApprovedAdmins().catch((error) => console.error("Security restore cycle failed", error)), 30_000);
+    const securityAuditTimer = setInterval(() => void reconcileSecurityAuditLogs().catch((error) => console.error("Security audit reconciliation failed", error)), 30_000);
     heartbeatTimer.unref();
     cleanupTimer.unref();
     bumpTimer.unref();
     loyaltyTimer.unref();
     roomInviteTimer.unref();
     securityRestoreTimer.unref();
+    securityAuditTimer.unref();
     await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
+    await reconcileSecurityAuditLogs().catch((error) => console.error("Security audit bootstrap failed", error));
     await restoreApprovedAdmins().catch((error) => console.error("Security restore bootstrap failed", error));
   });
   client.on(Events.Error, (error) => console.error("Discord client error", error));
@@ -1738,9 +1741,28 @@ if (!token) {
     if (!guildId) return;
     const guild = await client.guilds.fetch(guildId);
     const botMember = await guild.members.fetchMe();
+    const missing = [PermissionFlagsBits.ViewAuditLog, PermissionFlagsBits.ManageRoles].filter((permission) => !botMember.permissions.has(permission));
+    if (missing.length) console.warn("ZARK ADMIN PROTECTION CRITICAL: the bot needs View Audit Log and Manage Roles; timeout alerts or role suspension cannot work until both are granted.");
     const riskyRoles = guild.roles.cache.filter((role: any) => !role.managed && role.permissions.has(PermissionFlagsBits.Administrator));
     const blocked = riskyRoles.filter((role: any) => role.position >= botMember.roles.highest.position);
     if (blocked.size) console.warn(`ZARK ADMIN PROTECTION WARNING: bot role is below ${blocked.size} Administrator role(s); it cannot remove them safely.`);
+  }
+
+  async function reconcileSecurityAuditLogs() {
+    if (!guildId) return;
+    const guild = await client.guilds.fetch(guildId);
+    const botMember = await guild.members.fetchMe();
+    if (!botMember.permissions.has(PermissionFlagsBits.ViewAuditLog)) return;
+    // Gateway may reconnect while an admin action happens. This lightweight
+    // polling fallback replays recent entries; PostgreSQL auditLogId dedupe
+    // guarantees that neither counters nor owner DMs are duplicated.
+    const logs = await guild.fetchAuditLogs({ type: AuditLogEvent.MemberUpdate, limit: 50 });
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const entry of logs.entries.values()) {
+      if (entry.createdTimestamp < cutoff) continue;
+      if (!entry.changes?.some((change: any) => change.key === "communication_disabled_until")) continue;
+      await recordDiscordAuditEvent(guild, entry);
+    }
   }
 
   async function restoreApprovedAdmins() {
