@@ -27,7 +27,7 @@
       <form id="trade-create-form" class="surface trade-create" data-tour-id="trade-create">
         <div class="section-heading compact"><div><span class="eyebrow">NEW TRADE</span><h2>أنشئ عرضًا واضحًا</h2></div></div>
         <div class="settings-grid two"><label>اللعبة<select id="trade-game" required></select></label><label>اسم الغرض<input id="trade-item" required maxlength="100" placeholder="مثال: Dragon Fruit"></label></div>
-        <label class="trade-upload">صورة الغرض من جهازك<input id="trade-image" type="file" accept="image/png,image/jpeg,image/webp" required><small>PNG / JPG / WEBP حتى 1.5MB. لا نسمح بروابط صور خارجية.</small><img id="trade-image-preview" alt="معاينة الصورة" hidden></label>
+        <label class="trade-upload">صورة الغرض من جهازك<input id="trade-image" type="file" accept="image/png,image/jpeg,image/webp" required><small id="trade-image-status">PNG / JPG / WEBP. الصور الكبيرة تُضغط تلقائيًا قبل الرفع، ولا نسمح بروابط خارجية.</small><img id="trade-image-preview" alt="معاينة الصورة" hidden></label>
         <div class="settings-grid two"><label>I HAVE — ما الذي تعرضه؟<textarea id="trade-have" required maxlength="300"></textarea></label><label>I WANT — ماذا تريد مقابله؟<textarea id="trade-want" required maxlength="300"></textarea></label></div>
         <label>وصف إضافي<textarea id="trade-description" maxlength="1000" placeholder="المستوى، الحالة، السيرفر أو أي تفاصيل مهمة"></textarea></label>
         <label class="switch-line"><input id="trade-terms" type="checkbox" required><span>قرأت قواعد الأمان، ولن أشارك كلمة مرور أو رمز دخول أو أحوّل مالًا خارج المنصة.</span></label>
