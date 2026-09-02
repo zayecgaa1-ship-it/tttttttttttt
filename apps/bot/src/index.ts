@@ -13,6 +13,7 @@ const token = process.env.DISCORD_TOKEN;
 const guildId = process.env.DISCORD_GUILD_ID;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const lfgListingChannelId = process.env.DISCORD_LFG_CHANNEL_ID;
+const tradeChannelId = process.env.TRADE_CHANNEL_ID?.trim() || "1544719421371850925";
 const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter((role) => /^\d{17,20}$/.test(role));
 const ownerUserId = process.env.DISCORD_OWNER_ID?.trim() || "492368135144603658";
 // Only these channels accept user image uploads. Configure the three channel
@@ -583,7 +584,7 @@ if (!token) {
   }
 
   async function handleDomainEvent(raw: string) {
-    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string; userId?: string } } };
+    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string; userId?: string; tradeId?: string; publicId?: number; ownerId?: string; senderId?: string } } };
     const eventType = message.event?.eventType;
     const payload = message.event?.payload;
     const room = payload?.room;
@@ -611,6 +612,27 @@ if (!token) {
     }
     if (eventType === "loyalty.updated" && payload?.userId) {
       await syncLoyaltyRoles(payload.userId);
+      return;
+    }
+    if (eventType === "trade.created" && payload?.tradeId) {
+      await publishTradeListing(payload.tradeId);
+      return;
+    }
+    if (["trade.updated", "trade.status_changed"].includes(eventType ?? "") && payload?.tradeId) {
+      await syncTradeListing(payload.tradeId);
+      return;
+    }
+    if (eventType === "trade.message_created" && payload?.recipientId) {
+      await notifyTradeParticipant(payload.recipientId, payload.tradeId);
+      return;
+    }
+    if (eventType === "trade.interest_created" && payload?.ownerId) {
+      if (payload.tradeId) await syncTradeListing(payload.tradeId);
+      await notifyTradeParticipant(payload.ownerId, payload.tradeId, "👋 يوجد لاعب مهتم بعرضك.");
+      return;
+    }
+    if (eventType === "trade.interest_decided" && payload?.tradeId) {
+      await syncTradeListing(payload.tradeId);
       return;
     }
     if (!room) return;
@@ -695,6 +717,62 @@ if (!token) {
     if (!user) return;
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح التذكرة والرد").setEmoji("💬").setStyle(ButtonStyle.Link).setURL(`${siteUrl()}/reports.html?reportKind=${kind}&reportId=${encodeURIComponent(reportId)}`));
     await user.send({ embeds: [baseEmbed().setTitle("دعم Zark").setDescription(message)], components: [row] }).catch((error) => console.error(`Report DM failed for ${userId}`, error));
+  }
+
+  async function publishTradeListing(tradeId: string) {
+    if (!tradeChannelId) return;
+    const channel = await client.channels.fetch(tradeChannelId).catch(() => null);
+    if (!channel?.isTextBased() || !("send" in channel)) return;
+    const trade = await apiGet<TradeView>(`/api/trades/${encodeURIComponent(tradeId)}`, true);
+    if (trade.discordMessageId) return;
+    const attachment = tradeAttachment(trade.imageData);
+    const message = await channel.send({ embeds: [tradeEmbed(trade, attachment ? `attachment://${attachment.name}` : undefined)], components: [tradeLinkRow(trade)], files: attachment ? [attachment] : [] });
+    await apiSend(`/api/trades/${trade.id}/discord`, "PUT", { channelId: channel.id, messageId: message.id });
+  }
+
+  async function syncTradeListing(tradeId: string) {
+    const trade = await apiGet<TradeView>(`/api/trades/${encodeURIComponent(tradeId)}`, true);
+    if (!trade.discordChannelId || !trade.discordMessageId) return publishTradeListing(tradeId);
+    const channel = await client.channels.fetch(trade.discordChannelId).catch(() => null);
+    if (!channel?.isTextBased() || !("messages" in channel)) return;
+    const message = await channel.messages.fetch(trade.discordMessageId).catch(() => null);
+    if (!message) return publishTradeListing(tradeId);
+    const imageUrl = message.embeds[0]?.image?.url;
+    await message.edit({ embeds: [tradeEmbed(trade, imageUrl)], components: [tradeLinkRow(trade)] });
+  }
+
+  function tradeEmbed(trade: TradeView, imageUrl?: string) {
+    const status = tradeStatusArabic(trade.status);
+    const embed = baseEmbed().setTitle(`🔄 ${trade.itemName} · ${trade.code}`).setDescription(`🎮 **${trade.game.name}**\n👤 **صاحب العرض:** <@${trade.owner.id}>\n\n**I HAVE**\n${trimText(trade.haveText, 400)}\n\n**I WANT**\n${trimText(trade.wantText, 400)}\n\n📌 **الحالة:** ${status}\n👥 **المهتمون:** ${trade._count?.interests ?? 0}`).setURL(`${siteUrl()}/trade/${encodeURIComponent(trade.code)}`);
+    if (trade.description) embed.addFields({ name: "التفاصيل", value: trimText(trade.description, 600) });
+    if (imageUrl) embed.setImage(imageUrl);
+    return embed;
+  }
+
+  function tradeLinkRow(trade: TradeView) {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel(["COMPLETED", "CANCELLED", "EXPIRED", "REMOVED"].includes(trade.status) ? "عرض تفاصيل الصفقة" : "فتح العرض والتواصل").setEmoji("🔄").setStyle(ButtonStyle.Link).setURL(`${siteUrl()}/trade/${encodeURIComponent(trade.code)}`));
+  }
+
+  function tradeAttachment(dataUrl: string) {
+    const match = dataUrl.match(/^data:image\/(png|jpeg|webp);base64,(.+)$/i);
+    if (!match) return undefined;
+    const extension = match[1].toLowerCase() === "jpeg" ? "jpg" : match[1].toLowerCase();
+    return new AttachmentBuilder(Buffer.from(match[2], "base64"), { name: `trade.${extension}` });
+  }
+
+  async function notifyTradeParticipant(userId: string, tradeId?: string, text = "💬 لديك رسالة جديدة بخصوص أحد عروض Trade.") {
+    if (!runtimeSettings.dmNotificationsEnabled) return;
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (!user) return;
+    let code = tradeId;
+    if (tradeId) code = (await apiGet<TradeView>(`/api/trades/${encodeURIComponent(tradeId)}`, true).catch(() => null))?.code ?? tradeId;
+    const url = code ? `${siteUrl()}/trade/${encodeURIComponent(code)}` : `${siteUrl()}/trade.html`;
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح Trade في الموقع").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(url));
+    await user.send({ embeds: [baseEmbed().setTitle("Zark Player Trading").setDescription(`${text}\n\nلخصوصيتك، محتوى الرسالة لا يظهر داخل Discord.`)], components: [row] }).catch(() => undefined);
+  }
+
+  function tradeStatusArabic(status: string) {
+    return ({ OPEN: "🟢 مفتوح", PENDING: "🟡 قيد التفاوض", COMPLETION_PENDING: "⏳ بانتظار التأكيد", COMPLETED: "✅ مكتمل", CANCELLED: "⚫ ملغي", EXPIRED: "⌛ منتهي", DISPUTED: "⚠️ نزاع", REMOVED: "🛡️ أزيل إداريًا" } as Record<string, string>)[status] ?? status;
   }
 
   async function reconcileRoomListings(forcePublish = false) {
@@ -1876,6 +1954,7 @@ type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExi
 type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
+type TradeView = { id: string; code: string; publicId: number; itemName: string; imageData: string; haveText: string; wantText: string; description?: string; status: string; discordChannelId?: string; discordMessageId?: string; owner: { id: string; displayName: string; avatarUrl?: string }; game: { name: string; icon?: string }; _count?: { interests: number; conversations: number } };
 type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
 type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";
 type SecurityResult = { suspend: boolean; duplicate?: boolean; counts?: { bans: number; timeouts: number; kicks: number; roles: number; channels: number; webhooks: number }; suspension?: { reason: string }; settings?: { securityLogChannelId?: string | null; ownerDmAlertsEnabled?: boolean } };

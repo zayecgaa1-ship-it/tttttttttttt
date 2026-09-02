@@ -27,6 +27,7 @@
         <button class="active" type="button" data-admin-tab="overview">📊 النظرة العامة</button>
         <button type="button" data-admin-tab="settings">⚙️ إعدادات البوت</button>
         <button type="button" data-admin-tab="reports">🛡️ البلاغات</button>
+        <button type="button" data-admin-tab="trade">🔄 إدارة Trade</button>
         <button type="button" data-admin-tab="rooms">🛰️ الغرف</button>
         <button type="button" data-admin-tab="lfg-content">🎮 ألعاب LFG</button>
         <button type="button" data-admin-tab="zark-content">🧠 ألعاب البوت</button>
@@ -115,6 +116,15 @@
             <p id="admin-report-result" class="form-result"></p>
           </section>
         </div>
+      </section>
+
+      <section class="admin-section" data-admin-panel="trade" hidden>
+        <div class="admin-section-title"><div><span>🔄</span><div><h2>إدارة Trade والبلاغات</h2><p>هذه الصفحة لا تفتح المحادثات إلا لمن يحمل صلاحية Trade المستقلة، وكل مشاهدة وإجراء يُسجل.</p></div></div></div>
+        <div id="admin-trade-stats" class="stats"></div>
+        <div class="section-heading compact"><div><span class="eyebrow">OPEN REPORTS</span><h2>بلاغات Trade المفتوحة</h2></div></div>
+        <div id="admin-trade-reports" class="admin-room-list"></div>
+        <div class="section-heading compact"><div><span class="eyebrow">AUDIT LOG</span><h2>آخر إجراءات Trade</h2></div></div>
+        <div id="admin-trade-audit" class="admin-room-list"></div>
       </section>
 
       <section class="admin-section" data-admin-panel="rooms" hidden>

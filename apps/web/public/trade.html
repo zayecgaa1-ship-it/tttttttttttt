@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Zark Player Trading — تبادل آمن بين اللاعبين</title>
+  <meta name="description" content="اعرض أغراضك، ابحث عن صفقة، وتحدث بأمان داخل Zark.">
+  <link rel="stylesheet" href="/styles.css?v=2745100">
+</head>
+<body data-page="trade">
+  <header id="site-nav"></header>
+  <main class="shell page-main">
+    <section class="page-hero small" data-tour-id="trade-overview"><span class="eyebrow">ZARK PLAYER TRADING</span><h1>بدّل أغراضك <em>بوضوح وأمان.</em></h1><p>Discord ينبهك فقط، وكل تفاصيل العرض والمحادثة والتقييم تبقى داخل الموقع.</p></section>
+    <section class="trade-safety"><b>🛡️ تذكير أمان</b><span>لا تشارك كلمة المرور أو رموز الدخول، ولا تدفع خارج المنصة، وبلّغ فورًا عن أي طلب مشبوه.</span></section>
+    <nav class="trade-tabs surface" aria-label="أقسام Trade">
+      <button class="active" data-trade-tab="market" type="button">🛍️ السوق</button>
+      <button data-trade-tab="create" type="button">➕ عرض جديد</button>
+      <button data-trade-tab="mine" type="button">📦 عروضي</button>
+      <button data-trade-tab="inbox" type="button">💬 المحادثات <i id="trade-unread" hidden></i></button>
+      <button data-trade-tab="notifications" type="button">🔔 الإشعارات <i id="trade-notification-count" hidden></i></button>
+    </nav>
+    <section data-trade-panel="market">
+      <div class="trade-filter surface" data-tour-id="trade-search"><label>بحث<input id="trade-search" type="search" maxlength="80" placeholder="اسم الغرض، المطلوب، أو اللعبة..."></label><label>اللعبة<select id="trade-game-filter"><option value="">كل الألعاب</option></select></label><label>الترتيب<select id="trade-sort"><option value="newest">الأحدث</option><option value="active">آخر نشاط</option><option value="oldest">الأقدم</option></select></label><button id="trade-search-button" class="button primary" type="button">بحث</button></div>
+      <div id="trade-list" class="trade-grid"></div>
+    </section>
+    <section data-trade-panel="create" hidden>
+      <form id="trade-create-form" class="surface trade-create" data-tour-id="trade-create">
+        <div class="section-heading compact"><div><span class="eyebrow">NEW TRADE</span><h2>أنشئ عرضًا واضحًا</h2></div></div>
+        <div class="settings-grid two"><label>اللعبة<select id="trade-game" required></select></label><label>اسم الغرض<input id="trade-item" required maxlength="100" placeholder="مثال: Dragon Fruit"></label></div>
+        <label class="trade-upload">صورة الغرض من جهازك<input id="trade-image" type="file" accept="image/png,image/jpeg,image/webp" required><small>PNG / JPG / WEBP حتى 1.5MB. لا نسمح بروابط صور خارجية.</small><img id="trade-image-preview" alt="معاينة الصورة" hidden></label>
+        <div class="settings-grid two"><label>I HAVE — ما الذي تعرضه؟<textarea id="trade-have" required maxlength="300"></textarea></label><label>I WANT — ماذا تريد مقابله؟<textarea id="trade-want" required maxlength="300"></textarea></label></div>
+        <label>وصف إضافي<textarea id="trade-description" maxlength="1000" placeholder="المستوى، الحالة، السيرفر أو أي تفاصيل مهمة"></textarea></label>
+        <label class="switch-line"><input id="trade-terms" type="checkbox" required><span>قرأت قواعد الأمان، ولن أشارك كلمة مرور أو رمز دخول أو أحوّل مالًا خارج المنصة.</span></label>
+        <button class="button primary" type="submit">نشر العرض</button><p id="trade-create-result" class="form-result"></p>
+      </form>
+    </section>
+    <section data-trade-panel="mine" hidden><div id="my-trade-list" class="trade-grid"></div></section>
+    <section data-trade-panel="inbox" hidden><div class="trade-inbox-layout"><div id="trade-inbox-list" class="surface trade-conversation-list"></div><section id="trade-conversation" class="surface trade-conversation" hidden></section></div></section>
+    <section data-trade-panel="notifications" hidden><div id="trade-notifications" class="admin-room-list"></div></section>
+    <section id="trade-detail" class="surface trade-detail" hidden aria-live="polite"></section>
+  </main>
+  <footer id="site-footer"></footer><script src="/app.js?v=2745100"></script>
+</body>
+</html>

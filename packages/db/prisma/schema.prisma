@@ -128,6 +128,55 @@ enum MentionPolicy {
   NOBODY
 }
 
+enum TradeStatus {
+  OPEN
+  PENDING
+  COMPLETION_PENDING
+  COMPLETED
+  CANCELLED
+  EXPIRED
+  DISPUTED
+  REMOVED
+}
+
+enum TradeInterestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+enum TradeConversationStatus {
+  OPEN
+  CLOSED
+  DISPUTED
+}
+
+enum TradeReportStatus {
+  OPEN
+  REVIEWING
+  DISMISSED
+  ACTIONED
+}
+
+enum TradeReportReason {
+  SCAM_FRAUD
+  HARASSMENT
+  MISLEADING_TRADE
+  SPAM
+  PROHIBITED_CONTENT
+  OTHER
+}
+
+enum TradeNotificationType {
+  INTEREST_NEW
+  INTEREST_ACCEPTED
+  INTEREST_DECLINED
+  MESSAGE_NEW
+  TRADE_STATUS
+  REPORT_UPDATED
+}
+
 model BotIdentity {
   id        Int      @id @default(1)
   name      String   @default("Zark LFG System")
@@ -136,84 +185,97 @@ model BotIdentity {
 }
 
 model GuildSettings {
-  guildId                     String   @id
-  lfgChannelId                String?
-  lfgCategoryId               String?
-  publicChannelId             String?
-  dailyChannelId              String?
-  leaderboardChannelId        String?
-  reportChannelId             String?
-  websiteUrl                  String   @default("https://zark-ps.com")
-  dmNotificationsEnabled      Boolean  @default(true)
-  quickMatchEnabled           Boolean  @default(true)
-  autoSmartRoomsEnabled       Boolean  @default(false)
-  autoRoomIntervalMinutes     Int      @default(120)
-  autoRoomMinimumInterested   Int      @default(2)
-  autoRoomLifetimeMinutes     Int      @default(120)
-  maxAutoRoomsPerGame         Int      @default(1)
-  autoRoomDmInterestedUsers   Boolean  @default(true)
-  deleteExpiredAutoRooms      Boolean  @default(true)
-  voiceEmptyGraceMinutes      Int      @default(5)
-  singlePlayerIdleMinutes     Int      @default(15)
-  waitingSessionTimeoutMinutes Int     @default(120)
-  ratingsEnabled              Boolean  @default(true)
-  reportsEnabled              Boolean  @default(true)
-  autoCreateRoomChannels      Boolean  @default(true)
-  maxDmPerDay                 Int      @default(3)
-  notificationCooldownMinutes Int      @default(20)
-  maxActiveRoomsPerUser       Int      @default(1)
-  defaultRoomDurationMinutes  Int      @default(60)
-  roomGraceMinutes            Int      @default(5)
-  aiChatEnabled               Boolean  @default(true)
-  aiDailyMessagesPerUser      Int      @default(60)
-  aiGlobalDailyMessages       Int      @default(5000)
-  aiDailyTokenBudgetPerUser   Int      @default(50000)
-  aiGlobalDailyTokenBudget    Int      @default(1000000)
-  aiMaxOutputTokens           Int      @default(250)
-  loyaltyBoostUntil           DateTime?
-  loyaltyBoostMultiplier      Int      @default(1)
-  updatedBy                   String?
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+  guildId                      String    @id
+  lfgChannelId                 String?
+  lfgCategoryId                String?
+  publicChannelId              String?
+  dailyChannelId               String?
+  leaderboardChannelId         String?
+  reportChannelId              String?
+  websiteUrl                   String    @default("https://zark-ps.com")
+  dmNotificationsEnabled       Boolean   @default(true)
+  quickMatchEnabled            Boolean   @default(true)
+  autoSmartRoomsEnabled        Boolean   @default(false)
+  autoRoomIntervalMinutes      Int       @default(120)
+  autoRoomMinimumInterested    Int       @default(2)
+  autoRoomLifetimeMinutes      Int       @default(120)
+  maxAutoRoomsPerGame          Int       @default(1)
+  autoRoomDmInterestedUsers    Boolean   @default(true)
+  deleteExpiredAutoRooms       Boolean   @default(true)
+  voiceEmptyGraceMinutes       Int       @default(5)
+  singlePlayerIdleMinutes      Int       @default(15)
+  waitingSessionTimeoutMinutes Int       @default(120)
+  ratingsEnabled               Boolean   @default(true)
+  reportsEnabled               Boolean   @default(true)
+  autoCreateRoomChannels       Boolean   @default(true)
+  maxDmPerDay                  Int       @default(3)
+  notificationCooldownMinutes  Int       @default(20)
+  maxActiveRoomsPerUser        Int       @default(1)
+  defaultRoomDurationMinutes   Int       @default(60)
+  roomGraceMinutes             Int       @default(5)
+  aiChatEnabled                Boolean   @default(true)
+  aiDailyMessagesPerUser       Int       @default(60)
+  aiGlobalDailyMessages        Int       @default(5000)
+  aiDailyTokenBudgetPerUser    Int       @default(50000)
+  aiGlobalDailyTokenBudget     Int       @default(1000000)
+  aiMaxOutputTokens            Int       @default(250)
+  loyaltyBoostUntil            DateTime?
+  loyaltyBoostMultiplier       Int       @default(1)
+  updatedBy                    String?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 }
 
 model User {
-  id                        String               @id
+  id                        String                 @id
   displayName               String
   avatarUrl                 String?
   bio                       String?
-  profileAccent             String               @default("#e50914")
-  activityVisible           Boolean              @default(true)
-  rivalNotificationsEnabled Boolean              @default(true)
-  currentActivity           AvailabilityActivity @default(AWAY)
+  profileAccent             String                 @default("#e50914")
+  activityVisible           Boolean                @default(true)
+  rivalNotificationsEnabled Boolean                @default(true)
+  currentActivity           AvailabilityActivity   @default(AWAY)
   activityUntil             DateTime?
   activityNote              String?
-  mentionPolicy             MentionPolicy        @default(INTERESTED_ONLY)
-  xp                        Int                  @default(0)
-  wins                      Int                  @default(0)
-  streak                    Int                  @default(0)
-  loyaltyPoints             Int                  @default(0)
-  lifetimeLoyaltyPoints     Int                  @default(0)
-  vipUnlocked               Boolean              @default(false)
-  submittedReportCount      Int                  @default(0)
-  createdAt                 DateTime             @default(now())
-  updatedAt                 DateTime             @updatedAt
+  mentionPolicy             MentionPolicy          @default(INTERESTED_ONLY)
+  xp                        Int                    @default(0)
+  wins                      Int                    @default(0)
+  streak                    Int                    @default(0)
+  loyaltyPoints             Int                    @default(0)
+  lifetimeLoyaltyPoints     Int                    @default(0)
+  vipUnlocked               Boolean                @default(false)
+  submittedReportCount      Int                    @default(0)
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
   points                    EngagementPoint[]
   trustScore                TrustScore?
   gameProfiles              GameProfile[]
   matchResults              ZarkMatchResult[]
-  hostedRooms               LfgRoom[]            @relation("HostRooms")
+  hostedRooms               LfgRoom[]              @relation("HostRooms")
   memberships               LfgMember[]
   answers                   DailyAnswer[]
   preferences               UserGamePreference[]
   bugReports                BugReport[]
-  reportsFiled              Report[]             @relation("ReportsFiled")
-  reportsReceived           Report[]             @relation("ReportsReceived")
+  reportsFiled              Report[]               @relation("ReportsFiled")
+  reportsReceived           Report[]               @relation("ReportsReceived")
   reportMessages            ReportMessage[]
   aiUsage                   AiUsageDaily[]
   weeklyAvailability        UserAvailability[]
   roomRatings               LfgRoomRating[]
   loyaltyTransactions       LoyaltyTransaction[]
+  ownedTrades               Trade[]                @relation("TradeOwner")
+  tradeInterests            TradeInterest[]
+  ownedTradeConversations   TradeConversation[]    @relation("TradeConversationOwner")
+  joinedTradeConversations  TradeConversation[]    @relation("TradeConversationInterested")
+  tradeMessages             TradeMessage[]
+  tradeMessageRevisions     TradeMessageRevision[]
+  tradeReportsFiled         TradeReport[]          @relation("TradeReportReporter")
+  tradeReportsReceived      TradeReport[]          @relation("TradeReportReportedUser")
+  tradeReviewsWritten       TradeReview[]          @relation("TradeReviewAuthor")
+  tradeReviewsReceived      TradeReview[]          @relation("TradeReviewTarget")
+  tradeNotifications        TradeNotification[]    @relation("TradeNotificationUser")
+  tradeNotificationsActed   TradeNotification[]    @relation("TradeNotificationActor")
+  tradeAuditEntries         TradeAuditLog[]
 }
 
 model LoyaltyTransaction {
@@ -319,8 +381,8 @@ model ZarkMatch {
   game             ZarkGame          @relation(fields: [gameId], references: [id])
   results          ZarkMatchResult[]
 
-  @@index([gameId, startedAt])
   @@unique([seriesId, roundNumber])
+  @@index([gameId, startedAt])
   @@index([channelId, startedAt])
 }
 
@@ -391,25 +453,217 @@ model LfgGameCategory {
 }
 
 model LfgGameCatalog {
-  id           String               @id @default(cuid())
-  slug         String               @unique
-  name         String
-  description  String?
-  icon         String?
-  category     String?
-  categoryId   String?
-  minPlayers   Int                  @default(2)
-  maxPlayers   Int                  @default(10)
+  id               String               @id @default(cuid())
+  slug             String               @unique
+  name             String
+  description      String?
+  icon             String?
+  category         String?
+  categoryId       String?
+  minPlayers       Int                  @default(2)
+  maxPlayers       Int                  @default(10)
   autoMinAvailable Int?
-  sortOrder    Int                  @default(0)
-  enabled      Boolean              @default(true)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  gameCategory LfgGameCategory?     @relation(fields: [categoryId], references: [id])
-  rooms        LfgRoom[]
-  preferences  UserGamePreference[]
+  sortOrder        Int                  @default(0)
+  enabled          Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  gameCategory     LfgGameCategory?     @relation(fields: [categoryId], references: [id])
+  rooms            LfgRoom[]
+  preferences      UserGamePreference[]
+  trades           Trade[]
 
   @@index([categoryId, enabled, sortOrder])
+}
+
+model Trade {
+  id                       String              @id @default(cuid())
+  publicId                 Int                 @unique @default(autoincrement())
+  ownerId                  String
+  lfgGameId                String
+  itemName                 String
+  imageData                String
+  haveText                 String
+  wantText                 String
+  description              String?
+  status                   TradeStatus         @default(OPEN)
+  completionRequestedBy    String?
+  completionConversationId String?
+  expiresAt                DateTime?
+  closedAt                 DateTime?
+  discordChannelId         String?
+  discordMessageId         String?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  owner                    User                @relation("TradeOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  game                     LfgGameCatalog      @relation(fields: [lfgGameId], references: [id])
+  interests                TradeInterest[]
+  conversations            TradeConversation[]
+  reports                  TradeReport[]
+  reviews                  TradeReview[]
+  notifications            TradeNotification[]
+  auditEntries             TradeAuditLog[]
+
+  @@index([status, createdAt])
+  @@index([ownerId, status, updatedAt])
+  @@index([lfgGameId, status, createdAt])
+}
+
+model TradeInterest {
+  id           String              @id @default(cuid())
+  tradeId      String
+  userId       String
+  status       TradeInterestStatus @default(PENDING)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  trade        Trade               @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation TradeConversation?
+
+  @@unique([tradeId, userId])
+  @@index([tradeId, status, createdAt])
+  @@index([userId, status, updatedAt])
+}
+
+model TradeConversation {
+  id               String                  @id @default(cuid())
+  tradeId          String
+  interestId       String                  @unique
+  ownerId          String
+  interestedUserId String
+  status           TradeConversationStatus @default(OPEN)
+  ownerReadAt      DateTime?
+  interestedReadAt DateTime?
+  lastMessageAt    DateTime                @default(now())
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  trade            Trade                   @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  interest         TradeInterest           @relation(fields: [interestId], references: [id], onDelete: Cascade)
+  owner            User                    @relation("TradeConversationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  interestedUser   User                    @relation("TradeConversationInterested", fields: [interestedUserId], references: [id], onDelete: Cascade)
+  messages         TradeMessage[]
+  reports          TradeReport[]
+  reviews          TradeReview[]
+  notifications    TradeNotification[]
+  auditEntries     TradeAuditLog[]
+
+  @@unique([tradeId, interestedUserId])
+  @@index([ownerId, lastMessageAt])
+  @@index([interestedUserId, lastMessageAt])
+}
+
+model TradeMessage {
+  id             String                 @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime               @default(now())
+  conversation   TradeConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User                   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  revisions      TradeMessageRevision[]
+  reports        TradeReport[]
+  auditEntries   TradeAuditLog[]
+
+  @@index([conversationId, createdAt])
+}
+
+model TradeMessageRevision {
+  id              String       @id @default(cuid())
+  messageId       String
+  actorId         String
+  previousContent String
+  action          String
+  createdAt       DateTime     @default(now())
+  message         TradeMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  actor           User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, createdAt])
+}
+
+model TradeReport {
+  id             String             @id @default(cuid())
+  tradeId        String
+  conversationId String?
+  messageId      String?
+  reporterId     String
+  reportedUserId String?
+  reason         TradeReportReason
+  details        String?
+  evidence       Json
+  status         TradeReportStatus  @default(OPEN)
+  resolution     String?
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  trade          Trade              @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  conversation   TradeConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message        TradeMessage?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  reporter       User               @relation("TradeReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUser   User?              @relation("TradeReportReportedUser", fields: [reportedUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([tradeId, createdAt])
+  @@index([reporterId, createdAt])
+}
+
+model TradeReview {
+  id             String            @id @default(cuid())
+  tradeId        String
+  conversationId String
+  reviewerId     String
+  reviewedUserId String
+  rating         Int
+  comment        String?
+  createdAt      DateTime          @default(now())
+  trade          Trade             @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  conversation   TradeConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  reviewer       User              @relation("TradeReviewAuthor", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewedUser   User              @relation("TradeReviewTarget", fields: [reviewedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([tradeId, reviewerId, reviewedUserId])
+  @@index([reviewedUserId, createdAt])
+}
+
+model TradeNotification {
+  id             String                @id @default(cuid())
+  userId         String
+  actorId        String?
+  tradeId        String?
+  conversationId String?
+  type           TradeNotificationType
+  title          String
+  body           String
+  readAt         DateTime?
+  dmReservedAt   DateTime?
+  dmSentAt       DateTime?
+  createdAt      DateTime              @default(now())
+  user           User                  @relation("TradeNotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  actor          User?                 @relation("TradeNotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  trade          Trade?                @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  conversation   TradeConversation?    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model TradeAuditLog {
+  id             String             @id @default(cuid())
+  actorId        String
+  action         String
+  tradeId        String?
+  conversationId String?
+  messageId      String?
+  metadata       Json?
+  createdAt      DateTime           @default(now())
+  actor          User               @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  trade          Trade?             @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  conversation   TradeConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  message        TradeMessage?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([tradeId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([actorId, createdAt])
 }
 
 model UserGamePreference {
@@ -417,7 +671,7 @@ model UserGamePreference {
   lfgGameId            String
   interestStatus       GameInterestStatus @default(INTERESTED)
   notificationsEnabled Boolean            @default(true)
-  autoInvitesEnabled  Boolean            @default(true)
+  autoInvitesEnabled   Boolean            @default(true)
   mutedUntil           DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
@@ -643,21 +897,21 @@ model AuditLog {
 // Per-guild settings deliberately live in the existing PostgreSQL database.
 // Discord user IDs are strings; no client-controlled ownership is stored here.
 model SecuritySettings {
-  guildId                   String   @id
-  enabled                   Boolean  @default(true)
-  maxBansPerHour            Int      @default(2)
-  maxTimeoutsPerHour        Int      @default(2)
-  maxKicksPerHour           Int      @default(5)
-  maxRoleChangesPerHour     Int      @default(8)
-  maxChannelDeletesPerHour  Int      @default(3)
-  maxWebhookChangesPerHour  Int      @default(3)
-  ownerDmAlertsEnabled      Boolean  @default(true)
-  securityLogChannelId      String?
+  guildId                  String   @id
+  enabled                  Boolean  @default(true)
+  maxBansPerHour           Int      @default(2)
+  maxTimeoutsPerHour       Int      @default(2)
+  maxKicksPerHour          Int      @default(5)
+  maxRoleChangesPerHour    Int      @default(8)
+  maxChannelDeletesPerHour Int      @default(3)
+  maxWebhookChangesPerHour Int      @default(3)
+  ownerDmAlertsEnabled     Boolean  @default(true)
+  securityLogChannelId     String?
   // Selected people may run role/channel/webhook maintenance and timeouts.
   // Bans and kicks are deliberately never exempted.
-  operationalExemptUserIds  String[] @default([])
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  operationalExemptUserIds String[] @default([])
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   actions     SecurityAction[]
   suspensions AdminSuspension[]
@@ -665,18 +919,18 @@ model SecuritySettings {
 }
 
 model SecurityAction {
-  id          String             @id @default(cuid())
-  guildId     String
-  executorId  String?
-  targetId    String?
-  actionType  SecurityActionType
-  severity    SecuritySeverity   @default(INFO)
-  timestamp   DateTime           @default(now())
-  auditLogId  String?
-  reason      String?
-  metadata    Json?
-  createdAt   DateTime           @default(now())
-  settings    SecuritySettings   @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  id         String             @id @default(cuid())
+  guildId    String
+  executorId String?
+  targetId   String?
+  actionType SecurityActionType
+  severity   SecuritySeverity   @default(INFO)
+  timestamp  DateTime           @default(now())
+  auditLogId String?
+  reason     String?
+  metadata   Json?
+  createdAt  DateTime           @default(now())
+  settings   SecuritySettings   @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
 
   @@unique([guildId, auditLogId])
   @@index([guildId, executorId, actionType, timestamp])
@@ -684,18 +938,18 @@ model SecurityAction {
 }
 
 model AdminSuspension {
-  id              String                @id @default(cuid())
-  guildId         String
-  userId          String
-  reason          String
-  trigger         SecurityActionType
-  status          AdminSuspensionStatus @default(SUSPENDED)
-  actionCounts    Json?
-  suspendedAt     DateTime              @default(now())
-  restoredAt      DateTime?
-  restoredBy      String?
-  settings        SecuritySettings      @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
-  roleSnapshots   AdminRoleSnapshot[]
+  id            String                @id @default(cuid())
+  guildId       String
+  userId        String
+  reason        String
+  trigger       SecurityActionType
+  status        AdminSuspensionStatus @default(SUSPENDED)
+  actionCounts  Json?
+  suspendedAt   DateTime              @default(now())
+  restoredAt    DateTime?
+  restoredBy    String?
+  settings      SecuritySettings      @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  roleSnapshots AdminRoleSnapshot[]
 
   @@unique([guildId, userId])
   @@index([guildId, status, suspendedAt])
@@ -713,16 +967,16 @@ model AdminRoleSnapshot {
 }
 
 model SecurityAlert {
-  id           String           @id @default(cuid())
-  guildId      String
-  severity     SecuritySeverity
-  title        String
-  message      String
-  actionId     String?
-  suspensionId String?
+  id             String           @id @default(cuid())
+  guildId        String
+  severity       SecuritySeverity
+  title          String
+  message        String
+  actionId       String?
+  suspensionId   String?
   acknowledgedAt DateTime?
-  createdAt    DateTime         @default(now())
-  settings     SecuritySettings @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  createdAt      DateTime         @default(now())
+  settings       SecuritySettings @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
 
   @@index([guildId, severity, createdAt])
 }

@@ -111,7 +111,7 @@ function wrapEvent(event: ZarkEvent): DomainEventEnvelope {
     timestamp: new Date().toISOString(),
     guildId: process.env.DISCORD_GUILD_ID ?? "default",
     actorId: stringValue(value.userId ?? value.raterId ?? value.reporterId ?? value.actorId),
-    resourceId: stringValue(value.roomId ?? value.matchId ?? value.reportId ?? room?.id) ?? "global",
+    resourceId: stringValue(value.roomId ?? value.matchId ?? value.reportId ?? value.tradeId ?? room?.id) ?? "global",
     payload: event,
   };
 }

@@ -152,6 +152,16 @@ export type ZarkEvent =
   | { type: "report.message_created"; reportId: string; reportKind: "PLAYER" | "BUG"; authorId: string; recipientId?: string; authorRole: "USER" | "ADMIN" }
   | { type: "report.status_changed"; reportId: string; reportKind: "PLAYER" | "BUG"; adminId: string; status: string; reporterId?: string }
   | { type: "report.deleted"; reportId: string; reportKind: "PLAYER" | "BUG"; adminId: string }
+  | { type: "trade.created"; tradeId: string; publicId: number; ownerId: string }
+  | { type: "trade.updated"; tradeId: string; publicId: number; status: string }
+  | { type: "trade.status_changed"; tradeId: string; publicId: number; status: string; ownerId: string }
+  | { type: "trade.interest_created"; tradeId: string; publicId: number; ownerId: string; userId: string }
+  | { type: "trade.interest_decided"; tradeId: string; publicId: number; userId: string; decision: string; conversationId?: string }
+  | { type: "trade.message_created"; tradeId: string; conversationId: string; messageId: string; senderId: string; recipientId: string }
+  | { type: "trade.message_updated"; tradeId: string; conversationId: string; messageId: string; action: string }
+  | { type: "trade.review_created"; tradeId: string; publicId: number; reviewerId: string; reviewedUserId: string }
+  | { type: "trade.report_created"; tradeId: string; publicId: number; reportId: string; reporterId: string }
+  | { type: "trade.report_updated"; tradeId: string; publicId: number; reportId: string; status: string }
   | { type: "guild.settings_updated"; adminId: string; settings: GuildRuntimeSettings };
 
 export type DomainEventEnvelope = {

@@ -39,16 +39,18 @@ async function boot() {
 }
 
 function renderShell() {
-  const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games','/games.html','الألعاب'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','ملفي'],['reports','/reports.html','الدعم']];
+  const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['trade','/trade.html','Trade'],['games','/games.html','الألعاب'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','ملفي'],['reports','/reports.html','الدعم']];
   if (me?.isAdmin) links.push(['admin','/admin.html','الإدارة']);
   if (me?.isOwner) links.push(['security','/security.html','الحماية']);
   $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark LFG System"><span>ZARK LFG SYSTEM<small>PLAY. CONNECT. COMPETE.</small></span></a><div class="nav-links" id="nav-links">${links.map(([key,href,label]) => `<a data-tour-id="${key==='lfg'?'lfg-button':key==='profile'?'profile-link':''}" class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user">${me ? `<a href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:''}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="القائمة">☰</button></div></nav>`;
   $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div></div></div>`;
   $('nav-links').insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
   $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
+  document.body.insertAdjacentHTML('beforeend','<button id="tutorial-help-fab" class="tutorial-help-fab" type="button" aria-label="فتح مركز الشرح">؟<span>الشرح</span></button>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a>');
   $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
   $('open-onboarding').onclick = () => renderProductTour(true);
+  $('tutorial-help-fab').onclick = () => renderProductTour(true);
   if(me&&!$('zark-ai-widget')){
     document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد Zark"><img src="/assets/zark-bot-avatar.png" alt=""><span>اسأل Zark</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/zark-bot-avatar.png" alt=""><div><b>مساعد Zark</b><small id="floating-ai-status">دعم ذكي</small></div><button id="floating-ai-clear" type="button" title="حذف المحادثة">🗑️</button><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
     bindFloatingSupport().catch(console.error);
@@ -84,81 +86,46 @@ function renderOnboarding(force=false) {
   paint();document.body.appendChild(modal);
 }
 
-const productTourKey='zark-product-tour-v2';
-const productTourSteps=[
-  {id:'lfg',route:'/',target:'[data-tour-id="lfg-button"]',title:'ابدأ من LFG',text:'من هنا تبدأ البحث عن لاعبين أو إنشاء تجمع جديد.'},
-  {id:'game',route:'/lfg.html',target:'[data-tour-id="game-selector"]',title:'اختر اللعبة',text:'اختر اللعبة التي تريد أن تجد لاعبين لها.'},
-  {id:'players',route:'/lfg.html',target:'[data-tour-id="players-count"]',title:'حدد عدد اللاعبين',text:'اختر عدد اللاعبين المطلوب للتجمع.'},
-  {id:'settings',route:'/lfg.html',target:'#create-room-form',title:'إعدادات المجموعة',text:'هنا تستطيع تفعيل Voice وإضافة خيارات اللعب الاختيارية.'},
-  {id:'when',route:'/lfg.html',target:'[data-tour-id="play-when"]',title:'الآن أو لاحقًا',text:'اختر «الآن» للبدء فورًا، أو «لاحقًا» لتحديد موعد التجمع.'},
-  {id:'schedule',route:'/lfg.html',target:'[data-tour-id="schedule-time"]',title:'حدد الموعد',text:'عند اختيار «لاحقًا» حدد الساعة والفترة، وسيعرض Zark أقرب موعد مناسب.'},
-  {id:'categories',route:'/lfg.html',target:'[data-tour-id="categories"]',title:'تصنيفات الغرف',text:'استخدم التصنيفات لتصل بسرعة لنوع الغرف الذي تحبه.'},
-  {id:'game-card',route:'/lfg.html',target:'#interest-games .interest-card',title:'الألعاب المتاحة',text:'كل بطاقة لعبة تأتي من بيانات الموقع الحالية؛ اختر «مهتم» لتظهر لك الدعوات المناسبة.'},
-  {id:'profile',route:'/profile.html',target:'[data-tour-id="profile-link"]',title:'ملفك الشخصي',text:'من ملفك تستطيع مشاهدة نشاطك وإحصاءاتك وتعديل الخصوصية.'},
-  {id:'interests',route:'/lfg.html',target:'[data-tour-id="interests"]',title:'الاهتمامات',text:'اختر الألعاب التي تهمك حتى يقترح النظام تجمعات مناسبة لك.'},
-  {id:'notifications',route:'/lfg.html',target:'#interest-games [data-notify]',title:'تحكم بالتنبيهات',text:'فعّل أو أوقف تنبيهات كل لعبة بشكل منفصل، ويمكنك استخدام الغفوة عند الانشغال.'},
-];
-
-function readProductTour(){try{return JSON.parse(localStorage.getItem(productTourKey)||'null')}catch{return null}}
-function writeProductTour(value){localStorage.setItem(productTourKey,JSON.stringify(value));}
-function renderProductTour(restart=false){
-  if(restart){localStorage.removeItem(productTourKey);}
-  const saved=readProductTour();
-  if(saved?.status==='completed'||saved?.status==='skipped'||saved?.status==='later')return;
-  if(!saved||saved.status==='prompt')return renderTourInvite();
-  return renderTourStep(Math.max(0,Number(saved.step)||0));
+const productTourKey='zark-tutorial-center-v3';
+const tourSections={
+  basics:{icon:'✨',title:'الأساسيات',route:'/',steps:[{id:'brand',target:'.brand',title:'مرحبًا في Zark',text:'الشعار يعيدك دائمًا إلى الصفحة الرئيسية.'},{id:'navigation',target:'#nav-links',title:'التنقل الرئيسي',text:'من هذه القائمة تصل إلى LFG وTrade والألعاب وملفك والدعم.'}]},
+  lfg:{icon:'🎮',title:'إنشاء غرفة LFG',route:'/lfg.html',steps:[{id:'game',target:'[data-tour-id="game-selector"]',title:'اختر اللعبة',text:'اختر اللعبة من الكتالوج الحقيقي.'},{id:'players',target:'[data-tour-id="players-count"]',title:'عدد اللاعبين',text:'حدد العدد المطلوب للتجمع.'},{id:'when',target:'[data-tour-id="play-when"]',title:'الآن أو لاحقًا',text:'الآن لا يطلب رقمًا. لاحقًا يفتح الساعة وAM صباحًا أو PM مساءً.'},{id:'create',target:'#create-room-form button[type="submit"]',title:'أنشئ التجمع',text:'بعد المراجعة اضغط هنا، وسيتولى Zark إنشاء التجمع وربطه بـDiscord.'}]},
+  categories:{icon:'🗂️',title:'التصنيفات والغرف',route:'/lfg.html',steps:[{id:'categories',target:'[data-tour-id="categories"]',title:'فلترة التصنيفات',text:'هذه أزرار التصنيفات الفعلية، وتعرض الغرف المطابقة فقط.'},{id:'rooms',target:'#rooms',title:'بطاقات الغرف',text:'من البطاقة تدخل أو تخرج أو تفتح Voice، وصاحب الغرفة يرى أدوات الإدارة.'}]},
+  interests:{icon:'❤️',title:'الاهتمامات والتنبيهات',route:'/lfg.html',steps:[{id:'interests',target:'[data-tour-id="interests"]',title:'اختر اهتماماتك مرة واحدة',text:'فعّل الألعاب التي تهمك ليقترح Zark تجمعات مناسبة.'},{id:'notifications',target:'#interest-games .interest-card',title:'التنبيهات والغفوة',text:'لكل لعبة تستطيع تشغيل التنبيه، إيقافه، أو عمل غفوة بدون تغيير اهتمامك.'}]},
+  profile:{icon:'👤',title:'الملف ووقت الفراغ',route:'/profile.html',steps:[{id:'profile',target:'#profile-head',title:'ملفك الشخصي',text:'يعرض الحالة والتقييم والفوز وXP ونشاط LFG.'},{id:'availability',target:'#availability-form',title:'وقت فراغك',text:'اختر حالتك بسرعة أو حدد ساعات أسبوعية حتى تتحسن اقتراحات الغرف.'}]},
+  trade:{icon:'🔄',title:'Zark Player Trading',route:'/trade.html',steps:[{id:'trade-overview',target:'[data-tour-id="trade-overview"]',title:'سوق Trade',text:'كل صفقة لها رقم واضح، حالة، وصاحب موثّق بحساب Discord.'},{id:'trade-search',target:'[data-tour-id="trade-search"]',title:'ابحث وصفِّ النتائج',text:'ابحث بالغرض أو اللعبة ورتب حسب الأحدث أو النشاط.'},{id:'trade-create',target:'[data-tour-tab="create"]',title:'أنشئ عرضًا',text:'ارفع صورة من جهازك وحدد I HAVE وI WANT. المحادثة تفتح فقط بعد قبول المهتم.'}]},
+  others:{icon:'🧭',title:'الألعاب والدعم',route:'/games.html',steps:[{id:'games',target:'.page-hero',title:'ألعاب Zark',text:'هنا تجد ألعاب البوت واختصاراتها؛ وقت الإجابة يختاره اللاعب من 10 إلى 60 ثانية.'},{id:'commands',target:'.command-strip',title:'اختصارات سريعة',text:'استخدم /play أو الاختصارات العربية الظاهرة لتبدأ بسرعة.'}]},
+};
+function readProductTour(){try{return JSON.parse(localStorage.getItem(productTourKey)||'{}')}catch{return {}}}
+function writeProductTour(value){localStorage.setItem(productTourKey,JSON.stringify({...readProductTour(),...value}));}
+function renderProductTour(openCenter=false){const saved=readProductTour();if(openCenter)return renderTourCenter();if(saved.status==='active'&&saved.section)return renderTourStep(saved.section,Number(saved.step)||0);if(!saved.dismissed)renderTourCenter(true);}
+function renderTourCenter(firstVisit=false){
+  cleanupTour();const saved=readProductTour(),completed=saved.completedSections||{};const currentSection=Object.entries(tourSections).find(([,section])=>section.route===location.pathname)?.[0];
+  const modal=document.createElement('section');modal.id='zark-product-tour';modal.className='tour-invite tutorial-center';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');
+  modal.innerHTML=`<article><button class="onboarding-skip" data-tour-close type="button">إغلاق ×</button><span>📚</span><h2>مركز شرح Zark</h2><p>اختر القسم الذي تحتاجه. كل جولة تبقى داخل قسمها وتحفظ تقدمك تلقائيًا.</p><div class="tutorial-section-grid">${Object.entries(tourSections).map(([key,section])=>`<button type="button" data-tour-section="${key}"><i>${section.icon}</i><b>${section.title}</b><small>${completed[key]?'✅ مكتمل':`${section.steps.length} خطوات`}</small></button>`).join('')}</div><div class="tutorial-center-actions">${currentSection?`<button class="button primary" data-explain-page>اشرح هذه الصفحة</button>`:''}<button class="button ghost" data-tour-dismiss>${firstVisit?'لاحقًا':'إغلاق'}</button></div></article>`;
+  modal.querySelectorAll('[data-tour-section]').forEach(button=>button.onclick=()=>startTourSection(button.dataset.tourSection));modal.querySelector('[data-explain-page]')?.addEventListener('click',()=>startTourSection(currentSection));modal.querySelector('[data-tour-close]').onclick=()=>modal.remove();modal.querySelector('[data-tour-dismiss]').onclick=()=>{writeProductTour({dismissed:true,status:'idle'});modal.remove();};document.body.appendChild(modal);
 }
-
-function renderTourInvite(){
-  document.getElementById('zark-product-tour')?.remove();
-  const invite=document.createElement('section');invite.id='zark-product-tour';invite.className='tour-invite';invite.setAttribute('role','dialog');invite.setAttribute('aria-modal','true');
-  invite.innerHTML='<article><span>✨</span><h2>هل تريد جولة سريعة؟</h2><p>سنرشدك على عناصر الموقع الحقيقية خطوة بخطوة، ويمكنك إيقافها في أي وقت.</p><div><button class="button ghost" data-tour-later>لاحقًا</button><button class="button ghost" data-tour-skip>تخطي</button><button class="button primary" data-tour-start>ابدأ الجولة</button></div></article>';
-  invite.querySelector('[data-tour-start]').onclick=()=>{writeProductTour({status:'active',step:0});invite.remove();console.info('tutorial_started');renderTourStep(0);};
-  invite.querySelector('[data-tour-later]').onclick=()=>{writeProductTour({status:'later'});invite.remove();};
-  invite.querySelector('[data-tour-skip]').onclick=()=>{writeProductTour({status:'skipped'});invite.remove();console.info('tutorial_skipped');};
-  document.body.appendChild(invite);
+function startTourSection(sectionKey){const section=tourSections[sectionKey];if(!section)return;writeProductTour({status:'active',section:sectionKey,step:0,dismissed:true});cleanupTour();if(location.pathname!==section.route){location.href=section.route;return;}renderTourStep(sectionKey,0);}
+async function renderTourStep(sectionKey,index){
+  const section=tourSections[sectionKey],step=section?.steps[index];if(!section||!step)return finishTourSection(sectionKey);
+  if(location.pathname!==section.route){writeProductTour({status:'active',section:sectionKey,step:index});location.href=section.route;return;}
+  if(sectionKey==='trade'&&step.id==='trade-create')showTradeTab('create');
+  cleanupTour();const target=await waitForTourTarget(step.target);if(!target){console.warn('tutorial_target_missing',step.id,step.target);return nextTourStep(sectionKey,index);}
+  if(window.innerWidth<=950&&target.closest('#nav-links'))$('nav-links')?.classList.add('open');target.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});await waitForStableTarget(target);paintTourSpotlight(sectionKey,index,target);
 }
-
-function renderTourStep(index){
-  const step=productTourSteps[index];
-  if(!step){writeProductTour({status:'completed'});return renderTourComplete();}
-  if(location.pathname!==step.route){writeProductTour({status:'active',step:index});location.href=step.route;return;}
-  document.getElementById('zark-product-tour')?.remove();
-  const target=document.querySelector(step.target);
-  if(window.innerWidth<=950&&target?.closest('#nav-links'))$('nav-links')?.classList.add('open');
-  if(!target||target.getClientRects().length===0){console.warn('tutorial_target_missing',step.id,step.target);return nextTourStep(index);}
-  target.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
-  setTimeout(()=>paintTourSpotlight(index,target),matchMedia('(prefers-reduced-motion: reduce)').matches?0:180);
+function paintTourSpotlight(sectionKey,index,target){
+  cleanupTour();const section=tourSections[sectionKey],step=section.steps[index];target.closest('.site-nav')?.setAttribute('data-tour-nav','true');target.setAttribute('data-tour-active','true');const rect=target.getBoundingClientRect(),padding=9;
+  const overlay=document.createElement('section');overlay.id='zark-product-tour';overlay.className='product-tour-layer';overlay.innerHTML=`<div class="tour-spotlight" style="top:${Math.max(6,rect.top-padding)}px;left:${Math.max(6,rect.left-padding)}px;width:${rect.width+padding*2}px;height:${rect.height+padding*2}px"></div><aside class="tour-tooltip"><span class="tour-arrow">➜</span><small>${section.title} · ${index+1}/${section.steps.length}</small><h2>${step.title}</h2><p>${step.text}</p><div><button class="button ghost small" data-tour-back ${index===0?'disabled':''}>السابق</button><button class="button ghost small" data-tour-center>الأقسام</button><button class="button primary small" data-tour-next>${index===section.steps.length-1?'إنهاء القسم':'التالي'}</button></div></aside>`;
+  const tooltip=overlay.querySelector('.tour-tooltip'),tooltipWidth=Math.min(360,window.innerWidth-24),left=Math.max(12,Math.min(window.innerWidth-tooltipWidth-12,rect.right-tooltipWidth)),top=rect.bottom+248<window.innerHeight?rect.bottom+18:Math.max(12,rect.top-225);tooltip.style.cssText=`width:${tooltipWidth}px;left:${left}px;top:${top}px`;
+  overlay.querySelector('[data-tour-back]').onclick=()=>renderTourStep(sectionKey,index-1);overlay.querySelector('[data-tour-center]').onclick=renderTourCenter;overlay.querySelector('[data-tour-next]').onclick=()=>nextTourStep(sectionKey,index);window.addEventListener('keydown',tourEscape,{once:true});document.body.appendChild(overlay);console.info('tutorial_step_viewed',sectionKey,step.id);
 }
-
-function paintTourSpotlight(index,target){
-  document.getElementById('zark-product-tour')?.remove();
-  document.querySelectorAll('[data-tour-active]').forEach(node=>node.removeAttribute('data-tour-active'));
-  target.closest('.site-nav')?.setAttribute('data-tour-nav','true');
-  target.setAttribute('data-tour-active','true');
-  const step=productTourSteps[index],rect=target.getBoundingClientRect(),padding=9;
-  const overlay=document.createElement('section');overlay.id='zark-product-tour';overlay.className='product-tour-layer';overlay.innerHTML=`<div class="tour-spotlight" style="top:${Math.max(6,rect.top-padding)}px;left:${Math.max(6,rect.left-padding)}px;width:${rect.width+padding*2}px;height:${rect.height+padding*2}px"></div><aside class="tour-tooltip"><span class="tour-arrow">➜</span><small>${index+1} / ${productTourSteps.length}</small><h2>${step.title}</h2><p>${step.text}</p><div><button class="button ghost small" data-tour-back ${index===0?'disabled':''}>السابق</button><button class="button ghost small" data-tour-skip>تخطي</button><button class="button primary small" data-tour-next>${index===productTourSteps.length-1?'إنهاء':'التالي'}</button></div></aside>`;
-  const tooltip=overlay.querySelector('.tour-tooltip');
-  const tooltipWidth=Math.min(360,window.innerWidth-24),left=Math.max(12,Math.min(window.innerWidth-tooltipWidth-12,rect.right-tooltipWidth));
-  const top=rect.bottom+18+230<window.innerHeight?rect.bottom+18:Math.max(12,rect.top-215);
-  tooltip.style.cssText=`width:${tooltipWidth}px;left:${left}px;top:${top}px`;
-  overlay.querySelector('[data-tour-back]').onclick=()=>renderTourStep(index-1);
-  overlay.querySelector('[data-tour-skip]').onclick=()=>{writeProductTour({status:'skipped'});cleanupTour();console.info('tutorial_skipped');};
-  overlay.querySelector('[data-tour-next]').onclick=()=>nextTourStep(index);
-  if(step.id==='lfg')target.addEventListener('click',()=>writeProductTour({status:'active',step:index+1}),{once:true});
-  window.addEventListener('keydown',tourEscape,{once:true});document.body.appendChild(overlay);console.info('tutorial_step_viewed',step.id);
-}
-
-function nextTourStep(index){
-  cleanupTour();let next=index+1;
-  if(productTourSteps[index]?.id==='when'&&$('room-when')?.value!=='later')next+=1;
-  writeProductTour({status:'active',step:next});renderTourStep(next);
-}
+function nextTourStep(sectionKey,index){cleanupTour();const next=index+1;writeProductTour({status:'active',section:sectionKey,step:next});renderTourStep(sectionKey,next);}
+function finishTourSection(sectionKey){const saved=readProductTour(),completed={...(saved.completedSections||{}),[sectionKey]:true};writeProductTour({status:'idle',section:null,step:0,completedSections:completed});cleanupTour();renderTourComplete(sectionKey);}
+function waitForTourTarget(selector){return new Promise(resolve=>{let frames=0;const inspect=()=>{const node=document.querySelector(selector);if(node&&node.getClientRects().length)return resolve(node);if(++frames>300)return resolve(null);requestAnimationFrame(inspect);};inspect();});}
+function waitForStableTarget(target){return new Promise(resolve=>{let previous='',stable=0,frames=0;const inspect=()=>{const rect=target.getBoundingClientRect(),current=`${Math.round(rect.top)}:${Math.round(rect.left)}:${Math.round(rect.width)}:${Math.round(rect.height)}`;stable=current===previous?stable+1:0;previous=current;if(stable>=3||++frames>120)return resolve();requestAnimationFrame(inspect);};inspect();});}
 function cleanupTour(){document.getElementById('zark-product-tour')?.remove();document.querySelectorAll('[data-tour-active]').forEach(node=>node.removeAttribute('data-tour-active'));document.querySelectorAll('[data-tour-nav]').forEach(node=>node.removeAttribute('data-tour-nav'));}
-function tourEscape(event){if(event.key==='Escape'){writeProductTour({status:'skipped'});cleanupTour();console.info('tutorial_skipped');}}
-function renderTourComplete(){
-  cleanupTour();const done=document.createElement('section');done.id='zark-product-tour';done.className='tour-invite';done.innerHTML='<article><span>🎉</span><h2>جاهز!</h2><p>الآن تستطيع استخدام Zark LFG بثقة.</p><div><a class="button primary" href="/lfg.html">ابدأ الآن</a></div></article>';document.body.appendChild(done);console.info('tutorial_completed');
-}
+function tourEscape(event){if(event.key==='Escape'){writeProductTour({status:'idle'});cleanupTour();}}
+function renderTourComplete(sectionKey){cleanupTour();const done=document.createElement('section');done.id='zark-product-tour';done.className='tour-invite';done.innerHTML=`<article><span>🎉</span><h2>اكتمل قسم ${escapeHtml(tourSections[sectionKey]?.title||'الشرح')}</h2><p>تم حفظ تقدمك. تستطيع فتح أي قسم آخر من مركز الشرح.</p><div><button class="button ghost" data-tour-close>إغلاق</button><button class="button primary" data-tour-center>عرض الأقسام</button></div></article>`;done.querySelector('[data-tour-close]').onclick=()=>done.remove();done.querySelector('[data-tour-center]').onclick=renderTourCenter;document.body.appendChild(done);}
 
 async function renderPage(realtime = false) {
   if (page === 'home') renderHome();
@@ -167,6 +134,7 @@ async function renderPage(realtime = false) {
   if (page === 'profile') await renderProfile();
   if (page === 'leaderboard') await renderLeaderboard('game');
   if (page === 'reports') await renderReports();
+  if (page === 'trade') await renderTrade(realtime);
   if (page === 'admin' && !realtime) await bindAdmin();
   if (page === 'security' && !realtime) await bindSecurity();
 }
@@ -397,6 +365,7 @@ async function bindAdmin(){
     bindAdminTabs();
     await loadAdminZarkContent();
     await loadAdminReports();
+    await loadAdminTradeModeration();
     const query=new URLSearchParams(location.search),kind=query.get('reportKind'),id=query.get('reportId');
     if((kind==='PLAYER'||kind==='BUG')&&id){showAdminTab('reports');await openAdminReport(kind,id).catch(()=>undefined);}
   }catch(error){gate.innerHTML=`<span>⛔</span><h1>تعذر فتح اللوحة</h1><p>${escapeHtml(error.message)}</p>`;return;}
@@ -418,6 +387,21 @@ async function bindAdmin(){
   $('admin-question-form').onsubmit=saveAdminQuestion;
   $('admin-question-cancel').onclick=resetAdminQuestionForm;
 }
+
+async function loadAdminTradeModeration(){
+  try{
+    const data=await api('/api/web-admin/trade');const counts=Object.fromEntries(data.byStatus.map(item=>[item.status,item._count._all]));
+    $('admin-trade-stats').innerHTML=statCards([[counts.OPEN||0,'عرض مفتوح'],[counts.PENDING||0,'قيد التفاوض'],[counts.COMPLETED||0,'مكتمل'],[counts.DISPUTED||0,'نزاع'],[data.openReports.length,'بلاغ مفتوح']]);
+    $('admin-trade-reports').innerHTML=data.openReports.length?data.openReports.map(report=>`<article class="admin-room"><div><b>${escapeHtml(report.trade.code)} · ${escapeHtml(report.trade.itemName)}</b><small>${escapeHtml(report.reason)} · المبلّغ: ${escapeHtml(report.reporter.displayName)}</small><small>${escapeHtml(report.details||'بدون تفاصيل')}</small><details class="trade-evidence"><summary>عرض لقطة الأدلة المحفوظة</summary><pre>${escapeHtml(JSON.stringify(report.evidence,null,2))}</pre></details></div><div class="room-manager-actions"><button class="button ghost small" data-trade-report-review="${report.id}">قيد المراجعة</button><button class="button ghost small" data-trade-report-warn="${report.id}">تحذير</button><button class="button ghost small" data-trade-report-close="${report.id}">إغلاق العرض</button><button class="button ghost small" data-trade-report-dismiss="${report.id}">رفض البلاغ</button><button class="button danger small" data-trade-report-remove="${report.id}">حذف العرض</button></div></article>`).join(''):empty('لا توجد بلاغات Trade مفتوحة.');
+    $('admin-trade-audit').innerHTML=data.recentAudit.length?data.recentAudit.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.action)}</b><small>${escapeHtml(item.actor.displayName)} · ${new Date(item.createdAt).toLocaleString('ar')}</small></div><span class="trade-code">${escapeHtml(item.tradeId||'-')}</span></article>`).join(''):empty('لا توجد إجراءات مسجلة بعد.');
+    document.querySelectorAll('[data-trade-report-review]').forEach(button=>button.onclick=()=>adminTradeReportAction(button.dataset.tradeReportReview,{status:'REVIEWING',tradeAction:'NONE'}));
+    document.querySelectorAll('[data-trade-report-dismiss]').forEach(button=>button.onclick=()=>adminTradeReportAction(button.dataset.tradeReportDismiss,{status:'DISMISSED',tradeAction:'NONE',resolution:'تمت المراجعة ولم يثبت المخالفة.'}));
+    document.querySelectorAll('[data-trade-report-warn]').forEach(button=>button.onclick=()=>adminTradeReportAction(button.dataset.tradeReportWarn,{status:'ACTIONED',tradeAction:'NONE',resolution:'تحذير إداري: التزم بقواعد الأمان والسلوك في Trade.'}));
+    document.querySelectorAll('[data-trade-report-close]').forEach(button=>button.onclick=async()=>{if(confirm('إغلاق العرض مع إبقاء السجل والأدلة؟'))await adminTradeReportAction(button.dataset.tradeReportClose,{status:'ACTIONED',tradeAction:'CLOSE',resolution:'تم إغلاق العرض إداريًا.'});});
+    document.querySelectorAll('[data-trade-report-remove]').forEach(button=>button.onclick=async()=>{if(confirm('حذف العرض وإغلاق البلاغ مع حفظ الأدلة؟'))await adminTradeReportAction(button.dataset.tradeReportRemove,{status:'ACTIONED',tradeAction:'REMOVE',resolution:'تم حذف العرض بعد المراجعة.'});});
+  }catch(error){const tab=document.querySelector('[data-admin-tab="trade"]');if(tab)tab.title=error.message;if($('admin-trade-reports'))$('admin-trade-reports').innerHTML=empty(`قسم Trade غير متاح لهذا الحساب: ${error.message}`);}
+}
+async function adminTradeReportAction(id,body){try{await api(`/api/web-admin/trade/reports/${id}`,{method:'PATCH',body});await loadAdminTradeModeration();}catch(error){alert(error.message);}}
 
 function bindAdminTabs(){
   document.querySelectorAll('[data-admin-tab]').forEach(button=>button.onclick=()=>showAdminTab(button.dataset.adminTab));
@@ -548,6 +532,83 @@ function countdown(date){const minutes=Math.max(0,Math.ceil((new Date(date).getT
 function countdownTo(date){const minutes=Math.ceil((new Date(date).getTime()-Date.now())/60000);if(minutes<=0)return'الآن';if(minutes<60)return`بعد ${minutes}د`;const hours=Math.floor(minutes/60),rest=minutes%60;return`بعد ${hours}س${rest?` ${rest}د`:''}`}
 function timeAgo(date){const minutes=Math.max(1,Math.floor((Date.now()-new Date(date).getTime())/60000));return minutes<60?`منذ ${minutes}د`:`منذ ${Math.floor(minutes/60)}س`}
 function avatar(url,name,size='mini'){const cls=`discord-avatar ${size}`;return url?`<img class="${cls}" src="${escapeHtml(url)}" alt="${escapeHtml(name||'Discord')}">`:`<span class="${cls} avatar-fallback">${escapeHtml(String(name||'Z').slice(0,1).toUpperCase())}</span>`}
+let tradeImageData='';
+async function renderTrade(realtime=false){
+  if(!realtime){
+    const games=state.lfgGames||[];
+    $('trade-game').innerHTML=games.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||'🎮')} ${escapeHtml(game.name)}</option>`).join('');
+    $('trade-game-filter').insertAdjacentHTML('beforeend',games.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.name)}</option>`).join(''));
+    document.querySelectorAll('[data-trade-tab]').forEach(button=>button.onclick=()=>showTradeTab(button.dataset.tradeTab));
+    $('trade-search-button').onclick=loadTradeMarket;$('trade-search').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();loadTradeMarket();}};
+    $('trade-image').onchange=async()=>{const file=$('trade-image').files[0];if(!file)return;try{tradeImageData=await imageFileToDataUrlStrict(file);$('trade-image-preview').src=tradeImageData;$('trade-image-preview').hidden=false;}catch(error){tradeImageData='';$('trade-image').value='';alert(error.message);}};
+    $('trade-create-form').onsubmit=createTradeFromWeb;
+  }
+  await Promise.all([loadTradeMarket(),loadTradeInbox(),loadTradeNotifications()]);
+  if(me)await loadMyTrades();
+  const pathMatch=location.pathname.match(/^\/trade\/([^/]+)$/);const queryId=new URLSearchParams(location.search).get('id');const identifier=pathMatch?.[1]||queryId;if(identifier)await openTrade(identifier);
+}
+
+function showTradeTab(tab){
+  if(!me&&tab!=='market'){location.href='/auth/discord';return;}
+  document.querySelectorAll('[data-trade-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tradeTab===tab));
+  document.querySelectorAll('[data-trade-panel]').forEach(panel=>panel.hidden=panel.dataset.tradePanel!==tab);
+  $('trade-detail').hidden=true;
+  if(tab==='notifications')loadTradeNotifications(true).catch(console.error);
+}
+
+async function loadTradeMarket(){
+  const params=new URLSearchParams();const search=$('trade-search')?.value.trim(),game=$('trade-game-filter')?.value,sort=$('trade-sort')?.value;if(search)params.set('search',search);if(game)params.set('game',game);if(sort)params.set('sort',sort);
+  const trades=await api(`/api/trades?${params}`);$('trade-list').innerHTML=trades.length?trades.map(tradeCard).join(''):empty('لا توجد عروض مطابقة الآن. أنشئ أول عرض.');bindTradeCards();
+}
+
+async function loadMyTrades(){if(!me)return;$('my-trade-list').innerHTML=(await api('/api/me/trades')).map(tradeCard).join('')||empty('لم تنشر أي عرض بعد.');bindTradeCards();}
+function tradeCard(trade){return `<article class="trade-card"><button class="trade-image-button" type="button" data-open-trade="${trade.code}"><img src="${escapeHtml(trade.imageData)}" alt="${escapeHtml(trade.itemName)}"></button><div class="trade-card-copy"><header><span class="trade-code">${escapeHtml(trade.code)}</span><span class="trade-status status-${trade.status.toLowerCase()}">${tradeStatusLabel(trade.status)}</span></header><h3>${escapeHtml(trade.itemName)}</h3><small>${escapeHtml(trade.game.icon||'🎮')} ${escapeHtml(trade.game.name)} · ${escapeHtml(trade.owner.displayName)}</small><div class="trade-exchange"><p><b>I HAVE</b>${escapeHtml(trade.haveText)}</p><span>⇄</span><p><b>I WANT</b>${escapeHtml(trade.wantText)}</p></div><footer><span>👥 ${trade._count?.interests||0} مهتم</span><button class="button primary small" type="button" data-open-trade="${trade.code}">التفاصيل</button></footer></div></article>`}
+function bindTradeCards(){document.querySelectorAll('[data-open-trade]').forEach(button=>button.onclick=()=>openTrade(button.dataset.openTrade));}
+
+async function createTradeFromWeb(event){event.preventDefault();if(!me){location.href='/auth/discord';return;}const result=$('trade-create-result');const submit=event.submitter;submit.disabled=true;result.textContent='جارِ رفع العرض...';try{if(!tradeImageData)throw new Error('اختر صورة الغرض من جهازك.');const trade=await api('/api/me/trades',{method:'POST',body:{gameSlug:$('trade-game').value,itemName:$('trade-item').value,imageData:tradeImageData,haveText:$('trade-have').value,wantText:$('trade-want').value,description:$('trade-description').value||undefined,acceptedTerms:$('trade-terms').checked}});result.textContent=`✅ تم نشر ${trade.code} وإرسال تنبيه Discord.`;$('trade-create-form').reset();tradeImageData='';$('trade-image-preview').hidden=true;await loadTradeMarket();await loadMyTrades();setTimeout(()=>openTrade(trade.code),400);}catch(error){result.textContent=`❌ ${error.message}`;}finally{submit.disabled=false;}}
+
+async function openTrade(identifier){
+  const trade=await api(`/api/trades/${encodeURIComponent(identifier)}`);const detail=$('trade-detail');document.querySelectorAll('[data-trade-panel]').forEach(panel=>panel.hidden=true);detail.hidden=false;
+  const ownerActions=trade.isOwner&&['OPEN','PENDING'].includes(trade.status)?`<button class="button ghost small" data-trade-edit="${trade.code}">تعديل العرض</button><button class="button danger small" data-trade-close="${trade.code}">إغلاق العرض</button>`:'';
+  const interestAction=!trade.isOwner&&trade.status==='OPEN'?`<button class="button primary" data-trade-interest="${trade.code}">أنا مهتم</button>`:'';
+  const interests=trade.isOwner&&trade.interests?.length?`<section class="trade-interest-list"><h3>طلبات الاهتمام</h3>${trade.interests.map(item=>`<article>${avatar(item.user.avatarUrl,item.user.displayName,'mini')}<b>${escapeHtml(item.user.displayName)}</b><span>${tradeInterestLabel(item.status)}</span>${item.status==='PENDING'?`<button class="button primary small" data-interest-decision="${item.id}" data-decision="ACCEPTED">قبول وفتح محادثة</button><button class="button ghost small" data-interest-decision="${item.id}" data-decision="DECLINED">رفض</button>`:item.conversation?`<button class="button ghost small" data-open-conversation="${item.conversation.id}">فتح المحادثة</button>`:''}</article>`).join('')}</section>`:'';
+  detail.innerHTML=`<button class="icon-button trade-detail-close" type="button" aria-label="إغلاق">×</button><div class="trade-detail-grid"><img src="${escapeHtml(trade.imageData)}" alt="${escapeHtml(trade.itemName)}"><div><span class="trade-code">${escapeHtml(trade.code)}</span><span class="trade-status status-${trade.status.toLowerCase()}">${tradeStatusLabel(trade.status)}</span><h2>${escapeHtml(trade.itemName)}</h2><p class="host-meta">${avatar(trade.owner.avatarUrl,trade.owner.displayName,'host')} ${escapeHtml(trade.owner.displayName)} · ${escapeHtml(trade.game.icon||'🎮')} ${escapeHtml(trade.game.name)}</p><div class="trade-exchange large"><p><b>I HAVE</b>${escapeHtml(trade.haveText)}</p><span>⇄</span><p><b>I WANT</b>${escapeHtml(trade.wantText)}</p></div>${trade.description?`<p class="trade-description">${escapeHtml(trade.description)}</p>`:''}<div class="room-manager-actions">${interestAction}${ownerActions}<button class="button ghost small" data-trade-report="${trade.code}">⚑ بلاغ</button></div></div></div>${interests}`;
+  detail.scrollIntoView({behavior:'smooth',block:'start'});detail.querySelector('.trade-detail-close').onclick=()=>{detail.hidden=true;document.querySelector('[data-trade-panel="market"]').hidden=false;};
+  detail.querySelector('[data-trade-interest]')?.addEventListener('click',async event=>{await tradeButtonAction(event.currentTarget,`/api/me/trades/${trade.code}/interest`,{},()=>openTrade(trade.code));});
+  detail.querySelector('[data-trade-close]')?.addEventListener('click',async event=>{if(confirm('إغلاق العرض؟'))await tradeButtonAction(event.currentTarget,`/api/me/trades/${trade.code}/close`,{},()=>openTrade(trade.code));});
+  detail.querySelector('[data-trade-edit]')?.addEventListener('click',()=>editTradeFromWeb(trade));
+  detail.querySelectorAll('[data-interest-decision]').forEach(button=>button.onclick=()=>tradeButtonAction(button,`/api/me/trade-interests/${button.dataset.interestDecision}/decision`,{decision:button.dataset.decision},()=>openTrade(trade.code)));
+  detail.querySelectorAll('[data-open-conversation]').forEach(button=>button.onclick=()=>{showTradeTab('inbox');openTradeConversation(button.dataset.openConversation);});
+  detail.querySelector('[data-trade-report]').onclick=()=>submitTradeReport(trade);
+}
+
+async function editTradeFromWeb(trade){const itemName=prompt('اسم الغرض:',trade.itemName);if(itemName===null)return;const haveText=prompt('I HAVE — ما الذي تعرضه؟',trade.haveText);if(haveText===null)return;const wantText=prompt('I WANT — ماذا تريد؟',trade.wantText);if(wantText===null)return;const description=prompt('الوصف الإضافي:',trade.description||'');if(description===null)return;try{await api(`/api/me/trades/${trade.code}`,{method:'PATCH',body:{itemName,haveText,wantText,description}});await Promise.all([loadTradeMarket(),loadMyTrades()]);await openTrade(trade.code);}catch(error){alert(error.message);}}
+
+async function tradeButtonAction(button,path,body,done){if(!me){location.href='/auth/discord';return;}button.disabled=true;try{await api(path,{method:'POST',body});await Promise.all([loadTradeMarket(),loadMyTrades(),loadTradeInbox(),loadTradeNotifications()]);if(done)await done();}catch(error){alert(error.message);}finally{button.disabled=false;}}
+
+async function loadTradeInbox(){if(!me)return;const conversations=await api('/api/me/trade-inbox');const unread=conversations.filter(item=>item.unread).length;$('trade-unread').hidden=!unread;$('trade-unread').textContent=unread;$('trade-inbox-list').innerHTML=conversations.length?conversations.map(item=>`<button class="trade-conversation-item ${item.unread?'unread':''}" data-inbox-id="${item.id}" type="button"><b>${escapeHtml(item.trade.code)} · ${escapeHtml(item.trade.itemName)}</b><span>${escapeHtml((item.messages[0]?.deletedAt?'رسالة محذوفة':item.messages[0]?.content)||'بدأت المحادثة')}</span><small>${new Date(item.lastMessageAt).toLocaleString('ar')}</small></button>`).join(''):empty('لا توجد محادثات بعد.');document.querySelectorAll('[data-inbox-id]').forEach(button=>button.onclick=()=>openTradeConversation(button.dataset.inboxId));}
+
+async function openTradeConversation(id){
+  const item=await api(`/api/me/trade-conversations/${id}`),panel=$('trade-conversation');panel.hidden=false;const other=item.ownerId===me.userId?item.interestedUser:item.owner;
+  panel.innerHTML=`<header><div><span class="trade-code">${escapeHtml(item.trade.code)}</span><h2>${escapeHtml(item.trade.itemName)}</h2><small>محادثة خاصة مع ${escapeHtml(other.displayName)}${item.moderatorView?' · وضع إشراف للقراءة':''}</small></div><a class="button ghost small" href="/trade/${encodeURIComponent(item.trade.code)}">فتح العرض</a></header><div class="trade-chat-log">${item.messages.map(message=>tradeMessageHtml(message,me.userId)).join('')||empty('ابدأ المحادثة برسالة واضحة، ولا تشارك بيانات حسابك.')}</div>${item.moderatorView?'':`<form id="trade-message-form"><input id="trade-message-input" maxlength="1500" required placeholder="اكتب رسالتك..."><button class="button primary" type="submit">إرسال</button></form><div class="trade-conversation-actions">${item.trade.status==='PENDING'&&item.ownerId===me.userId?'<button class="button primary small" data-completion-request>طلب تأكيد الإكمال من هذا اللاعب</button>':''}${item.trade.status==='COMPLETION_PENDING'&&item.trade.completionConversationId===id&&item.interestedUserId===me.userId?'<button class="button primary small" data-completion-answer="CONFIRM">تأكيد نجاح الصفقة</button><button class="button danger small" data-completion-answer="DISPUTE">فتح نزاع</button>':''}${item.trade.status==='COMPLETED'?`<span class="trade-review-label">قيّم ${escapeHtml(other.displayName)}:</span>${[1,2,3,4,5].map(stars=>`<button class="button ghost small" data-trade-review="${stars}">${stars}⭐</button>`).join('')}`:''}<button class="button ghost small" data-conversation-report>⚑ بلاغ</button></div>`}`;
+  panel.querySelector('#trade-message-form')?.addEventListener('submit',async event=>{event.preventDefault();const input=$('trade-message-input'),content=input.value;input.disabled=true;try{await api(`/api/me/trade-conversations/${id}/messages`,{method:'POST',body:{content}});input.value='';await openTradeConversation(id);await loadTradeInbox();}catch(error){alert(error.message);}finally{input.disabled=false;input.focus();}});
+  panel.querySelectorAll('[data-message-delete]').forEach(button=>button.onclick=async()=>{if(confirm('حذف رسالتك؟ ستبقى نسخة تدقيق للإدارة.')){await api(`/api/me/trade-messages/${button.dataset.messageDelete}`,{method:'PATCH',body:{delete:true}});await openTradeConversation(id);}});
+  panel.querySelectorAll('[data-message-edit]').forEach(button=>button.onclick=async()=>{const current=button.closest('.trade-chat-message').querySelector('p').textContent,next=prompt('عدّل رسالتك:',current);if(next===null||next.trim()===current.trim())return;try{await api(`/api/me/trade-messages/${button.dataset.messageEdit}`,{method:'PATCH',body:{content:next}});await openTradeConversation(id);}catch(error){alert(error.message);}});
+  panel.querySelectorAll('[data-completion-answer]').forEach(button=>button.onclick=()=>tradeButtonAction(button,`/api/me/trades/${item.trade.code}/completion-answer`,{conversationId:id,answer:button.dataset.completionAnswer},()=>openTradeConversation(id)));
+  panel.querySelector('[data-completion-request]')?.addEventListener('click',event=>tradeButtonAction(event.currentTarget,`/api/me/trades/${item.trade.code}/completion`,{conversationId:id},()=>openTradeConversation(id)));
+  panel.querySelectorAll('[data-trade-review]').forEach(button=>button.onclick=async()=>{const comment=prompt('تعليق اختياري على الصفقة:','');if(comment===null)return;try{await api(`/api/me/trades/${item.trade.code}/reviews`,{method:'POST',body:{conversationId:id,rating:Number(button.dataset.tradeReview),comment:comment||undefined}});alert('✅ تم حفظ تقييمك.');}catch(error){alert(error.message);}});
+  panel.querySelector('[data-conversation-report]')?.addEventListener('click',()=>submitTradeReport(item.trade,id,other.id));
+  panel.querySelector('.trade-chat-log').scrollTop=panel.querySelector('.trade-chat-log').scrollHeight;
+}
+function tradeMessageHtml(message,userId){return `<article class="trade-chat-message ${message.senderId===userId?'mine':'theirs'}"><header><b>${escapeHtml(message.sender.displayName)}</b><time>${new Date(message.createdAt).toLocaleString('ar')}</time></header><p>${message.deletedAt?'<i>تم حذف الرسالة</i>':escapeHtml(message.content)}</p>${message.editedAt&&!message.deletedAt?'<small>معدلة</small>':''}${message.senderId===userId&&!message.deletedAt?`<button data-message-edit="${message.id}" type="button">تعديل</button><button data-message-delete="${message.id}" type="button">حذف</button>`:''}</article>`}
+
+async function loadTradeNotifications(markRead=false){if(!me)return;const data=await api('/api/me/trade-notifications');$('trade-notification-count').hidden=!data.unread;$('trade-notification-count').textContent=data.unread;$('trade-notifications').innerHTML=data.notifications.length?data.notifications.map(item=>`<article class="admin-room ${item.readAt?'':'notification-unread'}"><div><b>${escapeHtml(item.title)}</b><small>${escapeHtml(item.body)} · ${new Date(item.createdAt).toLocaleString('ar')}</small></div>${item.tradeId?'<span class="trade-code">Trade</span>':''}</article>`).join(''):empty('لا توجد إشعارات Trade.');if(markRead&&data.unread){await api('/api/me/trade-notifications/read',{method:'POST'});$('trade-notification-count').hidden=true;}}
+
+async function submitTradeReport(trade,conversationId,reportedUserId){if(!me){location.href='/auth/discord';return;}const details=prompt('اشرح المشكلة باختصار. ستُحفظ لقطة من المحادثة كدليل:');if(details===null)return;const reason=prompt('السبب: SCAM_FRAUD / HARASSMENT / MISLEADING_TRADE / SPAM / PROHIBITED_CONTENT / OTHER','OTHER');if(!reason)return;try{await api(`/api/me/trades/${trade.code}/reports`,{method:'POST',body:{conversationId,reportedUserId,reason,details}});alert('✅ تم إرسال البلاغ للإدارة مع حفظ الأدلة.');}catch(error){alert(error.message);}}
+function tradeStatusLabel(status){return{OPEN:'مفتوح',PENDING:'قيد التفاوض',COMPLETION_PENDING:'بانتظار التأكيد',COMPLETED:'مكتمل',CANCELLED:'ملغي',EXPIRED:'منتهي',DISPUTED:'نزاع',REMOVED:'محذوف إداريًا'}[status]||status}
+function tradeInterestLabel(status){return{PENDING:'بانتظارك',ACCEPTED:'مقبول',DECLINED:'مرفوض',CANCELLED:'ملغي'}[status]||status}
+function imageFileToDataUrlStrict(file){if(!['image/png','image/jpeg','image/webp'].includes(file.type))return Promise.reject(new Error('المسموح PNG أو JPG أو WEBP فقط.'));return imageFileToDataUrl(file);}
+
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
 async function api(path,options={}){const response=await fetch(path,{method:options.method||'GET',credentials:'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined,keepalive:Boolean(options.keepalive)});const text=await response.text();let body;try{body=text?JSON.parse(text):null}catch{body={error:text}}if(!response.ok)throw new Error(body?.error||'تعذر تنفيذ الطلب');return body;}
 function showFatal(error){console.error(error);const target=document.querySelector('main');if(target)target.insertAdjacentHTML('afterbegin',`<div class="shell"><div class="empty-state">تعذر الاتصال بـZark API: ${escapeHtml(error.message)}</div></div>`)}

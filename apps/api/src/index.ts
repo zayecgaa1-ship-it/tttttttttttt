@@ -18,6 +18,7 @@ import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuesti
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
+import { answerTradeCompletion, createTrade, decideInterest, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true, bodyLimit: 2 * 1024 * 1024 });
@@ -63,6 +64,8 @@ await app.register(fastifyStatic, {
 });
 await registerDiscordAuth(app);
 
+app.get("/trade/:id", async (_request, reply) => reply.sendFile("trade.html"));
+
 app.get("/health", async () => ({ ok: true, service: "zark-api" }));
 app.get("/assets/fonts/zark-arabic.ttf", async (_request, reply) => {
   if (!arabicFont) return reply.code(404).send({ error: "Arabic font asset is unavailable" });
@@ -80,6 +83,84 @@ app.get("/api/me", async (request) => {
 app.get("/api/me/profile", async (request) => getUnifiedProfile((await requireWebUser(request)).userId, true));
 app.get("/api/me/loyalty", async (request) => getLoyaltyProfile((await requireWebUser(request)).userId));
 app.post("/api/me/loyalty/buy-vip", async (request) => buyVip((await requireWebUser(request)).userId));
+const tradeStatusSchema = z.enum(["OPEN", "PENDING", "COMPLETION_PENDING", "COMPLETED", "CANCELLED", "EXPIRED", "DISPUTED", "REMOVED"]);
+const tradeReasonSchema = z.enum(["SCAM_FRAUD", "HARASSMENT", "MISLEADING_TRADE", "SPAM", "PROHIBITED_CONTENT", "OTHER"]);
+const tradeCreateSchema = z.object({ gameSlug: z.string().min(1).max(80), itemName: z.string().min(1).max(100), imageData: z.string().min(30).max(2_000_000), haveText: z.string().min(1).max(300), wantText: z.string().min(1).max(300), description: z.string().max(1000).optional(), acceptedTerms: z.literal(true) });
+app.get("/api/trades", async (request) => {
+  const query = z.object({ search: z.string().max(80).optional(), game: z.string().max(80).optional(), status: tradeStatusSchema.optional(), sort: z.enum(["newest", "oldest", "active"]).optional() }).parse(request.query);
+  return listTrades(query);
+});
+app.get("/api/trades/:id", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const user = await getWebUser(request);
+  return getTrade(params.id, user?.userId);
+});
+app.put("/api/trades/:id/discord", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ channelId: z.string().min(1).max(30), messageId: z.string().min(1).max(30) }).parse(request.body);
+  return setTradeDiscordMessage(params.id, body.channelId, body.messageId);
+});
+app.get("/api/me/trades", async (request) => listTrades({ ownerId: (await requireWebUser(request)).userId, status: undefined }));
+app.post("/api/me/trades", async (request) => createTrade(await requireWebUser(request), tradeCreateSchema.parse(request.body)));
+app.patch("/api/me/trades/:id", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = tradeCreateSchema.omit({ gameSlug: true, acceptedTerms: true }).partial().parse(request.body);
+  return updateTrade(params.id, await requireWebUser(request), body);
+});
+app.post("/api/me/trades/:id/close", async (request) => setTradeStatus(z.object({ id: z.string() }).parse(request.params).id, await requireWebUser(request), "CANCELLED"));
+app.post("/api/me/trades/:id/interest", async (request) => expressInterest(z.object({ id: z.string() }).parse(request.params).id, await requireWebUser(request)));
+app.post("/api/me/trade-interests/:id/decision", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ decision: z.enum(["ACCEPTED", "DECLINED"]) }).parse(request.body);
+  return decideInterest(params.id, await requireWebUser(request), body.decision);
+});
+app.get("/api/me/trade-inbox", async (request) => listTradeInbox(await requireWebUser(request)));
+app.get("/api/me/trade-conversations/:id", async (request) => getTradeConversation(z.object({ id: z.string() }).parse(request.params).id, await requireWebUser(request)));
+app.post("/api/me/trade-conversations/:id/messages", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ content: z.string().min(1).max(1500) }).parse(request.body);
+  return sendTradeMessage(params.id, await requireWebUser(request), body.content);
+});
+app.patch("/api/me/trade-messages/:id", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ content: z.string().min(1).max(1500).optional(), delete: z.boolean().optional() }).refine((value) => value.delete || value.content, "اكتب الرسالة").parse(request.body);
+  return reviseTradeMessage(params.id, await requireWebUser(request), body);
+});
+app.post("/api/me/trades/:id/completion", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ conversationId: z.string() }).parse(request.body);
+  return requestTradeCompletion(params.id, body.conversationId, await requireWebUser(request));
+});
+app.post("/api/me/trades/:id/completion-answer", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ conversationId: z.string(), answer: z.enum(["CONFIRM", "DISPUTE"]) }).parse(request.body);
+  return answerTradeCompletion(params.id, body.conversationId, await requireWebUser(request), body.answer);
+});
+app.post("/api/me/trades/:id/reviews", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ conversationId: z.string(), rating: z.number().int().min(1).max(5), comment: z.string().max(500).optional() }).parse(request.body);
+  return reviewTrade(params.id, body.conversationId, await requireWebUser(request), body);
+});
+app.post("/api/me/trades/:id/reports", async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ conversationId: z.string().optional(), messageId: z.string().optional(), reportedUserId: z.string().optional(), reason: tradeReasonSchema, details: z.string().max(1500).optional() }).parse(request.body);
+  return reportTrade(params.id, await requireWebUser(request), body);
+});
+app.get("/api/me/trade-notifications", async (request) => tradeNotifications((await requireWebUser(request)).userId));
+app.post("/api/me/trade-notifications/read", async (request) => readTradeNotifications((await requireWebUser(request)).userId));
+app.get("/api/web-admin/trade", async (request) => tradeModerationDashboard(await requireWebUser(request)));
+app.patch("/api/web-admin/trade/reports/:id", async (request) => {
+  const user = await requireWebUser(request);
+  if (!(await isCurrentTradeModerator(user))) throw new HttpError("لا تملك صلاحية إدارة Trade", 403);
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ status: z.enum(["DISMISSED", "ACTIONED", "REVIEWING"]), resolution: z.string().max(1000).optional(), tradeAction: z.enum(["NONE", "REMOVE", "DISPUTE", "CLOSE"]).optional() }).parse(request.body);
+  return resolveTradeReport(params.id, user, body);
+});
+app.post("/api/web-admin/trades/:id/remove", async (request) => {
+  const user = await requireWebUser(request);
+  if (!(await isCurrentTradeModerator(user))) throw new HttpError("لا تملك صلاحية إدارة Trade", 403);
+  return setTradeStatus(z.object({ id: z.string() }).parse(request.params).id, user, "REMOVED");
+});
 app.get("/api/loyalty/weekly", weeklyLoyaltyLeaderboard);
 app.put("/api/me/profile/settings", async (request) => {
   const user = await requireWebUser(request);
@@ -661,10 +742,13 @@ await app.listen({ port, host: "0.0.0.0" });
 console.log(`Zark API listening on http://localhost:${port}`);
 void processDueLfgRooms().catch((error) => app.log.error(error));
 void processAutoSmartRooms().catch((error) => app.log.error(error));
+void expireDueTrades().catch((error) => app.log.error(error));
 const roomLifecycleTimer = setInterval(() => void processDueLfgRooms().catch((error) => app.log.error(error)), 30_000);
 const autoSmartRoomTimer = setInterval(() => void processAutoSmartRooms().catch((error) => app.log.error(error)), 5 * 60_000);
+const tradeExpiryTimer = setInterval(() => void expireDueTrades().catch((error) => app.log.error(error)), 5 * 60_000);
 roomLifecycleTimer.unref();
 autoSmartRoomTimer.unref();
+tradeExpiryTimer.unref();
 let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -672,6 +756,7 @@ async function shutdown(signal: string) {
   app.log.info({ signal }, "Shutting down Zark API");
   clearInterval(roomLifecycleTimer);
   clearInterval(autoSmartRoomTimer);
+  clearInterval(tradeExpiryTimer);
   await closeEvents();
   await app.close();
   await db.$disconnect();
