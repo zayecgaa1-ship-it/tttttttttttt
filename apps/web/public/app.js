@@ -40,8 +40,9 @@ async function boot() {
 function renderShell() {
   const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games','/games.html','الألعاب'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','ملفي'],['reports','/reports.html','الدعم']];
   if (me?.isAdmin) links.push(['admin','/admin.html','الإدارة']);
+  if (me?.isOwner) links.push(['security','/security.html','الحماية']);
   $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark LFG System"><span>ZARK LFG SYSTEM<small>PLAY. CONNECT. COMPETE.</small></span></a><div class="nav-links" id="nav-links">${links.map(([key,href,label]) => `<a class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user">${me ? `<a href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:''}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="القائمة">☰</button></div></nav>`;
-  $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}</div></div></div>`;
+  $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div></div></div>`;
   $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
   if(me&&!$('zark-ai-widget')){
     document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد Zark"><img src="/assets/zark-bot-avatar.png" alt=""><span>اسأل Zark</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/zark-bot-avatar.png" alt=""><div><b>مساعد Zark</b><small id="floating-ai-status">دعم ذكي</small></div><button id="floating-ai-clear" type="button" title="حذف المحادثة">🗑️</button><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
@@ -57,6 +58,22 @@ async function renderPage(realtime = false) {
   if (page === 'leaderboard') await renderLeaderboard('game');
   if (page === 'reports') await renderReports();
   if (page === 'admin' && !realtime) await bindAdmin();
+  if (page === 'security' && !realtime) await bindSecurity();
+}
+
+async function bindSecurity(){
+  const gate=$('security-gate'),content=$('security-content');
+  try{
+    const dashboard=await api('/api/security/dashboard');
+    gate.hidden=true;content.hidden=false;
+    const c=dashboard.counts;
+    $('security-stats').innerHTML=statCards([[dashboard.protection.active?'ACTIVE':'OFF','الحماية'],[dashboard.suspensions.filter(item=>item.status==='SUSPENDED').length,'إدمن معلّق'],[c.bans||0,'Ban آخر 60 دقيقة'],[c.timeouts||0,'Timeout آخر 60 دقيقة'],[dashboard.alerts.filter(item=>item.severity==='CRITICAL').length,'تنبيه خطير']]);
+    $('security-events').innerHTML=dashboard.actions.length?dashboard.actions.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.severity)} · ${escapeHtml(item.actionType)}</b><small>${escapeHtml(item.executorId||'غير مؤكد')} ← ${escapeHtml(item.targetId||'-')} · ${new Date(item.timestamp).toLocaleString('ar')}</small><small>${escapeHtml(item.reason||'بدون سبب')}</small></div></article>`).join(''):empty('لا توجد أحداث حماية بعد.');
+    $('security-suspensions').innerHTML=dashboard.suspensions.length?dashboard.suspensions.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.userId)} · ${escapeHtml(item.status)}</b><small>${escapeHtml(item.reason)} · ${new Date(item.suspendedAt).toLocaleString('ar')}</small><small>الرتب المحفوظة: ${item.roleSnapshots.map(role=>escapeHtml(role.roleName||role.roleId)).join('، ')||'لا توجد'}</small></div>${item.status==='SUSPENDED'?`<button class="button primary small" data-security-restore="${item.userId}">استرجاع الرتب</button>`:'<span class="live-chip">تم الاسترجاع</span>'}</article>`).join(''):empty('لا توجد إدارات معلّقة.');
+    const s=dashboard.settings;['enabled','maxBansPerHour','maxTimeoutsPerHour','maxKicksPerHour','maxRoleChangesPerHour','maxChannelDeletesPerHour','maxWebhookChangesPerHour','ownerDmAlertsEnabled','securityLogChannelId'].forEach(key=>{const input=$(`security-${key}`);if(!input)return;input.type==='checkbox'?input.checked=Boolean(s[key]):input.value=s[key]??''});
+    $('security-settings-form').onsubmit=async event=>{event.preventDefault();const body={enabled:$('security-enabled').checked,maxBansPerHour:Number($('security-maxBansPerHour').value),maxTimeoutsPerHour:Number($('security-maxTimeoutsPerHour').value),maxKicksPerHour:Number($('security-maxKicksPerHour').value),maxRoleChangesPerHour:Number($('security-maxRoleChangesPerHour').value),maxChannelDeletesPerHour:Number($('security-maxChannelDeletesPerHour').value),maxWebhookChangesPerHour:Number($('security-maxWebhookChangesPerHour').value),ownerDmAlertsEnabled:$('security-ownerDmAlertsEnabled').checked,securityLogChannelId:$('security-securityLogChannelId').value.trim()||null};try{await api('/api/security/settings',{method:'PUT',body});$('security-result').textContent='✅ تم حفظ إعدادات الحماية.';}catch(error){$('security-result').textContent=`❌ ${error.message}`;}};
+    document.querySelectorAll('[data-security-restore]').forEach(button=>button.onclick=async()=>{if(!confirm('استرجاع الرتب الأصلية القابلة للإدارة فقط؟'))return;await api(`/api/security/suspensions/${button.dataset.securityRestore}/restore`,{method:'POST'});await bindSecurity();});
+  }catch(error){gate.innerHTML=`<span>🔒</span><h1>الحماية للمالك فقط</h1><p>${escapeHtml(error.message)}</p>`;}
 }
 
 function renderHome() {

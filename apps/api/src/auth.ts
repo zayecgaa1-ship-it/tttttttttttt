@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { SignJWT, jwtVerify } from "jose";
 import { db } from "../../../packages/db/src/client.js";
+import { isOwnerId, isSuspended, ownerUserId } from "./modules/security/service.js";
 
 export type WebUser = { userId: string; displayName: string; avatarUrl?: string; roles: string[] };
 export class HttpError extends Error {
@@ -80,15 +81,29 @@ export async function requireWebUser(request: FastifyRequest): Promise<WebUser> 
 export async function requireWebAdmin(request: FastifyRequest): Promise<WebUser> {
   const user = await requireWebUser(request);
   if (!(await isCurrentWebAdmin(user))) throw new HttpError("هذه الصفحة متاحة لإدارة Zark فقط", 403);
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (guildId && await isSuspended(guildId, user.userId)) throw new HttpError("تم تعليق صلاحيات الإدارة لهذا الحساب من نظام الحماية", 403);
   return user;
 }
 
+export async function requireWebOwner(request: FastifyRequest): Promise<WebUser> {
+  const user = await requireWebUser(request);
+  if (!isOwnerId(user.userId)) throw new HttpError("صفحة الحماية متاحة لمالك Zark فقط", 403);
+  return user;
+}
+
+export function isWebOwner(user: WebUser | null | undefined) {
+  return Boolean(user && isOwnerId(user.userId));
+}
+
 export function isWebAdmin(user: WebUser) {
+  if (isOwnerId(user.userId)) return true;
   const allowed = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter(Boolean);
   return allowed.length > 0 && user.roles.some((role) => allowed.includes(role));
 }
 
 export async function isCurrentWebAdmin(user: WebUser) {
+  if (isOwnerId(user.userId)) return true;
   const allowed = adminRoleIds();
   if (!allowed.length) return false;
   const guildId = process.env.DISCORD_GUILD_ID;
@@ -103,6 +118,8 @@ export async function isCurrentWebAdmin(user: WebUser) {
   const member = await response.json() as { roles?: string[] };
   return (member.roles ?? []).some((role) => allowed.includes(role));
 }
+
+export { ownerUserId };
 
 function adminRoleIds() {
   return (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter(Boolean);

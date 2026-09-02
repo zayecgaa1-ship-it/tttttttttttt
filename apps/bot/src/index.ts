@@ -1,6 +1,6 @@
 import "dotenv/config";
 import {
-  ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, Events, GatewayIntentBits, ModalBuilder, PermissionFlagsBits, REST, Routes,
+  ActionRowBuilder, AttachmentBuilder, AuditLogEvent, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, Events, GatewayIntentBits, ModalBuilder, PermissionFlagsBits, REST, Routes,
   MessageFlags, OverwriteType, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from "discord.js";
 import { createClient } from "redis";
@@ -14,6 +14,7 @@ const guildId = process.env.DISCORD_GUILD_ID;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const lfgListingChannelId = process.env.DISCORD_LFG_CHANNEL_ID;
 const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter((role) => /^\d{17,20}$/.test(role));
+const ownerUserId = process.env.DISCORD_OWNER_ID?.trim() || "492368135144603658";
 // Only these channels accept user image uploads. Configure the three channel
 // IDs in Railway, comma-separated. Scam links are removed everywhere.
 const mediaAllowedChannelIds = new Set((process.env.DISCORD_MEDIA_ALLOWED_CHANNEL_IDS ?? "").split(",").map((id) => id.trim()).filter((id) => /^\d{17,20}$/.test(id)));
@@ -119,11 +120,15 @@ if (!token) {
     const bumpTimer = setInterval(() => void runBumpReminderCycle().catch((error) => console.error("Bump reminder failed", error)), 60_000);
     const loyaltyTimer = setInterval(() => void syncLoyaltyRoleMembers().catch((error) => console.error("Loyalty role sync failed", error)), 5 * 60_000);
     const roomInviteTimer = setInterval(() => void deliverOpenRoomInvites().catch((error) => console.error("Room invitation recovery failed", error)), 60_000);
+    const securityRestoreTimer = setInterval(() => void restoreApprovedAdmins().catch((error) => console.error("Security restore cycle failed", error)), 30_000);
     heartbeatTimer.unref();
     cleanupTimer.unref();
     bumpTimer.unref();
     loyaltyTimer.unref();
     roomInviteTimer.unref();
+    securityRestoreTimer.unref();
+    await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
+    await restoreApprovedAdmins().catch((error) => console.error("Security restore bootstrap failed", error));
   });
   client.on(Events.Error, (error) => console.error("Discord client error", error));
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -139,11 +144,35 @@ if (!token) {
       console.error("LFG voice tracking failed", error);
     }
   });
+  // The audit-log event catches actions made from Discord itself and by other bots;
+  // API/dashboard commands are therefore not the only protection boundary.
+  client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
+    try { await recordDiscordAuditEvent(guild, entry); }
+    catch (error) { console.error("Security audit event failed", error); }
+  });
+  client.on(Events.GuildBanAdd, async (ban) => {
+    try {
+      const logs = await ban.guild.fetchAuditLogs({ type: AuditLogEvent.MemberBanAdd, limit: 6 });
+      const entry = logs.entries.find((item) => item.targetId === ban.user.id && Date.now() - item.createdTimestamp < 20_000);
+      if (entry) await recordDiscordAuditEvent(ban.guild, entry);
+      else await recordUnconfirmedSecurityEvent(ban.guild.id, "MEMBER_BAN", ban.user.id);
+    } catch (error) { console.error("Security ban correlation failed", error); }
+  });
+  client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+    try {
+      if (oldMember.communicationDisabledUntilTimestamp === newMember.communicationDisabledUntilTimestamp) return;
+      const logs = await newMember.guild.fetchAuditLogs({ type: AuditLogEvent.MemberUpdate, limit: 6 });
+      const entry = logs.entries.find((item) => item.targetId === newMember.id && Date.now() - item.createdTimestamp < 20_000);
+      if (entry) await recordDiscordAuditEvent(newMember.guild, entry);
+      else await recordUnconfirmedSecurityEvent(newMember.guild.id, newMember.communicationDisabledUntilTimestamp ? "MEMBER_TIMEOUT" : "MEMBER_TIMEOUT_REMOVED", newMember.id);
+    } catch (error) { console.error("Security timeout correlation failed", error); }
+  });
 
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
       if (interaction.isAutocomplete()) return await completePlayAutocomplete(interaction);
       if (interaction.isChatInputCommand()) {
+        if (await isSuspendedAdmin(interaction.user.id)) throw new Error("تم تعليق صلاحيات هذا الحساب من نظام Zark Admin Protection. تواصل مع المالك.");
         if (interaction.commandName === "daily") return await daily(interaction);
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1, interaction.options.getInteger("seconds") ?? undefined);
         if (interaction.commandName === "profile") return await profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
@@ -1608,6 +1637,104 @@ if (!token) {
     };
   }
 
+  async function isSuspendedAdmin(userId: string) {
+    if (userId === ownerUserId || !guildId) return false;
+    try { return (await apiGet<{ suspended: boolean }>(`/api/security/access/${userId}`, true)).suspended; }
+    catch (error) { console.error("Security access check failed", error); return false; }
+  }
+
+  async function recordUnconfirmedSecurityEvent(securityGuildId: string, actionType: SecurityActionType, targetId?: string) {
+    return apiSend<SecurityResult>("/api/security/actions", "POST", { guildId: securityGuildId, targetId, actionType, reason: "Audit log correlation was unavailable" });
+  }
+
+  async function recordDiscordAuditEvent(guild: any, entry: any) {
+    const actionType = auditActionType(entry.action);
+    if (!actionType) return;
+    if (entry.action === AuditLogEvent.MemberUpdate && !entry.changes?.some((change: any) => change.key === "communication_disabled_until")) return;
+    const executorId = entry.executorId ?? entry.executor?.id;
+    const targetId = entry.targetId ?? entry.target?.id;
+    const snapshots = executorId ? await dangerousRoleSnapshots(guild, executorId) : [];
+    const result = await apiSend<SecurityResult>("/api/security/actions", "POST", {
+      guildId: guild.id, executorId, targetId, actionType, auditLogId: entry.id,
+      reason: entry.reason ?? undefined,
+      metadata: { auditAction: entry.action, createdTimestamp: entry.createdTimestamp, targetType: entry.targetType ?? undefined },
+      roleSnapshots: snapshots,
+    });
+    if (result.suspend && executorId) await suspendDiscordAdmin(guild, executorId, result, snapshots);
+  }
+
+  function auditActionType(action: number): SecurityActionType | undefined {
+    const map = new Map<number, SecurityActionType>([
+      [AuditLogEvent.MemberBanAdd, "MEMBER_BAN"], [AuditLogEvent.MemberKick, "MEMBER_KICK"], [AuditLogEvent.MemberUpdate, "MEMBER_TIMEOUT"],
+      [AuditLogEvent.MemberRoleUpdate, "ROLE_ADDED"], [AuditLogEvent.RoleCreate, "ROLE_CREATED"], [AuditLogEvent.RoleDelete, "ROLE_DELETED"], [AuditLogEvent.RoleUpdate, "ROLE_UPDATED"],
+      [AuditLogEvent.ChannelCreate, "CHANNEL_CREATED"], [AuditLogEvent.ChannelDelete, "CHANNEL_DELETED"], [AuditLogEvent.ChannelUpdate, "CHANNEL_UPDATED"],
+      [AuditLogEvent.WebhookCreate, "WEBHOOK_CREATED"], [AuditLogEvent.WebhookDelete, "WEBHOOK_DELETED"], [AuditLogEvent.WebhookUpdate, "WEBHOOK_UPDATED"], [AuditLogEvent.BotAdd, "BOT_ADDED"],
+    ]);
+    return map.get(action);
+  }
+
+  async function dangerousRoleSnapshots(guild: any, userId: string) {
+    const [member, botMember] = await Promise.all([guild.members.fetch(userId).catch(() => undefined), guild.members.fetchMe().catch(() => undefined)]);
+    if (!member || !botMember) return [];
+    return member.roles.cache.filter((role: any) => isRemovableDangerousRole(role, botMember)).map((role: any) => ({ roleId: role.id, roleName: role.name }));
+  }
+
+  function isRemovableDangerousRole(role: any, botMember: any) {
+    if (role.id === role.guild.id || role.managed || role.position >= botMember.roles.highest.position) return false;
+    const dangerous = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild, PermissionFlagsBits.BanMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.ModerateMembers, PermissionFlagsBits.ManageRoles, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageWebhooks];
+    return dangerous.some((permission) => role.permissions.has(permission));
+  }
+
+  async function suspendDiscordAdmin(guild: any, userId: string, result: SecurityResult, snapshots: Array<{ roleId: string; roleName?: string }>) {
+    if (userId === ownerUserId || guild.ownerId === userId) return;
+    const member = await guild.members.fetch(userId).catch(() => undefined);
+    const removed: string[] = [];
+    if (member) {
+      for (const snapshot of snapshots) {
+        const role = guild.roles.cache.get(snapshot.roleId);
+        if (!role) continue;
+        try { await member.roles.remove(role, "ZARK ADMIN PROTECTION: suspicious administrative activity"); removed.push(role.name); }
+        catch (error) { console.error(`Could not remove dangerous role ${snapshot.roleId} from ${userId}`, error); }
+      }
+    }
+    const details = new EmbedBuilder().setColor(0xed1c24).setTitle("🚨 ZARK ADMIN PROTECTION")
+      .setDescription(`تم تعليق صلاحيات إدمن مشتبه به فورًا.\n**المستخدم:** <@${userId}>\n**السبب:** ${result.suspension?.reason ?? "حد الحماية"}`)
+      .addFields(
+        { name: "Bans / 60m", value: String(result.counts?.bans ?? 0), inline: true }, { name: "Timeouts / 60m", value: String(result.counts?.timeouts ?? 0), inline: true },
+        { name: "رتب أزيلت", value: removed.length ? removed.join(", ").slice(0, 1024) : "لم يمكن إزالة رتبة؛ راجع ترتيب رتب البوت.", inline: false },
+      ).setFooter({ text: `Guild: ${guild.name} · ${guild.id}` }).setTimestamp();
+    if (result.settings?.ownerDmAlertsEnabled !== false) await client.users.send(ownerUserId, { embeds: [details] }).catch((error) => console.error("Owner security DM failed", error));
+    const channelId = result.settings?.securityLogChannelId;
+    const channel = channelId ? await guild.channels.fetch(channelId).catch(() => undefined) : undefined;
+    if (channel?.isTextBased()) await channel.send({ embeds: [details] }).catch(() => undefined);
+  }
+
+  async function verifyProtectionHierarchy() {
+    if (!guildId) return;
+    const guild = await client.guilds.fetch(guildId);
+    const botMember = await guild.members.fetchMe();
+    const riskyRoles = guild.roles.cache.filter((role: any) => !role.managed && role.permissions.has(PermissionFlagsBits.Administrator));
+    const blocked = riskyRoles.filter((role: any) => role.position >= botMember.roles.highest.position);
+    if (blocked.size) console.warn(`ZARK ADMIN PROTECTION WARNING: bot role is below ${blocked.size} Administrator role(s); it cannot remove them safely.`);
+  }
+
+  async function restoreApprovedAdmins() {
+    if (!guildId) return;
+    const pending = await apiGet<Array<{ userId: string; roleSnapshots: Array<{ roleId: string }> }>>("/api/security/restores/pending", true);
+    if (!pending.length) return;
+    const guild = await client.guilds.fetch(guildId);
+    const botMember = await guild.members.fetchMe();
+    for (const item of pending) {
+      const member = await guild.members.fetch(item.userId).catch(() => undefined);
+      if (!member) continue;
+      for (const snapshot of item.roleSnapshots) {
+        const role = guild.roles.cache.get(snapshot.roleId);
+        if (!role || role.managed || role.position >= botMember.roles.highest.position || member.roles.cache.has(role.id)) continue;
+        await member.roles.add(role, "ZARK ADMIN PROTECTION: owner-approved restoration").catch((error: unknown) => console.error("Admin role restoration failed", error));
+      }
+    }
+  }
+
   function baseEmbed() { return new EmbedBuilder().setColor(brand.color).setAuthor({ name: brand.name }).setFooter({ text: brand.tagline }).setTimestamp(); }
   function siteUrl() { return (runtimeSettings.websiteUrl || process.env.PUBLIC_SITE_URL || "https://zark-ps.com").replace(/\/+$/, ""); }
   function shortId(value: string) { return `#${value.slice(-8).toUpperCase()}`; }
@@ -1703,3 +1830,5 @@ type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
+type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";
+type SecurityResult = { suspend: boolean; duplicate?: boolean; counts?: { bans: number; timeouts: number; kicks: number; roles: number; channels: number; webhooks: number }; suspension?: { reason: string }; settings?: { securityLogChannelId?: string | null; ownerDmAlertsEnabled?: boolean } };

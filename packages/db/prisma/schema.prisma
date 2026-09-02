@@ -85,6 +85,37 @@ enum AvailabilityActivity {
   AWAY
 }
 
+enum SecurityActionType {
+  MEMBER_BAN
+  MEMBER_KICK
+  MEMBER_TIMEOUT
+  MEMBER_TIMEOUT_REMOVED
+  ROLE_ADDED
+  ROLE_REMOVED
+  ROLE_CREATED
+  ROLE_DELETED
+  ROLE_UPDATED
+  CHANNEL_CREATED
+  CHANNEL_DELETED
+  CHANNEL_UPDATED
+  WEBHOOK_CREATED
+  WEBHOOK_DELETED
+  WEBHOOK_UPDATED
+  BOT_ADDED
+  UNKNOWN
+}
+
+enum SecuritySeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AdminSuspensionStatus {
+  SUSPENDED
+  RESTORED
+}
+
 enum MentionPolicy {
   EVERYONE
   INTERESTED_ONLY
@@ -587,4 +618,88 @@ model AuditLog {
   targetId  String?
   details   Json?
   createdAt DateTime @default(now())
+}
+
+// Per-guild settings deliberately live in the existing PostgreSQL database.
+// Discord user IDs are strings; no client-controlled ownership is stored here.
+model SecuritySettings {
+  guildId                   String   @id
+  enabled                   Boolean  @default(true)
+  maxBansPerHour            Int      @default(2)
+  maxTimeoutsPerHour        Int      @default(2)
+  maxKicksPerHour           Int      @default(5)
+  maxRoleChangesPerHour     Int      @default(8)
+  maxChannelDeletesPerHour  Int      @default(3)
+  maxWebhookChangesPerHour  Int      @default(3)
+  ownerDmAlertsEnabled      Boolean  @default(true)
+  securityLogChannelId      String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  actions     SecurityAction[]
+  suspensions AdminSuspension[]
+  alerts      SecurityAlert[]
+}
+
+model SecurityAction {
+  id          String             @id @default(cuid())
+  guildId     String
+  executorId  String?
+  targetId    String?
+  actionType  SecurityActionType
+  severity    SecuritySeverity   @default(INFO)
+  timestamp   DateTime           @default(now())
+  auditLogId  String?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime           @default(now())
+  settings    SecuritySettings   @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  @@unique([guildId, auditLogId])
+  @@index([guildId, executorId, actionType, timestamp])
+  @@index([guildId, timestamp])
+}
+
+model AdminSuspension {
+  id              String                @id @default(cuid())
+  guildId         String
+  userId          String
+  reason          String
+  trigger         SecurityActionType
+  status          AdminSuspensionStatus @default(SUSPENDED)
+  actionCounts    Json?
+  suspendedAt     DateTime              @default(now())
+  restoredAt      DateTime?
+  restoredBy      String?
+  settings        SecuritySettings      @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  roleSnapshots   AdminRoleSnapshot[]
+
+  @@unique([guildId, userId])
+  @@index([guildId, status, suspendedAt])
+}
+
+model AdminRoleSnapshot {
+  id           String          @id @default(cuid())
+  suspensionId String
+  roleId       String
+  roleName     String?
+  createdAt    DateTime        @default(now())
+  suspension   AdminSuspension @relation(fields: [suspensionId], references: [id], onDelete: Cascade)
+
+  @@unique([suspensionId, roleId])
+}
+
+model SecurityAlert {
+  id           String           @id @default(cuid())
+  guildId      String
+  severity     SecuritySeverity
+  title        String
+  message      String
+  actionId     String?
+  suspensionId String?
+  acknowledgedAt DateTime?
+  createdAt    DateTime         @default(now())
+  settings     SecuritySettings @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  @@index([guildId, severity, createdAt])
 }

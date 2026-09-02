@@ -17,7 +17,8 @@ import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForA
 import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
-import { getWebUser, HttpError, isCurrentWebAdmin, registerDiscordAuth, requireWebAdmin, requireWebUser } from "./auth.js";
+import { getSecuritySettings, isSuspended, pendingRestorations, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
+import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true });
 const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansArabic.ttf");
@@ -73,7 +74,7 @@ app.get("/api/me", async (request) => {
   const user = await getWebUser(request);
   if (!user) return { user: null };
   const isAdmin = await isCurrentWebAdmin(user).catch((error) => { app.log.warn(error, "Live Discord role check failed for /api/me"); return false; });
-  return { user: { userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, isAdmin } };
+  return { user: { userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, isAdmin, isOwner: isWebOwner(user) } };
 });
 app.get("/api/me/profile", async (request) => getUnifiedProfile((await requireWebUser(request)).userId, true));
 app.get("/api/me/loyalty", async (request) => getLoyaltyProfile((await requireWebUser(request)).userId));
@@ -237,6 +238,32 @@ app.post("/api/settings/auto-smart-rooms", { preHandler: requireServiceKey }, as
 app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);
   return diagnoseSupportAi(admin.userId);
+});
+app.get("/api/security/dashboard", async (request) => {
+  await requireWebOwner(request);
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) throw new HttpError("DISCORD_GUILD_ID غير مضبوط", 503);
+  return securityDashboard(guildId);
+});
+app.put("/api/security/settings", async (request) => {
+  await requireWebOwner(request);
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) throw new HttpError("DISCORD_GUILD_ID غير مضبوط", 503);
+  const channelId = z.string().regex(/^\d{17,20}$/).nullable().optional();
+  const body = z.object({
+    enabled: z.boolean(), maxBansPerHour: z.number().int().min(1).max(100), maxTimeoutsPerHour: z.number().int().min(1).max(100),
+    maxKicksPerHour: z.number().int().min(1).max(200), maxRoleChangesPerHour: z.number().int().min(1).max(500),
+    maxChannelDeletesPerHour: z.number().int().min(1).max(100), maxWebhookChangesPerHour: z.number().int().min(1).max(100),
+    ownerDmAlertsEnabled: z.boolean(), securityLogChannelId: channelId,
+  }).parse(request.body);
+  return updateSecuritySettings(guildId, body);
+});
+app.post("/api/security/suspensions/:userId/restore", async (request) => {
+  const owner = await requireWebOwner(request);
+  const guildId = process.env.DISCORD_GUILD_ID;
+  if (!guildId) throw new HttpError("DISCORD_GUILD_ID غير مضبوط", 503);
+  const userId = z.object({ userId: z.string().regex(/^\d{17,20}$/) }).parse(request.params).userId;
+  return restoreSuspendedAdmin(guildId, userId, owner.userId);
 });
 app.post("/api/web-admin/loyalty/boost", async (request) => {
   const admin = await requireWebAdmin(request);
@@ -547,6 +574,22 @@ app.post("/api/admin/zark-games/:slug/questions", { preHandler: requireServiceKe
 });
 app.get("/api/admin/feedback", { preHandler: requireServiceKey }, getAdminFeedback);
 app.get("/api/settings", { preHandler: requireServiceKey }, getGuildRuntimeSettings);
+app.get("/api/security/access/:userId", { preHandler: requireServiceKey }, async (request) => {
+  const userId = z.object({ userId: z.string().min(1).max(30) }).parse(request.params).userId;
+  const guildId = process.env.DISCORD_GUILD_ID ?? "default";
+  return { suspended: await isSuspended(guildId, userId) };
+});
+app.get("/api/security/settings", { preHandler: requireServiceKey }, async () => getSecuritySettings(process.env.DISCORD_GUILD_ID ?? "default"));
+app.get("/api/security/restores/pending", { preHandler: requireServiceKey }, async () => pendingRestorations(process.env.DISCORD_GUILD_ID ?? "default"));
+app.post("/api/security/actions", { preHandler: requireServiceKey }, async (request) => {
+  const body = z.object({
+    guildId: z.string().min(1).max(30), executorId: z.string().regex(/^\d{17,20}$/).optional(), targetId: z.string().regex(/^\d{17,20}$/).optional(),
+    actionType: z.enum(["MEMBER_BAN", "MEMBER_KICK", "MEMBER_TIMEOUT", "MEMBER_TIMEOUT_REMOVED", "ROLE_ADDED", "ROLE_REMOVED", "ROLE_CREATED", "ROLE_DELETED", "ROLE_UPDATED", "CHANNEL_CREATED", "CHANNEL_DELETED", "CHANNEL_UPDATED", "WEBHOOK_CREATED", "WEBHOOK_DELETED", "WEBHOOK_UPDATED", "BOT_ADDED", "UNKNOWN"]),
+    auditLogId: z.string().max(40).optional(), reason: z.string().max(512).optional(), metadata: z.record(z.string(), z.unknown()).optional(),
+    roleSnapshots: z.array(z.object({ roleId: z.string().regex(/^\d{17,20}$/), roleName: z.string().max(100).optional() })).max(100).optional(),
+  }).parse(request.body);
+  return recordSecurityAction({ ...body, metadata: body.metadata as Prisma.InputJsonValue | undefined });
+});
 app.post("/api/bot/heartbeat", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ instanceId: z.string().max(100).optional(), botUserId: z.string().optional(), tag: z.string().max(100).optional(), guilds: z.number().int().min(0).optional() }).parse(request.body ?? {});
   return recordServiceHeartbeat("discord-bot", body.instanceId, { botUserId: body.botUserId, tag: body.tag, guilds: body.guilds });
