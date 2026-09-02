@@ -653,6 +653,9 @@ model SecuritySettings {
   maxWebhookChangesPerHour  Int      @default(3)
   ownerDmAlertsEnabled      Boolean  @default(true)
   securityLogChannelId      String?
+  // Selected people may run role/channel/webhook maintenance and timeouts.
+  // Bans and kicks are deliberately never exempted.
+  operationalExemptUserIds  String[] @default([])
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 

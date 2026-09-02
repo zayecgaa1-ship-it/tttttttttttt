@@ -20,7 +20,8 @@ import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, w
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 2 * 1024 * 1024 });
+const uploadedImageSchema = z.string().max(2_000_000).refine((value) => /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(value) || /^https:\/\//i.test(value), "صورة غير صالحة");
 const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansArabic.ttf");
 const arabicFont = fs.existsSync(arabicFontPath) ? fs.readFileSync(arabicFontPath) : undefined;
 const roomUpdateSchema = z.object({
@@ -264,6 +265,7 @@ app.put("/api/security/settings", async (request) => {
     maxKicksPerHour: z.number().int().min(1).max(200), maxRoleChangesPerHour: z.number().int().min(1).max(500),
     maxChannelDeletesPerHour: z.number().int().min(1).max(100), maxWebhookChangesPerHour: z.number().int().min(1).max(100),
     ownerDmAlertsEnabled: z.boolean(), securityLogChannelId: channelId,
+    operationalExemptUserIds: z.array(z.string().regex(/^\d{17,20}$/)).max(100).default([]),
   }).parse(request.body);
   return updateSecuritySettings(guildId, body);
 });
@@ -308,7 +310,7 @@ app.put("/api/web-admin/lfg/games/:slug", async (request) => {
 app.post("/api/web-admin/zark-games/:slug/questions", async (request) => {
   const admin = await requireWebAdmin(request);
   const params = z.object({ slug: z.string() }).parse(request.params);
-  const body = z.object({ prompt: z.string().min(2).max(500), acceptedAnswers: z.array(z.string().min(1)).min(1).max(20), mediaUrl: z.string().url().optional(), difficulty: z.number().int().min(1).max(5).optional(), enabled: z.boolean().optional() }).parse(request.body);
+  const body = z.object({ prompt: z.string().min(2).max(500), acceptedAnswers: z.array(z.string().min(1)).min(1).max(20), mediaUrl: uploadedImageSchema.optional(), difficulty: z.number().int().min(1).max(5).optional(), enabled: z.boolean().optional() }).parse(request.body);
   return addGameQuestion({ gameSlug: params.slug, adminId: admin.userId, ...body });
 });
 app.get("/api/web-admin/zark-games", async (request) => {
@@ -318,7 +320,7 @@ app.get("/api/web-admin/zark-games", async (request) => {
 app.put("/api/web-admin/zark-games/:slug/questions/:id", async (request) => {
   const admin = await requireWebAdmin(request);
   const params = z.object({ slug: z.string(), id: z.string() }).parse(request.params);
-  const body = z.object({ prompt: z.string().min(2).max(500), acceptedAnswers: z.array(z.string().min(1)).min(1).max(20), mediaUrl: z.string().url().nullable().optional(), difficulty: z.number().int().min(1).max(5), enabled: z.boolean() }).parse(request.body);
+  const body = z.object({ prompt: z.string().min(2).max(500), acceptedAnswers: z.array(z.string().min(1)).min(1).max(20), mediaUrl: uploadedImageSchema.nullable().optional(), difficulty: z.number().int().min(1).max(5), enabled: z.boolean() }).parse(request.body);
   return updateGameQuestion(admin.userId, params.slug, params.id, body);
 });
 app.delete("/api/web-admin/zark-games/:slug/questions/:id", async (request) => {
@@ -578,7 +580,7 @@ app.put("/api/admin/lfg/games/:slug", { preHandler: requireServiceKey }, async (
 });
 app.post("/api/admin/zark-games/:slug/questions", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ slug: z.string() }).parse(request.params);
-  const body = z.object({ prompt: z.string().min(2).max(500), acceptedAnswers: z.array(z.string().min(1)).min(1).max(20), mediaUrl: z.string().url().optional(), difficulty: z.number().int().min(1).max(5).optional() }).parse(request.body);
+  const body = z.object({ prompt: z.string().min(2).max(500), acceptedAnswers: z.array(z.string().min(1)).min(1).max(20), mediaUrl: uploadedImageSchema.optional(), difficulty: z.number().int().min(1).max(5).optional() }).parse(request.body);
   return addGameQuestion({ gameSlug: params.slug, ...body });
 });
 app.get("/api/admin/feedback", { preHandler: requireServiceKey }, getAdminFeedback);
@@ -596,7 +598,7 @@ app.get("/api/security/timeouts/:userId", { preHandler: requireServiceKey }, asy
 });
 app.post("/api/security/actions", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({
-    guildId: z.string().min(1).max(30), executorId: z.string().regex(/^\d{17,20}$/).optional(), targetId: z.string().regex(/^\d{17,20}$/).optional(),
+    guildId: z.string().min(1).max(30), executorId: z.string().regex(/^\d{17,20}$/).optional(), executorIsBot: z.boolean().optional(), targetId: z.string().regex(/^\d{17,20}$/).optional(),
     actionType: z.enum(["MEMBER_BAN", "MEMBER_KICK", "MEMBER_TIMEOUT", "MEMBER_TIMEOUT_REMOVED", "ROLE_ADDED", "ROLE_REMOVED", "ROLE_CREATED", "ROLE_DELETED", "ROLE_UPDATED", "CHANNEL_CREATED", "CHANNEL_DELETED", "CHANNEL_UPDATED", "WEBHOOK_CREATED", "WEBHOOK_DELETED", "WEBHOOK_UPDATED", "BOT_ADDED", "UNKNOWN"]),
     auditLogId: z.string().max(40).optional(), reason: z.string().max(512).optional(), metadata: z.record(z.string(), z.unknown()).optional(),
     roleSnapshots: z.array(z.object({ roleId: z.string().regex(/^\d{17,20}$/), roleName: z.string().max(100).optional() })).max(100).optional(),

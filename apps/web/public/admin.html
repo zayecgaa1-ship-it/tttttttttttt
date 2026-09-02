@@ -153,7 +153,7 @@
             <label>اللعبة<select id="admin-question-game"></select></label>
             <label>السؤال<input id="admin-question-prompt" required></label>
             <label>الإجابات المقبولة، مفصولة بفاصلة<input id="admin-question-answers" required></label>
-            <label>رابط الصورة (اختياري)<input id="admin-question-media" type="url" placeholder="https://..."></label>
+            <label>ارفع صورة السؤال (اختياري)<input id="admin-question-media" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><small>PNG / JPG / WEBP / GIF، حتى 1.5MB. تُحفظ الصورة مع السؤال في قاعدة البيانات.</small></label>
             <div class="form-row"><label>الصعوبة<input id="admin-question-difficulty" type="number" min="1" max="5" value="1"></label><label class="toggle-card compact"><input id="admin-question-enabled" type="checkbox" checked><span><b>السؤال مفعّل</b><small>يمكن أن يظهر في اللعبة</small></span></label></div>
             <div class="room-manager-actions"><button id="admin-question-submit" class="button primary" type="submit">إضافة السؤال</button><button id="admin-question-cancel" class="button ghost" type="button" hidden>إلغاء التعديل</button></div>
             <p id="admin-question-result" class="form-result"></p>

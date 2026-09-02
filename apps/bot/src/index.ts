@@ -1667,7 +1667,7 @@ if (!token) {
     const targetId = entry.targetId ?? entry.target?.id;
     const snapshots = executorId ? await dangerousRoleSnapshots(guild, executorId) : [];
     const result = await apiSend<SecurityResult>("/api/security/actions", "POST", {
-      guildId: guild.id, executorId, targetId, actionType, auditLogId: entry.id,
+      guildId: guild.id, executorId, executorIsBot: Boolean(entry.executor?.bot), targetId, actionType, auditLogId: entry.id,
       reason: entry.reason ?? undefined,
       metadata: { auditAction: entry.action, createdTimestamp: entry.createdTimestamp, targetType: entry.targetType ?? undefined },
       roleSnapshots: snapshots,

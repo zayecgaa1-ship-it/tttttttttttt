@@ -12,6 +12,7 @@ export type SecurityEventInput = {
   auditLogId?: string;
   reason?: string;
   metadata?: Prisma.InputJsonValue;
+  executorIsBot?: boolean;
   roleSnapshots?: { roleId: string; roleName?: string }[];
 };
 
@@ -44,7 +45,7 @@ export async function getSecuritySettings(guildId: string) {
 export async function updateSecuritySettings(guildId: string, input: Partial<{
   enabled: boolean; maxBansPerHour: number; maxTimeoutsPerHour: number; maxKicksPerHour: number;
   maxRoleChangesPerHour: number; maxChannelDeletesPerHour: number; maxWebhookChangesPerHour: number;
-  ownerDmAlertsEnabled: boolean; securityLogChannelId: string | null;
+  ownerDmAlertsEnabled: boolean; securityLogChannelId: string | null; operationalExemptUserIds: string[];
 }>) {
   return db.securitySettings.upsert({ where: { guildId }, update: input, create: { guildId, ...input } });
 }
@@ -65,10 +66,11 @@ export async function recordSecurityAction(input: SecurityEventInput) {
     const counts = await actionCounts(tx, input.guildId, input.executorId);
     const threshold = input.executorId ? reachedThreshold(settings, input.actionType, counts) : undefined;
     const isOwner = input.executorId ? isOwnerId(input.executorId) : false;
+    const isOperationallyExempt = Boolean(input.executorId && (input.executorIsBot || (settings.operationalExemptUserIds.includes(input.executorId) && isExemptibleAction(input.actionType))));
     const alreadySuspended = input.executorId ? await tx.adminSuspension.findUnique({ where: { guildId_userId: { guildId: input.guildId, userId: input.executorId } } }) : null;
-    if (!settings.enabled || !input.executorId || isOwner || alreadySuspended?.status === "SUSPENDED" || !threshold) {
+    if (!settings.enabled || !input.executorId || isOwner || isOperationallyExempt || alreadySuspended?.status === "SUSPENDED" || !threshold) {
       if (!input.executorId) await tx.securityAlert.create({ data: { guildId: input.guildId, severity: "WARNING", title: "Unconfirmed audit event", message: `${input.actionType} was recorded without a confirmed executor.`, actionId: action.id } });
-      return { duplicate: false, action, suspend: false, counts, owner: isOwner };
+      return { duplicate: false, action, suspend: false, counts, owner: isOwner, exempt: isOperationallyExempt, settings };
     }
     const suspension = await tx.adminSuspension.upsert({
       where: { guildId_userId: { guildId: input.guildId, userId: input.executorId } },
@@ -149,6 +151,10 @@ function reachedThreshold(settings: Awaited<ReturnType<typeof getSecuritySetting
   if (type === "CHANNEL_DELETED" && counts.channels >= settings.maxChannelDeletesPerHour) return { reason: `Channel-change limit reached (${counts.channels}/${settings.maxChannelDeletesPerHour} in 60m)` };
   if (["WEBHOOK_CREATED", "WEBHOOK_DELETED", "WEBHOOK_UPDATED"].includes(type) && counts.webhooks >= settings.maxWebhookChangesPerHour) return { reason: `Webhook-change limit reached (${counts.webhooks}/${settings.maxWebhookChangesPerHour} in 60m)` };
   return undefined;
+}
+
+function isExemptibleAction(type: SecurityActionType) {
+  return type !== "MEMBER_BAN" && type !== "MEMBER_KICK";
 }
 
 export const actionTypeValues = Object.values(SecurityActionType);
