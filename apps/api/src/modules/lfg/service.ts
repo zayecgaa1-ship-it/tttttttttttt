@@ -213,7 +213,7 @@ export async function createLfgRoom(input: { userId: string; displayName: string
   const scheduledFor = normalizeSchedule(input.scheduledFor);
   await upsertActor(input);
   const room = await serializable(async (tx) => {
-    const activeRooms = await tx.lfgMember.count({ where: { userId: input.userId, status: "ACTIVE" } });
+    const activeRooms = await tx.lfgMember.count({ where: { userId: input.userId, status: "ACTIVE", room: { status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } } } });
     if (activeRooms >= settings.maxActiveRoomsPerUser) throw new Error("وصلت إلى الحد المسموح من تجمعات LFG النشطة");
     return tx.lfgRoom.create({
       data: {
@@ -223,12 +223,14 @@ export async function createLfgRoom(input: { userId: string; displayName: string
         durationMinutes,
         memberCount: 1,
         status: scheduledFor ? "SCHEDULED" : "OPEN",
+        source: "MANUAL",
         scheduledFor,
         // التجمع المجدول لا يُغلق بعد 10 دقائق. عند موعده نعطيه 30 دقيقة
         // ليتجمع، ثم تحذير 15 دقيقة قبل الإغلاق.
         // A live room gets 30 minutes to gather and enter voice. Once two
         // members enter, recordLfgVoiceEvent starts the session and clears it.
-        autoDeleteAt: scheduledFor ? null : new Date(Date.now() + 30 * 60_000),
+        autoDeleteAt: scheduledFor ? null : new Date(Date.now() + settings.waitingSessionTimeoutMinutes * 60_000),
+        expiresAt: scheduledFor ? null : new Date(Date.now() + settings.waitingSessionTimeoutMinutes * 60_000),
         title: input.title?.trim() || null,
         description: input.description,
         gameMode: input.gameMode,
@@ -287,14 +289,14 @@ export async function processAutoSmartRooms() {
   const service = `auto-smart-rooms:${settings.guildId}`;
   const claimed = await serializable(async (tx) => {
     const previous = await tx.serviceHeartbeat.findUnique({ where: { service } });
-    // Keep a small margin so timer drift between Railway instances does not skip an entire cycle.
-    if (previous && now.getTime() - previous.lastSeenAt.getTime() < 4.5 * 60_000) return false;
+    // Serializable transaction forms a distributed lock across bot instances.
+    if (previous && now.getTime() - previous.lastSeenAt.getTime() < settings.autoRoomIntervalMinutes * 60_000) return false;
     await tx.serviceHeartbeat.upsert({ where: { service }, update: { instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } }, create: { service, instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } } });
     return true;
   });
   if (!claimed) return { created: false, reason: "cooldown" as const };
-  const cooldownSince = new Date(now.getTime() - 90 * 60_000);
-  const candidates = (await getLfgInterestInsights()).filter((item) => item.availableNowCount >= item.autoMinAvailable);
+  const cooldownSince = new Date(now.getTime() - settings.autoRoomIntervalMinutes * 60_000);
+  const candidates = (await getLfgInterestInsights()).filter((item) => item.interestedCount >= settings.autoRoomMinimumInterested);
   let selected: { candidate: LfgInterestInsight; game: NonNullable<Awaited<ReturnType<typeof db.lfgGameCatalog.findUnique>>> } | undefined;
   for (const insight of candidates) {
     const catalogGame = await db.lfgGameCatalog.findUnique({ where: { slug: insight.gameSlug } });
@@ -314,11 +316,12 @@ export async function processAutoSmartRooms() {
   const room = await db.lfgRoom.create({
     data: {
       hostId: autoOrganizer.userId, lfgGameId: game.id, memberCount: 0,
-      maxPlayers: Math.min(game.maxPlayers, Math.max(candidate.autoMinAvailable, candidate.availableNowCount)),
-      durationMinutes: settings.defaultRoomDurationMinutes, status: "OPEN", needsVoice: true,
+      maxPlayers: Math.min(game.maxPlayers, Math.max(settings.autoRoomMinimumInterested, candidate.interestedCount)),
+      durationMinutes: settings.defaultRoomDurationMinutes, status: "OPEN", source: "AUTO", needsVoice: true,
+      expiresAt: new Date(now.getTime() + settings.autoRoomLifetimeMinutes * 60_000),
       title: `تجمع Zark تلقائي • ${candidate.interestPercent}% مهتمون`,
       description: `اختاره Zark تلقائيًا: ${candidate.availableNowCount} عضوًا متفرغًا الآن من المهتمين باللعبة (الحد التلقائي: ${candidate.autoMinAvailable}).`,
-      roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: new Date(now.getTime() + 30 * 60_000),
+      roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: new Date(now.getTime() + settings.autoRoomLifetimeMinutes * 60_000),
     }, include: roomInclude,
   });
   const live = toLiveRoom(room);
@@ -336,7 +339,7 @@ export async function joinLfgRoom(roomId: string, input: { userId: string; displ
     if (room.locked) throw new Error("الغرفة مقفلة من المضيف");
     const membership = await tx.lfgMember.findUnique({ where: { roomId_userId: { roomId, userId: input.userId } } });
     if (membership?.status === "ACTIVE") return;
-    const activeRooms = await tx.lfgMember.count({ where: { userId: input.userId, status: "ACTIVE", roomId: { not: roomId } } });
+    const activeRooms = await tx.lfgMember.count({ where: { userId: input.userId, status: "ACTIVE", roomId: { not: roomId }, room: { status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } } } });
     if (activeRooms >= settings.maxActiveRoomsPerUser) throw new Error("اخرج من أحد تجمعاتك الحالية قبل دخول تجمع آخر");
     const gathersRoom = Boolean(room.attendanceWarningAt && room.memberCount + 1 >= room.lfgGame.minPlayers);
     const reserved = await tx.lfgRoom.updateMany({
@@ -399,7 +402,7 @@ export async function leaveLfgRoom(roomId: string, userId: string) {
 export async function kickLfgMember(roomId: string, actorId: string, userId: string) {
   if (actorId === userId) throw new Error("You cannot remove yourself");
   await serializable(async (tx) => {
-    const room = await tx.lfgRoom.findUniqueOrThrow({ where: { id: roomId } });
+    const room = await tx.lfgRoom.findUniqueOrThrow({ where: { id: roomId }, include: { lfgGame: { select: { minPlayers: true } } } });
     if (room.hostId !== actorId) throw new Error("Only the room host can remove players");
     if (!["SCHEDULED", "OPEN", "FULL", "ACTIVE"].includes(room.status)) throw new Error("The room is closed");
     const member = await tx.lfgMember.findUnique({ where: { roomId_userId: { roomId, userId } } });
@@ -518,9 +521,10 @@ export async function markLfgReminderDelivered(roomId: string) {
 }
 
 export async function listRoomCleanupResources() {
+  const settings = await getGuildRuntimeSettings();
   const rooms = await db.lfgRoom.findMany({
     where: {
-      status: { in: ["COMPLETED", "CLOSED"] },
+      status: { in: settings.deleteExpiredAutoRooms ? ["COMPLETED", "CLOSED", "EXPIRED"] : ["COMPLETED", "CLOSED"] },
       channelsDeletedAt: null,
       OR: [{ textChannelId: { not: null } }, { voiceChannelId: { not: null } }],
     },
@@ -600,7 +604,7 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
   const settings = await getGuildRuntimeSettings();
   await upsertActor(input);
   await serializable(async (tx) => {
-    const room = await tx.lfgRoom.findUniqueOrThrow({ where: { id: roomId } });
+    const room = await tx.lfgRoom.findUniqueOrThrow({ where: { id: roomId }, include: { lfgGame: { select: { minPlayers: true } } } });
     if (!["SCHEDULED", "OPEN", "FULL", "ACTIVE"].includes(room.status)) return;
     const member = await tx.lfgMember.findUnique({ where: { roomId_userId: { roomId, userId: input.userId } } });
     if (!member || member.status !== "ACTIVE") throw new Error("العضو ليس مسجلًا في هذه الغرفة");
@@ -610,7 +614,7 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
       const voiceMembers = await tx.lfgMember.findMany({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } } });
       const scheduledStartReady = Boolean(room.scheduledFor && room.scheduledFor.getTime() <= now.getTime());
       const joinedWithinGatheringWindow = !room.scheduledFor && now.getTime() <= room.createdAt.getTime() + 30 * 60_000;
-      const shouldStart = (scheduledStartReady || joinedWithinGatheringWindow) && voiceMembers.length >= 2 && room.status !== "ACTIVE";
+      const shouldStart = (scheduledStartReady || joinedWithinGatheringWindow || room.source === "AUTO") && voiceMembers.length >= room.lfgGame.minPlayers && room.status !== "ACTIVE";
       await tx.lfgRoom.update({
         where: { id: roomId },
         data: {
@@ -618,18 +622,20 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
           startedAt: shouldStart ? now : room.startedAt,
           playEndsAt: shouldStart ? new Date(now.getTime() + room.durationMinutes * 60_000) : room.playEndsAt,
           emptySince: null,
+          singlePlayerSince: voiceMembers.length === 1 ? now : null,
+          idleWarningAt: null,
+          lastVoiceActivityAt: now,
           autoDeleteAt: null,
           version: { increment: 1 },
         },
       });
-      if (voiceMembers.length >= 2 || room.status === "ACTIVE") await tx.lfgMember.updateMany({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } }, data: { played: true } });
+      if (voiceMembers.length >= room.lfgGame.minPlayers || room.status === "ACTIVE") await tx.lfgMember.updateMany({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } }, data: { played: true } });
     } else if (member.voiceJoinedAt) {
       const elapsed = Math.max(0, Math.floor((now.getTime() - member.voiceJoinedAt.getTime()) / 1000));
       await tx.lfgMember.update({ where: { roomId_userId: { roomId, userId: input.userId } }, data: { voiceJoinedAt: null, voiceSeconds: { increment: elapsed }, played: member.played || room.status === "ACTIVE" || elapsed >= 60 } });
       const connected = await tx.lfgMember.count({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } } });
-      if (connected === 0 && room.startedAt) {
-        await tx.lfgRoom.update({ where: { id: roomId }, data: { emptySince: now, autoDeleteAt: new Date(now.getTime() + 10 * 60_000), version: { increment: 1 } } });
-      }
+      if (connected === 0 && room.startedAt) await tx.lfgRoom.update({ where: { id: roomId }, data: { emptySince: now, singlePlayerSince: null, lastVoiceActivityAt: now, autoDeleteAt: new Date(now.getTime() + settings.voiceEmptyGraceMinutes * 60_000), version: { increment: 1 } } });
+      else if (connected === 1 && room.startedAt) await tx.lfgRoom.update({ where: { id: roomId }, data: { emptySince: null, singlePlayerSince: now, lastVoiceActivityAt: now, version: { increment: 1 } } });
     }
   });
   const room = await getLfgRoom(roomId);
@@ -640,6 +646,7 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
 
 export async function processDueLfgRooms() {
   const now = new Date();
+  const settings = await getGuildRuntimeSettings();
   const readyCutoff = new Date(now.getTime() + 10 * 60_000);
   const readyRooms = await db.lfgRoom.findMany({
     where: { status: "SCHEDULED", scheduledFor: { lte: readyCutoff }, readyNotifiedAt: null },
@@ -670,6 +677,18 @@ export async function processDueLfgRooms() {
     });
     if (claimed.count === 1) publish({ type: "lfg.attendance_warning", room: await getLfgRoom(room.id) });
   }
+  // A lone player gets a warning event first; the Discord bot delivers it to
+  // the room. Returning players clear singlePlayerSince in the voice handler.
+  const idleRooms = await db.lfgRoom.findMany({ where: { status: "ACTIVE", singlePlayerSince: { lte: new Date(now.getTime() - settings.singlePlayerIdleMinutes * 60_000) }, idleWarningAt: null }, select: { id: true }, take: 50 });
+  for (const room of idleRooms) {
+    const claimed = await db.lfgRoom.updateMany({ where: { id: room.id, idleWarningAt: null }, data: { idleWarningAt: now, autoDeleteAt: new Date(now.getTime() + 5 * 60_000), version: { increment: 1 } } });
+    if (claimed.count) publish({ type: "lfg.attendance_warning", room: await getLfgRoom(room.id) });
+  }
+  const expiredWaiting = await db.lfgRoom.findMany({ where: { status: { in: ["SCHEDULED", "OPEN", "FULL"] }, expiresAt: { lte: now }, startedAt: null }, select: { id: true }, take: 50 });
+  for (const room of expiredWaiting) {
+    const claimed = await db.lfgRoom.updateMany({ where: { id: room.id, status: { in: ["SCHEDULED", "OPEN", "FULL"] }, startedAt: null }, data: { status: "EXPIRED", closedAt: now, memberCount: 0, version: { increment: 1 } } });
+    if (claimed.count) publish({ type: "lfg.closed", roomId: room.id, room: await getLfgRoom(room.id) });
+  }
   const due = await db.lfgRoom.findMany({
     where: {
       status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] },
@@ -689,7 +708,7 @@ export async function processDueLfgRooms() {
       await closeLfgRoom(room.id);
     }
   }
-  return { processed: due.length, readied: readyRooms.length, started: startingRooms.length };
+  return { processed: due.length + expiredWaiting.length, readied: readyRooms.length, started: startingRooms.length, idled: idleRooms.length, expired: expiredWaiting.length };
 }
 
 export async function searchLfgRooms(query: string) {
@@ -720,7 +739,8 @@ export async function getNotificationCandidates(roomId: string) {
   const settings = await getGuildRuntimeSettings();
   if (!settings.dmNotificationsEnabled || settings.maxDmPerDay === 0) return [];
   const room = await db.lfgRoom.findUniqueOrThrow({ where: { id: roomId } });
-  const isAutomaticRoom = room.title?.startsWith("تجمع Zark تلقائي") ?? false;
+  const isAutomaticRoom = room.source === "AUTO";
+  if (isAutomaticRoom && !settings.autoRoomDmInterestedUsers) return [];
   const candidates = await db.userGamePreference.findMany({
     where: {
       lfgGameId: room.lfgGameId,
@@ -789,6 +809,7 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     gameIcon: room.lfgGame.icon ?? undefined,
     title: room.title ?? undefined,
     status: room.status,
+    source: room.source,
     currentPlayers: room.status === "COMPLETED" ? activeMembers.length : room.memberCount,
     maxPlayers: room.maxPlayers,
     durationMinutes: room.durationMinutes,
@@ -801,6 +822,9 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     playEndsAt: room.playEndsAt?.toISOString(),
     completedAt: room.completedAt?.toISOString(),
     autoDeleteAt: room.autoDeleteAt?.toISOString(),
+    expiresAt: room.expiresAt?.toISOString(),
+    lastVoiceActivityAt: room.lastVoiceActivityAt?.toISOString(),
+    singlePlayerSince: room.singlePlayerSince?.toISOString(),
     needsVoice: room.needsVoice,
     locked: room.locked,
     roomEmoji: room.roomEmoji ?? undefined,

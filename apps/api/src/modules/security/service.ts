@@ -116,6 +116,13 @@ export async function pendingRestorations(guildId: string) {
   });
 }
 
+export async function recentTimeoutActions(guildId: string, executorId: string) {
+  return db.securityAction.findMany({
+    where: { guildId, executorId, actionType: "MEMBER_TIMEOUT" },
+    orderBy: { timestamp: "desc" }, take: 3,
+  });
+}
+
 function safeSnapshots(roles: SecurityEventInput["roleSnapshots"]) {
   return (roles ?? []).filter((role) => /^\d{17,20}$/.test(role.roleId)).map((role) => ({ roleId: role.roleId, roleName: role.roleName?.slice(0, 100) }));
 }

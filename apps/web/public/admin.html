@@ -70,6 +70,17 @@
             <label class="toggle-card"><input id="setting-auto-channels" type="checkbox"><span><b>غرف Text + Voice</b><small>إنشاء مساحة خاصة لكل LFG</small></span></label>
             <label class="toggle-card"><input id="setting-ai-enabled" type="checkbox"><span><b>مساعد Zark</b><small>دعم ذكي بحدود تكلفة</small></span></label>
           </div>
+          <h3>Auto LFG Rooms</h3>
+          <p class="section-note">يفحص Zark الاهتمامات حسب الفاصل المحدد، ولا يكرر غرفة لديها مقاعد شاغرة.</p>
+          <div class="settings-grid three">
+            <label>الفاصل بالدقائق<input id="setting-auto-room-interval" type="number" min="5" max="1440" value="120"></label>
+            <label>أقل مهتمين<input id="setting-auto-room-minimum" type="number" min="2" max="100" value="2"></label>
+            <label>عمر غرفة الانتظار<input id="setting-auto-room-lifetime" type="number" min="15" max="1440" value="120"></label>
+            <label>أقصى غرف تلقائية لكل لعبة<input id="setting-auto-room-max" type="number" min="1" max="20" value="1"></label>
+            <label>مهلة Voice الفارغ<input id="setting-voice-empty-grace" type="number" min="1" max="60" value="5"></label>
+            <label>مهلة اللاعب الوحيد<input id="setting-single-player-idle" type="number" min="5" max="240" value="15"></label>
+          </div>
+          <div class="toggle-grid two"><label class="toggle-card"><input id="setting-auto-room-dm" type="checkbox" checked><span><b>DM للمهتمين</b><small>فقط لمن اختار مهتم</small></span></label><label class="toggle-card"><input id="setting-auto-room-delete" type="checkbox" checked><span><b>حذف الغرف المنتهية</b><small>بعد إعادة فحص أن الـVoice فارغ</small></span></label></div>
           <h3>الحماية والحدود</h3>
           <div class="settings-grid three">
             <label>حد DM اليومي لكل عضو<input id="setting-dm-limit" type="number" min="0" max="20" required></label>

@@ -17,7 +17,7 @@ import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForA
 import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
-import { getSecuritySettings, isSuspended, pendingRestorations, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
+import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true });
@@ -214,6 +214,15 @@ app.put("/api/web-admin/settings", async (request) => {
     dmNotificationsEnabled: z.boolean(),
     quickMatchEnabled: z.boolean(),
     autoSmartRoomsEnabled: z.boolean(),
+    autoRoomIntervalMinutes: z.number().int().min(5).max(1440).default(120),
+    autoRoomMinimumInterested: z.number().int().min(2).max(100).default(2),
+    autoRoomLifetimeMinutes: z.number().int().min(15).max(1440).default(120),
+    maxAutoRoomsPerGame: z.number().int().min(1).max(20).default(1),
+    autoRoomDmInterestedUsers: z.boolean().default(true),
+    deleteExpiredAutoRooms: z.boolean().default(true),
+    voiceEmptyGraceMinutes: z.number().int().min(1).max(60).default(5),
+    singlePlayerIdleMinutes: z.number().int().min(5).max(240).default(15),
+    waitingSessionTimeoutMinutes: z.number().int().min(15).max(1440).default(120),
     ratingsEnabled: z.boolean(),
     reportsEnabled: z.boolean(),
     autoCreateRoomChannels: z.boolean(),
@@ -581,6 +590,10 @@ app.get("/api/security/access/:userId", { preHandler: requireServiceKey }, async
 });
 app.get("/api/security/settings", { preHandler: requireServiceKey }, async () => getSecuritySettings(process.env.DISCORD_GUILD_ID ?? "default"));
 app.get("/api/security/restores/pending", { preHandler: requireServiceKey }, async () => pendingRestorations(process.env.DISCORD_GUILD_ID ?? "default"));
+app.get("/api/security/timeouts/:userId", { preHandler: requireServiceKey }, async (request) => {
+  const userId = z.object({ userId: z.string().regex(/^\d{17,20}$/) }).parse(request.params).userId;
+  return recentTimeoutActions(process.env.DISCORD_GUILD_ID ?? "default", userId);
+});
 app.post("/api/security/actions", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({
     guildId: z.string().min(1).max(30), executorId: z.string().regex(/^\d{17,20}$/).optional(), targetId: z.string().regex(/^\d{17,20}$/).optional(),

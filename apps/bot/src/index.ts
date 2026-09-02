@@ -44,6 +44,15 @@ let runtimeSettings: GuildRuntimeSettings = {
   dmNotificationsEnabled: true,
   quickMatchEnabled: true,
   autoSmartRoomsEnabled: false,
+  autoRoomIntervalMinutes: 120,
+  autoRoomMinimumInterested: 2,
+  autoRoomLifetimeMinutes: 120,
+  maxAutoRoomsPerGame: 1,
+  autoRoomDmInterestedUsers: true,
+  deleteExpiredAutoRooms: true,
+  voiceEmptyGraceMinutes: 5,
+  singlePlayerIdleMinutes: 15,
+  waitingSessionTimeoutMinutes: 120,
   ratingsEnabled: true,
   reportsEnabled: true,
   autoCreateRoomChannels: true,
@@ -700,7 +709,7 @@ if (!token) {
     for (const room of rooms) {
       const syncedRoom = await syncRoomMemberIdentities(room);
       await ensureRoomSpace(syncedRoom);
-      if (syncedRoom.readyNotifiedAt && !syncedRoom.reminderDeliveredAt && !["COMPLETED", "CLOSED"].includes(syncedRoom.status)) {
+      if (syncedRoom.readyNotifiedAt && !syncedRoom.reminderDeliveredAt && !["COMPLETED", "CLOSED", "EXPIRED"].includes(syncedRoom.status)) {
         const readyRoom = await apiGet<LiveRoom>(`/api/lfg/${room.id}`);
         await notifyScheduledMembers(readyRoom);
         await apiSend(`/api/lfg/${room.id}/reminder-delivered`, "POST", {});
@@ -748,7 +757,7 @@ if (!token) {
   }
 
   async function ensureRoomSpace(room: LiveRoom) {
-    if (!runtimeSettings.autoCreateRoomChannels || !guildId || ["COMPLETED", "CLOSED"].includes(room.status) || roomSpaceInFlight.has(room.id)) return;
+    if (!runtimeSettings.autoCreateRoomChannels || !guildId || ["COMPLETED", "CLOSED", "EXPIRED"].includes(room.status) || roomSpaceInFlight.has(room.id)) return;
     if (room.status === "SCHEDULED" && room.scheduledFor && new Date(room.scheduledFor).getTime() > Date.now() + 10 * 60_000) return;
     roomSpaceInFlight.add(room.id);
     try {
@@ -861,6 +870,9 @@ if (!token) {
     }
     if (room.voiceChannelId) {
       const voice = await client.channels.fetch(room.voiceChannelId).catch(() => null);
+      // Last-moment recheck prevents an expiry race from deleting a channel a
+      // player just entered while the API cleanup job was running.
+      if (voice && "members" in voice && (voice.members as any).size > 0) return;
       if (voice && "delete" in voice) await voice.delete(`Zark ${room.status.toLowerCase()} ${room.id}`).catch(() => undefined);
     }
     if (room.textChannelId) {
@@ -1599,7 +1611,7 @@ if (!token) {
   }
 
   function roomButtons(roomId: string, gameSlug: string, room?: LiveRoom) {
-    const finished = room ? ["COMPLETED", "CLOSED"].includes(room.status) : false;
+    const finished = room ? ["COMPLETED", "CLOSED", "EXPIRED"].includes(room.status) : false;
     const joinDisabled = finished || Boolean(room?.locked) || (room ? room.currentPlayers >= room.maxPlayers : false);
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`lfg:join:${roomId}`).setLabel(room?.status === "SCHEDULED" ? "تسجيل" : "دخول").setEmoji("✅").setStyle(ButtonStyle.Success).setDisabled(joinDisabled),
@@ -1661,6 +1673,19 @@ if (!token) {
       roleSnapshots: snapshots,
     });
     if (result.suspend && executorId) await suspendDiscordAdmin(guild, executorId, result, snapshots);
+    if (actionType === "MEMBER_TIMEOUT" && executorId && !result.duplicate && (result.counts?.timeouts ?? 0) >= 2) await sendTimeoutOwnerAlert(guild, entry, executorId, result);
+  }
+
+  async function sendTimeoutOwnerAlert(guild: any, entry: any, executorId: string, result: SecurityResult) {
+    const admin = await guild.members.fetch(executorId).catch(() => undefined);
+    const timeouts = await apiGet<Array<{ targetId?: string | null; reason?: string | null; timestamp: string; auditLogId?: string | null; metadata?: { durationMs?: number } }>>(`/api/security/timeouts/${executorId}`, true).catch(() => []);
+    const rows = timeouts.slice(0, 2).map((item, index) => `**${index + 1}.** <@${item.targetId ?? "unknown"}> · \`${item.targetId ?? "?"}\`\nالسبب: ${item.reason ?? "بدون سبب"}\nالوقت: <t:${Math.floor(new Date(item.timestamp).getTime() / 1000)}:F> · Audit: \`${item.auditLogId ?? "غير متاح"}\``).join("\n\n") || "تعذر جلب تفاصيل Timeout السابقة.";
+    const critical = (result.counts?.timeouts ?? 0) > 2;
+    const embed = new EmbedBuilder().setColor(critical || result.suspend ? 0xed1c24 : 0xffb020).setTitle("🚨 ADMIN TIMEOUT ALERT")
+      .setDescription(`**Admin:** ${admin?.user.username ?? executorId}\n**Display Name:** ${admin?.displayName ?? "غير متاح"}\n**Discord ID:** \`${executorId}\`\n**Timeouts Last 60 Minutes:** **${result.counts?.timeouts ?? 0}**\n**Risk Level:** ${critical ? "CRITICAL" : "HIGH"}`)
+      .addFields({ name: "آخر عمليتي Timeout", value: rows.slice(0, 1024) }, { name: "الحالة", value: result.suspend ? "⚠️ Admin Suspended Automatically" : "⚠️ Warning Only - No Suspension Applied" })
+      .setFooter({ text: `${guild.name} · ${guild.id} · Latest audit ${entry.id}` }).setTimestamp();
+    await client.users.send(ownerUserId, { embeds: [embed] }).catch((error) => console.error("Timeout owner DM failed", error));
   }
 
   function auditActionType(action: number): SecurityActionType | undefined {
@@ -1826,8 +1851,8 @@ type RaceProgress = { completed: true; seriesId: string; totalRounds: number; st
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
-type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
-type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
+type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
+type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
 type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";

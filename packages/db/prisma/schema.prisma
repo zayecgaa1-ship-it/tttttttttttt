@@ -14,6 +14,12 @@ enum RoomStatus {
   ACTIVE
   COMPLETED
   CLOSED
+  EXPIRED
+}
+
+enum LfgRoomSource {
+  MANUAL
+  AUTO
 }
 
 enum ZarkGameKind {
@@ -141,6 +147,15 @@ model GuildSettings {
   dmNotificationsEnabled      Boolean  @default(true)
   quickMatchEnabled           Boolean  @default(true)
   autoSmartRoomsEnabled       Boolean  @default(false)
+  autoRoomIntervalMinutes     Int      @default(120)
+  autoRoomMinimumInterested   Int      @default(2)
+  autoRoomLifetimeMinutes     Int      @default(120)
+  maxAutoRoomsPerGame         Int      @default(1)
+  autoRoomDmInterestedUsers   Boolean  @default(true)
+  deleteExpiredAutoRooms      Boolean  @default(true)
+  voiceEmptyGraceMinutes      Int      @default(5)
+  singlePlayerIdleMinutes     Int      @default(15)
+  waitingSessionTimeoutMinutes Int     @default(120)
   ratingsEnabled              Boolean  @default(true)
   reportsEnabled              Boolean  @default(true)
   autoCreateRoomChannels      Boolean  @default(true)
@@ -443,6 +458,7 @@ model LfgRoom {
   memberCount         Int             @default(1)
   version             Int             @default(1)
   status              RoomStatus      @default(OPEN)
+  source              LfgRoomSource   @default(MANUAL)
   locked              Boolean         @default(false)
   roomEmoji           String?         @default("🎮")
   accentColor         String          @default("#e50914")
@@ -460,6 +476,10 @@ model LfgRoom {
   startedAt           DateTime?
   playEndsAt          DateTime?
   emptySince          DateTime?
+  lastVoiceActivityAt DateTime?
+  singlePlayerSince   DateTime?
+  idleWarningAt       DateTime?
+  expiresAt           DateTime?
   autoDeleteAt        DateTime?
   completedAt         DateTime?
   closedAt            DateTime?

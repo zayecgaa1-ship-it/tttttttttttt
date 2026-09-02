@@ -13,7 +13,8 @@ export type LiveRoom = {
   gameName: string;
   gameIcon?: string;
   title?: string;
-  status: "SCHEDULED" | "OPEN" | "FULL" | "ACTIVE" | "COMPLETED" | "CLOSED";
+  status: "SCHEDULED" | "OPEN" | "FULL" | "ACTIVE" | "COMPLETED" | "CLOSED" | "EXPIRED";
+  source: "MANUAL" | "AUTO";
   currentPlayers: number;
   maxPlayers: number;
   durationMinutes: number;
@@ -26,6 +27,9 @@ export type LiveRoom = {
   playEndsAt?: string;
   completedAt?: string;
   autoDeleteAt?: string;
+  expiresAt?: string;
+  lastVoiceActivityAt?: string;
+  singlePlayerSince?: string;
   needsVoice: boolean;
   locked: boolean;
   roomEmoji?: string;
@@ -86,6 +90,15 @@ export type GuildRuntimeSettings = {
   dmNotificationsEnabled: boolean;
   quickMatchEnabled: boolean;
   autoSmartRoomsEnabled: boolean;
+  autoRoomIntervalMinutes: number;
+  autoRoomMinimumInterested: number;
+  autoRoomLifetimeMinutes: number;
+  maxAutoRoomsPerGame: number;
+  autoRoomDmInterestedUsers: boolean;
+  deleteExpiredAutoRooms: boolean;
+  voiceEmptyGraceMinutes: number;
+  singlePlayerIdleMinutes: number;
+  waitingSessionTimeoutMinutes: number;
   ratingsEnabled: boolean;
   reportsEnabled: boolean;
   autoCreateRoomChannels: boolean;
