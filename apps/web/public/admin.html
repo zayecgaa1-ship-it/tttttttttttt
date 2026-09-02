@@ -26,6 +26,7 @@
       <nav class="admin-tabs surface" aria-label="أقسام لوحة الإدارة">
         <button class="active" type="button" data-admin-tab="overview">📊 النظرة العامة</button>
         <button type="button" data-admin-tab="settings">⚙️ إعدادات البوت</button>
+        <button type="button" data-admin-tab="broadcasts">📣 الرسائل الجماعية</button>
         <button type="button" data-admin-tab="reports">🛡️ البلاغات</button>
         <button type="button" data-admin-tab="trade">🔄 إدارة Trade</button>
         <button type="button" data-admin-tab="rooms">🛰️ الغرف</button>
@@ -102,6 +103,27 @@
           <button class="button primary" type="submit">حفظ وتطبيق الإعدادات</button>
           <p id="admin-settings-result" class="form-result"></p>
         </form>
+      </section>
+
+      <section class="admin-section" data-admin-panel="broadcasts" hidden>
+        <div class="admin-section-title"><div><span>📣</span><div><h2>الرسائل الجماعية</h2><p>أرسل إعلانًا خاصًا واحدًا لكل عضو حقيقي في السيرفر، مع متابعة الوصول بدون مراسلة البوتات.</p></div></div></div>
+        <div class="admin-content-grid">
+          <form id="admin-broadcast-form" class="surface">
+            <h2>إنشاء حملة جديدة</h2>
+            <p class="section-note">ستصل الرسالة في الخاص. توجد مهلة 30 دقيقة بين الحملات لمنع الإزعاج، ولا يمكن تشغيل حملتين معًا.</p>
+            <label>عنوان الرسالة<input id="admin-broadcast-title" maxlength="80" placeholder="مثال: فعالية Zark الليلة" required></label>
+            <label>محتوى الرسالة<textarea id="admin-broadcast-content" maxlength="1500" placeholder="اكتب الإعلان بشكل واضح..." required></textarea></label>
+            <div class="broadcast-preview"><small>معاينة الرسالة</small><h3 id="admin-broadcast-preview-title">عنوان الرسالة</h3><p id="admin-broadcast-preview-content">سيظهر محتوى الإعلان هنا.</p></div>
+            <label class="toggle-card compact"><input id="admin-broadcast-confirm-check" type="checkbox"><span><b>راجعت الرسالة</b><small>أتأكد أن الإعلان مناسب لكل أعضاء السيرفر.</small></span></label>
+            <label>اكتب «إرسال» للتأكيد<input id="admin-broadcast-confirm-text" autocomplete="off" placeholder="إرسال" required></label>
+            <button id="admin-broadcast-submit" class="button primary" type="submit">📨 إرسال لكل الأعضاء</button>
+            <p id="admin-broadcast-result" class="form-result"></p>
+          </form>
+          <div class="surface">
+            <div class="section-heading compact"><div><span class="eyebrow">DELIVERY LOG</span><h2>آخر الحملات</h2></div></div>
+            <div id="admin-broadcast-list" class="admin-room-list"></div>
+          </div>
+        </div>
       </section>
 
       <section class="admin-section" data-admin-panel="reports" hidden>

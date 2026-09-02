@@ -162,6 +162,7 @@ export type ZarkEvent =
   | { type: "trade.review_created"; tradeId: string; publicId: number; reviewerId: string; reviewedUserId: string }
   | { type: "trade.report_created"; tradeId: string; publicId: number; reportId: string; reporterId: string }
   | { type: "trade.report_updated"; tradeId: string; publicId: number; reportId: string; status: string }
+  | { type: "broadcast.created"; broadcastId: string; adminId: string }
   | { type: "guild.settings_updated"; adminId: string; settings: GuildRuntimeSettings };
 
 export type DomainEventEnvelope = {

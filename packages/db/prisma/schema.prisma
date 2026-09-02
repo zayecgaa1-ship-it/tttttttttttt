@@ -159,6 +159,13 @@ enum TradeReportStatus {
   ACTIONED
 }
 
+enum AdminBroadcastStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 enum TradeReportReason {
   SCAM_FRAUD
   HARASSMENT
@@ -892,6 +899,26 @@ model AuditLog {
   targetId  String?
   details   Json?
   createdAt DateTime @default(now())
+}
+
+model AdminBroadcast {
+  id           String               @id @default(cuid())
+  adminId      String
+  title        String
+  content      String
+  status       AdminBroadcastStatus @default(PENDING)
+  totalMembers Int                  @default(0)
+  sentCount    Int                  @default(0)
+  failedCount  Int                  @default(0)
+  skippedCount Int                  @default(0)
+  lastError    String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@index([status, createdAt])
+  @@index([adminId, createdAt])
 }
 
 // Per-guild settings deliberately live in the existing PostgreSQL database.

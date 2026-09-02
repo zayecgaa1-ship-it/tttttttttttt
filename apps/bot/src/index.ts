@@ -101,6 +101,7 @@ if (!token) {
   const roomSpaceInFlight = new Set<string>();
   const notifiedRooms = new Set<string>();
   const ratingRequestsInFlight = new Set<string>();
+  const broadcastsInFlight = new Set<string>();
   const roomByVoiceChannel = new Map<string, string>();
   const mentionStatusCooldown = new Map<string, number>();
   const moderationAlertCooldown = new Map<string, number>();
@@ -123,7 +124,7 @@ if (!token) {
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
     if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: blocking user image uploads in every channel until DISCORD_MEDIA_ALLOWED_CHANNEL_IDS is set.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
-    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel()]);
+    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel(), processPendingBroadcast()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
     const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces().catch((error) => console.error("LFG cleanup cycle failed", error)), 30_000);
@@ -132,6 +133,7 @@ if (!token) {
     const roomInviteTimer = setInterval(() => void deliverOpenRoomInvites().catch((error) => console.error("Room invitation recovery failed", error)), 60_000);
     const securityRestoreTimer = setInterval(() => void restoreApprovedAdmins().catch((error) => console.error("Security restore cycle failed", error)), 30_000);
     const securityAuditTimer = setInterval(() => void reconcileSecurityAuditLogs().catch((error) => console.error("Security audit reconciliation failed", error)), 30_000);
+    const broadcastTimer = setInterval(() => void processPendingBroadcast().catch((error) => console.error("Broadcast recovery cycle failed", error)), 60_000);
     heartbeatTimer.unref();
     cleanupTimer.unref();
     bumpTimer.unref();
@@ -139,6 +141,7 @@ if (!token) {
     roomInviteTimer.unref();
     securityRestoreTimer.unref();
     securityAuditTimer.unref();
+    broadcastTimer.unref();
     await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
     await reconcileSecurityAuditLogs().catch((error) => console.error("Security audit bootstrap failed", error));
     await restoreApprovedAdmins().catch((error) => console.error("Security restore bootstrap failed", error));
@@ -584,7 +587,7 @@ if (!token) {
   }
 
   async function handleDomainEvent(raw: string) {
-    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string; userId?: string; tradeId?: string; publicId?: number; ownerId?: string; senderId?: string } } };
+    const message = JSON.parse(raw) as { event?: { eventType?: string; payload?: { room?: LiveRoom; settings?: GuildRuntimeSettings; reportId?: string; reportKind?: "PLAYER" | "BUG"; recipientId?: string; reporterId?: string; authorRole?: "USER" | "ADMIN"; status?: string; userId?: string; tradeId?: string; publicId?: number; ownerId?: string; senderId?: string; broadcastId?: string } } };
     const eventType = message.event?.eventType;
     const payload = message.event?.payload;
     const room = payload?.room;
@@ -612,6 +615,10 @@ if (!token) {
     }
     if (eventType === "loyalty.updated" && payload?.userId) {
       await syncLoyaltyRoles(payload.userId);
+      return;
+    }
+    if (eventType === "broadcast.created" && payload?.broadcastId) {
+      await processBroadcast(payload.broadcastId);
       return;
     }
     if (eventType === "trade.created" && payload?.tradeId) {
@@ -664,6 +671,54 @@ if (!token) {
     if (eventType === "lfg.closed") {
       await syncRoomListing(room);
       await finalizeRoomSpace(room);
+    }
+  }
+
+  async function processPendingBroadcast() {
+    const pending = await apiGet<BroadcastCampaign | null>("/api/bot/broadcasts/pending", true);
+    if (pending) await processBroadcast(pending.id);
+  }
+
+  async function processBroadcast(id: string) {
+    if (!guildId || broadcastsInFlight.has(id)) return;
+    broadcastsInFlight.add(id);
+    let totalMembers = 0, sentCount = 0, failedCount = 0, skippedCount = 0;
+    try {
+      const claim = await apiSend<{ claimed: boolean; campaign: BroadcastCampaign | null }>(`/api/bot/broadcasts/${id}/claim`, "POST", {});
+      if (!claim.claimed || !claim.campaign) return;
+      const guild = await client.guilds.fetch(guildId);
+      const members = await guild.members.fetch();
+      const recipients = [...members.values()].filter((member) => !member.user.bot);
+      skippedCount = members.size - recipients.length;
+      totalMembers = recipients.length;
+      await updateBroadcast("RUNNING");
+
+      const embed = baseEmbed()
+        .setTitle(`📣 ${claim.campaign.title}`)
+        .setDescription(claim.campaign.content)
+        .addFields({ name: "Zark LFG System", value: `[فتح الموقع](${siteUrl()})` });
+      for (let index = 0; index < recipients.length; index += 1) {
+        const member = recipients[index];
+        try {
+          await member.send({ embeds: [embed], allowedMentions: { parse: [] } });
+          sentCount += 1;
+        } catch {
+          failedCount += 1;
+        }
+        if ((index + 1) % 20 === 0) await updateBroadcast("RUNNING");
+        if ((index + 1) % 5 === 0) await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      await updateBroadcast("COMPLETED");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "تعذر إكمال الرسالة الجماعية";
+      await apiSend(`/api/bot/broadcasts/${id}/progress`, "PUT", { status: "FAILED", totalMembers, sentCount, failedCount, skippedCount, lastError: message }).catch(() => undefined);
+      console.error("Admin broadcast failed", error);
+    } finally {
+      broadcastsInFlight.delete(id);
+    }
+
+    async function updateBroadcast(status: "RUNNING" | "COMPLETED") {
+      await apiSend(`/api/bot/broadcasts/${id}/progress`, "PUT", { status, totalMembers, sentCount, failedCount, skippedCount });
     }
   }
 
@@ -1958,3 +2013,4 @@ type TradeView = { id: string; code: string; publicId: number; itemName: string;
 type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
 type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";
 type SecurityResult = { suspend: boolean; duplicate?: boolean; counts?: { bans: number; timeouts: number; kicks: number; roles: number; channels: number; webhooks: number }; suspension?: { reason: string }; settings?: { securityLogChannelId?: string | null; ownerDmAlertsEnabled?: boolean } };
+type BroadcastCampaign = { id: string; title: string; content: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; totalMembers: number; sentCount: number; failedCount: number; skippedCount: number; createdAt: string };

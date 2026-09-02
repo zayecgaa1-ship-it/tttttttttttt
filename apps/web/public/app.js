@@ -9,6 +9,7 @@ let activeAdminTicket;
 let reportPresenceTimer;
 let reportPresenceBound=false;
 let adminZarkContent=[];
+let adminBroadcastTimer;
 const roomSearchAliases={
   minecraft:['minecraft','ماينكرافت','ماين كرافت','माइनक्राफ्ट','майнкрафт'],
   roblox:['roblox','روبلوكس','روب لوكس','रोब्लॉक्स'],
@@ -368,6 +369,7 @@ async function bindAdmin(){
     await loadAdminZarkContent();
     await loadAdminReports();
     await loadAdminTradeModeration();
+    await loadAdminBroadcasts();
     const query=new URLSearchParams(location.search),kind=query.get('reportKind'),id=query.get('reportId');
     if((kind==='PLAYER'||kind==='BUG')&&id){showAdminTab('reports');await openAdminReport(kind,id).catch(()=>undefined);}
   }catch(error){gate.innerHTML=`<span>⛔</span><h1>تعذر فتح اللوحة</h1><p>${escapeHtml(error.message)}</p>`;return;}
@@ -385,9 +387,38 @@ async function bindAdmin(){
   };
   $('admin-ai-test').onclick=async()=>{const button=$('admin-ai-test'),result=$('admin-ai-test-result');button.disabled=true;result.textContent='جارِ فحص مزودي AI المجانيين...';try{const status=await api('/api/web-admin/ai/diagnostics',{method:'POST'});result.textContent=status.message;}catch(error){result.textContent=`❌ ${error.message}`;}finally{button.disabled=false;}};
   $('admin-loyalty-event').onclick=async()=>{const button=$('admin-loyalty-event'),result=$('admin-loyalty-event-result');button.disabled=true;result.textContent='جارِ تشغيل الفعالية...';try{const event=await api('/api/web-admin/loyalty/boost',{method:'POST',body:{minutes:60}});result.textContent=`✅ ×${event.multiplier} حتى ${new Date(event.until).toLocaleTimeString('ar',{hour:'numeric',minute:'2-digit'})}`;}catch(error){result.textContent=`❌ ${error.message}`;}finally{button.disabled=false;}};
+  bindAdminBroadcastForm();
   $('admin-lfg-form').onsubmit=async event=>{event.preventDefault();const threshold=$('admin-game-auto-min').value;await submitForm(`/api/web-admin/lfg/games/${$('admin-game-slug').value}` ,{name:$('admin-game-name').value,description:$('admin-game-description').value||undefined,icon:$('admin-game-icon').value||undefined,categorySlug:$('admin-game-category').value||undefined,minPlayers:Number($('admin-game-min').value),maxPlayers:Number($('admin-game-max').value),autoMinAvailable:threshold?Number(threshold):null,enabled:true},$('admin-game-result'),'PUT');};
   $('admin-question-form').onsubmit=saveAdminQuestion;
   $('admin-question-cancel').onclick=resetAdminQuestionForm;
+}
+
+function bindAdminBroadcastForm(){
+  const form=$('admin-broadcast-form'),title=$('admin-broadcast-title'),content=$('admin-broadcast-content'),button=$('admin-broadcast-submit'),result=$('admin-broadcast-result');
+  const preview=()=>{$('admin-broadcast-preview-title').textContent=title.value.trim()||'عنوان الرسالة';$('admin-broadcast-preview-content').textContent=content.value.trim()||'سيظهر محتوى الإعلان هنا.';};
+  title.oninput=preview;content.oninput=preview;
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(!$('admin-broadcast-confirm-check').checked){result.textContent='❌ فعّل خيار مراجعة الرسالة أولًا.';return;}
+    if($('admin-broadcast-confirm-text').value.trim()!=='إرسال'){result.textContent='❌ اكتب كلمة إرسال كما هي للتأكيد.';return;}
+    if(!confirm('سيُرسل هذا الإعلان بالخاص لكل أعضاء السيرفر الحقيقيين. هل تريد المتابعة؟'))return;
+    button.disabled=true;result.textContent='جارِ إنشاء الحملة وتسليمها للبوت...';
+    try{
+      await api('/api/web-admin/broadcasts',{method:'POST',body:{title:title.value.trim(),content:content.value.trim(),confirmation:$('admin-broadcast-confirm-text').value.trim()}});
+      result.textContent='✅ بدأت الحملة. يمكنك متابعة أرقام الوصول من السجل.';form.reset();preview();await loadAdminBroadcasts();
+    }catch(error){result.textContent=`❌ ${error.message}`;}finally{button.disabled=false;}
+  };
+}
+
+async function loadAdminBroadcasts(){
+  clearTimeout(adminBroadcastTimer);
+  const campaigns=await api('/api/web-admin/broadcasts');
+  const labels={PENDING:'بانتظار البوت',RUNNING:'جارِ الإرسال',COMPLETED:'مكتملة',FAILED:'فشلت'};
+  $('admin-broadcast-list').innerHTML=campaigns.length?campaigns.map(item=>{
+    const delivered=item.sentCount+item.failedCount,percent=item.totalMembers?Math.min(100,Math.round(delivered/item.totalMembers*100)):0;
+    return `<article class="admin-room"><div><b>📣 ${escapeHtml(item.title)}</b><small>${new Date(item.createdAt).toLocaleString('ar')} · ${escapeHtml(labels[item.status]||item.status)}</small>${item.lastError?`<small class="error-text">${escapeHtml(item.lastError)}</small>`:''}</div><div class="broadcast-progress"><small>✅ ${item.sentCount} وصلت · ❌ ${item.failedCount} تعذرت · 🤖 ${item.skippedCount} بوت</small><progress value="${percent}" max="100"></progress></div></article>`;
+  }).join(''):empty('لم يتم إرسال رسائل جماعية بعد.');
+  if(campaigns.some(item=>item.status==='PENDING'||item.status==='RUNNING'))adminBroadcastTimer=setTimeout(()=>loadAdminBroadcasts().catch(()=>undefined),4000);
 }
 
 async function loadAdminTradeModeration(){

@@ -19,6 +19,7 @@ import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/suppo
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
 import { answerTradeCompletion, createTrade, decideInterest, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
+import { claimBroadcast, createBroadcast, getPendingBroadcast, listBroadcasts, updateBroadcastProgress } from "./modules/broadcast/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
 const app = Fastify({ logger: true, bodyLimit: 2 * 1024 * 1024 });
@@ -280,6 +281,15 @@ app.get("/api/web-admin/dashboard", async (request) => {
   await requireWebAdmin(request);
   return getAdminDashboard();
 });
+app.get("/api/web-admin/broadcasts", async (request) => {
+  await requireWebAdmin(request);
+  return listBroadcasts();
+});
+app.post("/api/web-admin/broadcasts", async (request) => {
+  const admin = await requireWebAdmin(request);
+  const body = z.object({ title: z.string().min(2).max(80), content: z.string().min(2).max(1500), confirmation: z.string().max(20) }).parse(request.body);
+  return createBroadcast(admin, body);
+});
 app.put("/api/web-admin/settings", async (request) => {
   const admin = await requireWebAdmin(request);
   const channelId = z.string().regex(/^\d{17,20}$/).nullable().optional();
@@ -331,6 +341,16 @@ app.post("/api/settings/auto-smart-rooms", { preHandler: requireServiceKey }, as
   const settings = await setAutoSmartRoomsEnabled(body.adminId, body.enabled);
   if (body.enabled) void processAutoSmartRooms({ force: true }).catch((error) => app.log.error(error));
   return settings;
+});
+app.get("/api/bot/broadcasts/pending", { preHandler: requireServiceKey }, getPendingBroadcast);
+app.post("/api/bot/broadcasts/:id/claim", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  return claimBroadcast(params.id);
+});
+app.put("/api/bot/broadcasts/:id/progress", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ status: z.enum(["RUNNING", "COMPLETED", "FAILED"]), totalMembers: z.number().int().min(0), sentCount: z.number().int().min(0), failedCount: z.number().int().min(0), skippedCount: z.number().int().min(0), lastError: z.string().max(500).optional() }).parse(request.body);
+  return updateBroadcastProgress(params.id, body);
 });
 app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);
