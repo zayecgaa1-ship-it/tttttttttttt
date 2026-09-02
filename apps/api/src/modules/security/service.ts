@@ -58,19 +58,19 @@ export async function recordSecurityAction(input: SecurityEventInput) {
       const duplicate = await tx.securityAction.findUnique({ where: { guildId_auditLogId: { guildId: input.guildId, auditLogId: input.auditLogId } } });
       if (duplicate) return { duplicate: true, action: duplicate, suspend: false, counts: emptyCounts() };
     }
+    const policy = securityPolicy(input, settings);
     const action = await tx.securityAction.create({ data: {
       guildId: input.guildId, executorId: input.executorId, targetId: input.targetId, actionType: input.actionType,
-      auditLogId: input.auditLogId, reason: input.reason, metadata: input.metadata,
+      auditLogId: input.auditLogId, reason: input.reason, metadata: securityMetadata(input.metadata, policy),
       severity: input.executorId ? "INFO" : "WARNING",
     } });
-    const counts = await actionCounts(tx, input.guildId, input.executorId);
-    const threshold = input.executorId ? reachedThreshold(settings, input.actionType, counts) : undefined;
-    const isOwner = input.executorId ? isOwnerId(input.executorId) : false;
-    const isOperationallyExempt = Boolean(input.executorId && (input.executorIsBot || (settings.operationalExemptUserIds.includes(input.executorId) && isExemptibleAction(input.actionType))));
+    // Bots are logged as EXEMPT, but never enter a counter or enforcement path.
+    const counts = policy.bot ? emptyCounts() : await actionCounts(tx, input.guildId, input.executorId);
+    const threshold = policy.enforce ? reachedThreshold(settings, input.actionType, counts) : undefined;
     const alreadySuspended = input.executorId ? await tx.adminSuspension.findUnique({ where: { guildId_userId: { guildId: input.guildId, userId: input.executorId } } }) : null;
-    if (!settings.enabled || !input.executorId || isOwner || isOperationallyExempt || alreadySuspended?.status === "SUSPENDED" || !threshold) {
+    if (!settings.enabled || !input.executorId || !policy.enforce || alreadySuspended?.status === "SUSPENDED" || !threshold) {
       if (!input.executorId) await tx.securityAlert.create({ data: { guildId: input.guildId, severity: "WARNING", title: "Unconfirmed audit event", message: `${input.actionType} was recorded without a confirmed executor.`, actionId: action.id } });
-      return { duplicate: false, action, suspend: false, counts, owner: isOwner, exempt: isOperationallyExempt, settings };
+      return { duplicate: false, action, suspend: false, counts, owner: policy.owner, exempt: policy.exempt, executorType: policy.executorType, settings };
     }
     const suspension = await tx.adminSuspension.upsert({
       where: { guildId_userId: { guildId: input.guildId, userId: input.executorId } },
@@ -82,6 +82,26 @@ export async function recordSecurityAction(input: SecurityEventInput) {
     await tx.securityAlert.create({ data: { guildId: input.guildId, severity: "CRITICAL", title: "Admin suspended by Anti-Abuse", message: `${input.executorId}: ${threshold.reason}`, actionId: action.id, suspensionId: suspension.id } });
     return { duplicate: false, action, suspend: true, counts, suspension, settings };
   });
+}
+
+/** One enforcement decision for every audit event: owner → bot → human exemption → human. */
+function securityPolicy(input: SecurityEventInput, settings: Awaited<ReturnType<typeof getSecuritySettings>>) {
+  const owner = Boolean(input.executorId && isOwnerId(input.executorId));
+  const bot = Boolean(input.executorId && input.executorIsBot);
+  const humanExempt = Boolean(input.executorId && !bot && settings.operationalExemptUserIds.includes(input.executorId) && isExemptibleAction(input.actionType));
+  return {
+    owner,
+    bot,
+    exempt: owner || bot || humanExempt,
+    enforce: Boolean(input.executorId && !owner && !bot && !humanExempt),
+    executorType: bot ? "BOT" : input.executorId ? "HUMAN" : "UNKNOWN",
+    protectionAction: bot ? "EXEMPT" : owner ? "OWNER_EXEMPT" : humanExempt ? "HUMAN_EXEMPT" : "ENFORCE",
+  };
+}
+
+function securityMetadata(metadata: Prisma.InputJsonValue | undefined, policy: ReturnType<typeof securityPolicy>): Prisma.InputJsonValue {
+  const base = metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata as Prisma.JsonObject : {};
+  return { ...base, executorType: policy.executorType, protectionAction: policy.protectionAction };
 }
 
 export async function securityDashboard(guildId: string) {

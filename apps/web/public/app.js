@@ -29,7 +29,7 @@ async function boot() {
   renderShell();
   state = await api('/api/state');
   await renderPage();
-  renderOnboarding();
+  renderProductTour();
   const stream = new EventSource('/api/stream');
   let timer;
   stream.onmessage = () => {
@@ -42,13 +42,13 @@ function renderShell() {
   const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games','/games.html','الألعاب'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','ملفي'],['reports','/reports.html','الدعم']];
   if (me?.isAdmin) links.push(['admin','/admin.html','الإدارة']);
   if (me?.isOwner) links.push(['security','/security.html','الحماية']);
-  $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark LFG System"><span>ZARK LFG SYSTEM<small>PLAY. CONNECT. COMPETE.</small></span></a><div class="nav-links" id="nav-links">${links.map(([key,href,label]) => `<a class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user">${me ? `<a href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:''}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="القائمة">☰</button></div></nav>`;
+  $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark LFG System"><span>ZARK LFG SYSTEM<small>PLAY. CONNECT. COMPETE.</small></span></a><div class="nav-links" id="nav-links">${links.map(([key,href,label]) => `<a data-tour-id="${key==='lfg'?'lfg-button':key==='profile'?'profile-link':''}" class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user">${me ? `<a href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:''}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="القائمة">☰</button></div></nav>`;
   $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div></div></div>`;
   $('nav-links').insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
   $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a>');
   $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
-  $('open-onboarding').onclick = () => renderOnboarding(true);
+  $('open-onboarding').onclick = () => renderProductTour(true);
   if(me&&!$('zark-ai-widget')){
     document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد Zark"><img src="/assets/zark-bot-avatar.png" alt=""><span>اسأل Zark</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/zark-bot-avatar.png" alt=""><div><b>مساعد Zark</b><small id="floating-ai-status">دعم ذكي</small></div><button id="floating-ai-clear" type="button" title="حذف المحادثة">🗑️</button><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
     bindFloatingSupport().catch(console.error);
@@ -82,6 +82,82 @@ function renderOnboarding(force=false) {
   };
   modal.addEventListener('click',event=>{if(event.target===modal)close();});
   paint();document.body.appendChild(modal);
+}
+
+const productTourKey='zark-product-tour-v2';
+const productTourSteps=[
+  {id:'lfg',route:'/',target:'[data-tour-id="lfg-button"]',title:'ابدأ من LFG',text:'من هنا تبدأ البحث عن لاعبين أو إنشاء تجمع جديد.'},
+  {id:'game',route:'/lfg.html',target:'[data-tour-id="game-selector"]',title:'اختر اللعبة',text:'اختر اللعبة التي تريد أن تجد لاعبين لها.'},
+  {id:'players',route:'/lfg.html',target:'[data-tour-id="players-count"]',title:'حدد عدد اللاعبين',text:'اختر عدد اللاعبين المطلوب للتجمع.'},
+  {id:'settings',route:'/lfg.html',target:'#create-room-form',title:'إعدادات المجموعة',text:'هنا تستطيع تفعيل Voice وإضافة خيارات اللعب الاختيارية.'},
+  {id:'when',route:'/lfg.html',target:'[data-tour-id="play-when"]',title:'الآن أو لاحقًا',text:'اختر «الآن» للبدء فورًا، أو «لاحقًا» لتحديد موعد التجمع.'},
+  {id:'schedule',route:'/lfg.html',target:'[data-tour-id="schedule-time"]',title:'حدد الموعد',text:'عند اختيار «لاحقًا» حدد الساعة والفترة، وسيعرض Zark أقرب موعد مناسب.'},
+  {id:'categories',route:'/lfg.html',target:'[data-tour-id="categories"]',title:'تصنيفات الغرف',text:'استخدم التصنيفات لتصل بسرعة لنوع الغرف الذي تحبه.'},
+  {id:'game-card',route:'/lfg.html',target:'#interest-games .interest-card',title:'الألعاب المتاحة',text:'كل بطاقة لعبة تأتي من بيانات الموقع الحالية؛ اختر «مهتم» لتظهر لك الدعوات المناسبة.'},
+  {id:'profile',route:'/profile.html',target:'[data-tour-id="profile-link"]',title:'ملفك الشخصي',text:'من ملفك تستطيع مشاهدة نشاطك وإحصاءاتك وتعديل الخصوصية.'},
+  {id:'interests',route:'/lfg.html',target:'[data-tour-id="interests"]',title:'الاهتمامات',text:'اختر الألعاب التي تهمك حتى يقترح النظام تجمعات مناسبة لك.'},
+  {id:'notifications',route:'/lfg.html',target:'#interest-games [data-notify]',title:'تحكم بالتنبيهات',text:'فعّل أو أوقف تنبيهات كل لعبة بشكل منفصل، ويمكنك استخدام الغفوة عند الانشغال.'},
+];
+
+function readProductTour(){try{return JSON.parse(localStorage.getItem(productTourKey)||'null')}catch{return null}}
+function writeProductTour(value){localStorage.setItem(productTourKey,JSON.stringify(value));}
+function renderProductTour(restart=false){
+  if(restart){localStorage.removeItem(productTourKey);}
+  const saved=readProductTour();
+  if(saved?.status==='completed'||saved?.status==='skipped'||saved?.status==='later')return;
+  if(!saved||saved.status==='prompt')return renderTourInvite();
+  return renderTourStep(Math.max(0,Number(saved.step)||0));
+}
+
+function renderTourInvite(){
+  document.getElementById('zark-product-tour')?.remove();
+  const invite=document.createElement('section');invite.id='zark-product-tour';invite.className='tour-invite';invite.setAttribute('role','dialog');invite.setAttribute('aria-modal','true');
+  invite.innerHTML='<article><span>✨</span><h2>هل تريد جولة سريعة؟</h2><p>سنرشدك على عناصر الموقع الحقيقية خطوة بخطوة، ويمكنك إيقافها في أي وقت.</p><div><button class="button ghost" data-tour-later>لاحقًا</button><button class="button ghost" data-tour-skip>تخطي</button><button class="button primary" data-tour-start>ابدأ الجولة</button></div></article>';
+  invite.querySelector('[data-tour-start]').onclick=()=>{writeProductTour({status:'active',step:0});invite.remove();console.info('tutorial_started');renderTourStep(0);};
+  invite.querySelector('[data-tour-later]').onclick=()=>{writeProductTour({status:'later'});invite.remove();};
+  invite.querySelector('[data-tour-skip]').onclick=()=>{writeProductTour({status:'skipped'});invite.remove();console.info('tutorial_skipped');};
+  document.body.appendChild(invite);
+}
+
+function renderTourStep(index){
+  const step=productTourSteps[index];
+  if(!step){writeProductTour({status:'completed'});return renderTourComplete();}
+  if(location.pathname!==step.route){writeProductTour({status:'active',step:index});location.href=step.route;return;}
+  document.getElementById('zark-product-tour')?.remove();
+  const target=document.querySelector(step.target);
+  if(window.innerWidth<=950&&target?.closest('#nav-links'))$('nav-links')?.classList.add('open');
+  if(!target||target.getClientRects().length===0){console.warn('tutorial_target_missing',step.id,step.target);return nextTourStep(index);}
+  target.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+  setTimeout(()=>paintTourSpotlight(index,target),matchMedia('(prefers-reduced-motion: reduce)').matches?0:180);
+}
+
+function paintTourSpotlight(index,target){
+  document.getElementById('zark-product-tour')?.remove();
+  document.querySelectorAll('[data-tour-active]').forEach(node=>node.removeAttribute('data-tour-active'));
+  target.closest('.site-nav')?.setAttribute('data-tour-nav','true');
+  target.setAttribute('data-tour-active','true');
+  const step=productTourSteps[index],rect=target.getBoundingClientRect(),padding=9;
+  const overlay=document.createElement('section');overlay.id='zark-product-tour';overlay.className='product-tour-layer';overlay.innerHTML=`<div class="tour-spotlight" style="top:${Math.max(6,rect.top-padding)}px;left:${Math.max(6,rect.left-padding)}px;width:${rect.width+padding*2}px;height:${rect.height+padding*2}px"></div><aside class="tour-tooltip"><span class="tour-arrow">➜</span><small>${index+1} / ${productTourSteps.length}</small><h2>${step.title}</h2><p>${step.text}</p><div><button class="button ghost small" data-tour-back ${index===0?'disabled':''}>السابق</button><button class="button ghost small" data-tour-skip>تخطي</button><button class="button primary small" data-tour-next>${index===productTourSteps.length-1?'إنهاء':'التالي'}</button></div></aside>`;
+  const tooltip=overlay.querySelector('.tour-tooltip');
+  const tooltipWidth=Math.min(360,window.innerWidth-24),left=Math.max(12,Math.min(window.innerWidth-tooltipWidth-12,rect.right-tooltipWidth));
+  const top=rect.bottom+18+230<window.innerHeight?rect.bottom+18:Math.max(12,rect.top-215);
+  tooltip.style.cssText=`width:${tooltipWidth}px;left:${left}px;top:${top}px`;
+  overlay.querySelector('[data-tour-back]').onclick=()=>renderTourStep(index-1);
+  overlay.querySelector('[data-tour-skip]').onclick=()=>{writeProductTour({status:'skipped'});cleanupTour();console.info('tutorial_skipped');};
+  overlay.querySelector('[data-tour-next]').onclick=()=>nextTourStep(index);
+  if(step.id==='lfg')target.addEventListener('click',()=>writeProductTour({status:'active',step:index+1}),{once:true});
+  window.addEventListener('keydown',tourEscape,{once:true});document.body.appendChild(overlay);console.info('tutorial_step_viewed',step.id);
+}
+
+function nextTourStep(index){
+  cleanupTour();let next=index+1;
+  if(productTourSteps[index]?.id==='when'&&$('room-when')?.value!=='later')next+=1;
+  writeProductTour({status:'active',step:next});renderTourStep(next);
+}
+function cleanupTour(){document.getElementById('zark-product-tour')?.remove();document.querySelectorAll('[data-tour-active]').forEach(node=>node.removeAttribute('data-tour-active'));document.querySelectorAll('[data-tour-nav]').forEach(node=>node.removeAttribute('data-tour-nav'));}
+function tourEscape(event){if(event.key==='Escape'){writeProductTour({status:'skipped'});cleanupTour();console.info('tutorial_skipped');}}
+function renderTourComplete(){
+  cleanupTour();const done=document.createElement('section');done.id='zark-product-tour';done.className='tour-invite';done.innerHTML='<article><span>🎉</span><h2>جاهز!</h2><p>الآن تستطيع استخدام Zark LFG بثقة.</p><div><a class="button primary" href="/lfg.html">ابدأ الآن</a></div></article>';document.body.appendChild(done);console.info('tutorial_completed');
 }
 
 async function renderPage(realtime = false) {
@@ -126,6 +202,7 @@ async function renderLfg(realtime) {
   const catalog = state.lfgCatalog || [];
   const games = catalog.flatMap(category => category.games);
   if (!realtime) {
+    $('room-game').dataset.tourId='game-selector';$('room-size').dataset.tourId='players-count';$('room-when').dataset.tourId='play-when';$('room-schedule-label').dataset.tourId='schedule-time';$('lfg-filters').dataset.tourId='categories';$('interest-games').dataset.tourId='interests';
     $('room-game').innerHTML = games.map(game => `<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||'🎮')} ${escapeHtml(game.name)}</option>`).join('');
     $('room-game').onchange=updateRobloxMapField;updateRobloxMapField();
     $('lfg-filters').innerHTML = `<button class="active" data-filter="all">الكل</button>${catalog.map(category => `<button data-filter="${escapeHtml(category.slug)}">${escapeHtml(category.icon||'🎮')} ${escapeHtml(category.name)}</button>`).join('')}`;
@@ -235,6 +312,8 @@ async function renderProfile(){
   $('profile-interests').innerHTML=data.lfg.interests.length?data.lfg.interests.map(game=>`<span class="chip">${escapeHtml(game.icon||'🎮')} ${escapeHtml(game.name)} ${game.notificationsEnabled?'🔔':'🔕'}</span>`).join(''):empty('لم تحدد اهتماماتك بعد');
   $('profile-setting-bio').value=data.settings.bio||'';$('profile-setting-accent').value=data.settings.profileAccent;$('profile-setting-visible').checked=data.settings.activityVisible;$('profile-setting-rival').checked=data.settings.rivalNotificationsEnabled;
   $('profile-settings-form').onsubmit=async event=>{event.preventDefault();const result=$('profile-settings-result');result.textContent='جارِ الحفظ...';try{const saved=await api('/api/me/profile/settings',{method:'PUT',body:{bio:$('profile-setting-bio').value||null,profileAccent:$('profile-setting-accent').value,activityVisible:$('profile-setting-visible').checked,rivalNotificationsEnabled:$('profile-setting-rival').checked}});$('profile-head').style.setProperty('--profile-accent',saved.profileAccent);$('profile-bio').textContent=saved.bio||'أضف نبذة قصيرة عن أسلوب لعبك.';result.textContent='✅ تم حفظ ملفك وخصوصيتك.';}catch(error){result.textContent=`❌ ${error.message}`;}};
+  if(!$('restart-product-tour'))$('profile-settings-form').insertAdjacentHTML('beforeend','<button id="restart-product-tour" class="button ghost" type="button">✨ إعادة تشغيل الجولة التعليمية</button>');
+  $('restart-product-tour').onclick=()=>renderProductTour(true);
   bindAvailability(availability);
 }
 
