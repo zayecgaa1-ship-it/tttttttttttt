@@ -239,11 +239,17 @@ app.put("/api/web-admin/settings", async (request) => {
     aiGlobalDailyTokenBudget: z.number().int().min(10000).max(1000000),
     aiMaxOutputTokens: z.number().int().min(50).max(1000),
   }).parse(request.body);
-  return updateGuildRuntimeSettings(admin.userId, body);
+  const settings = await updateGuildRuntimeSettings(admin.userId, body);
+  // Do not make an administrator wait for the next scheduler tick after
+  // enabling auto rooms from the dashboard.
+  if (body.autoSmartRoomsEnabled) void processAutoSmartRooms({ force: true }).catch((error) => app.log.error(error));
+  return settings;
 });
 app.post("/api/settings/auto-smart-rooms", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ adminId: z.string().min(1).max(30), enabled: z.boolean() }).parse(request.body);
-  return setAutoSmartRoomsEnabled(body.adminId, body.enabled);
+  const settings = await setAutoSmartRoomsEnabled(body.adminId, body.enabled);
+  if (body.enabled) void processAutoSmartRooms({ force: true }).catch((error) => app.log.error(error));
+  return settings;
 });
 app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);

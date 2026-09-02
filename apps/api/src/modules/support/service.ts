@@ -7,6 +7,12 @@ import { reportPlayer } from "../feedback/service.js";
 
 type AiProvider = "GEMINI" | "GROQ" | "OPENROUTER";
 type AiAnswer = { answer?: string; inputTokens: number; outputTokens: number };
+type PendingRoomRequest = { gameSlug: string; expiresAt: number };
+
+// The site chat is intentionally stateless in the UI.  Keep a very short,
+// server-side continuation so "اعملها من الموقع" can complete the game named
+// in the immediately preceding message without guessing a different game.
+const pendingRoomRequests = new Map<string, PendingRoomRequest>();
 
 const knowledge = [
   { keywords: ["اوفلاين", "offline", "البوت", "متصل"], answer: "إذا ظهر Zark أوفلاين فتأكد أن PostgreSQL وRedis والـAPI شغالة، ثم شغّل البوت. لوحة الإدارة تعرض حالة البوت وآخر Heartbeat تلقائيًا." },
@@ -21,7 +27,7 @@ const knowledge = [
 ];
 
 const gameAliases: Record<string, string[]> = {
-  minecraft: ["ماينكرافت", "ماين كرافت", "مينكرافت"],
+  minecraft: ["ماينكرافت", "ماين كرافت", "مينكرافت", "مابن كرافت", "مابنكرافت"],
   roblox: ["روبلوكس", "روب لوكس"],
   valorant: ["فالورانت", "فلورانت"],
   fortnite: ["فورتنايت", "فورت نايت"],
@@ -125,7 +131,7 @@ export async function askSupport(input: { userId: string; displayName: string; a
   }
 }
 
-const supportInstructions = "أنت مساعد Zark LFG System العربي. نطاقك الوحيد هو موقع Zark وبوت Discord وLFG والألعاب والغرف والأوامر والاهتمامات والإشعارات والملف والتقييم والبلاغات، مع السماح بتحية ودية قصيرة. ارفض باختصار أي سؤال خارج هذا النطاق. أجب بوضوح وباختصار واعتمد فقط على دليل Zark والسياق المرفقين، ولا تطلب أسرارًا أو Tokens ولا تدّعي تنفيذ إجراء؛ الإجراءات ينفذها النظام بشكل مستقل وآمن.";
+const supportInstructions = "أنت مساعد Zark LFG System العربي. نطاقك الوحيد هو موقع Zark وبوت Discord وLFG والألعاب والغرف والأوامر والاهتمامات والإشعارات والملف والتقييم والبلاغات، مع السماح بتحية ودية قصيرة. ارفض باختصار أي سؤال خارج هذا النطاق. أجب بوضوح وباختصار واعتمد فقط على دليل Zark والسياق المرفقين، ولا تطلب أسرارًا أو Tokens. عند وجود نتيجة إجراء من النظام، أكّد ما نُفّذ فقط ولا تقل إنك نفّذت شيئًا من نفسك؛ الإنشاء والإبلاغ ينفذهما نظام Zark الآمن.";
 
 function configuredAiProviders(): AiProvider[] {
   return ([
@@ -373,28 +379,42 @@ async function executeSupportAction(input: { userId: string; displayName: string
     };
   }
 
-  const hasCreateVerb = /(?:^|\s)(?:اعمل(?:ي|لي)?|سوي(?:لي)?|انشئ(?:لي)?|افتح(?:لي)?|create)(?:\s|$)/.test(normalized);
-  const hasRoomNoun = /(?:^|\s)(?:غرفه|روم|lfg)(?:\s|$)/.test(normalized);
-  const roomCommand = hasCreateVerb && hasRoomNoun;
+  const hasCreateVerb = /(?:^|\s)(?:اعمل(?:ي|لي)?|سوي(?:لي)?|انشئ(?:لي)?|افتح(?:لي)?|create|make)(?:\s|$)/.test(normalized);
+  const hasRoomNoun = /(?:^|\s)(?:غرفه|روم|تجمع|lfg)(?:\s|$)/.test(normalized);
+  const continuation = /(?:^|\s)(?:انت|إنت|انتو)?\s*(?:اعمل(?:ها|ه|لي)?|سوي(?:ها|ه|لي)?|نفذ(?:ها|ه)?|ابدأ(?:ها|ه)?)(?:\s|$)/.test(normalized);
+  if (context.mentioned && hasCreateVerb) {
+    pendingRoomRequests.set(input.userId, { gameSlug: context.mentioned.slug, expiresAt: Date.now() + 10 * 60_000 });
+  }
+  const pending = pendingRoomRequests.get(input.userId);
+  if (pending && pending.expiresAt <= Date.now()) pendingRoomRequests.delete(input.userId);
+  const pendingGame = pending && pending.expiresAt > Date.now()
+    ? await db.lfgGameCatalog.findUnique({ where: { slug: pending.gameSlug }, select: { id: true, slug: true, name: true, icon: true, minPlayers: true, maxPlayers: true } })
+    : undefined;
+  const game = context.mentioned ?? pendingGame;
+  // A user may simply say "اعملي ماينكرافت"; naming the game is enough, the
+  // room word is optional.  A continuation is only honoured for the same user
+  // and for ten minutes, using the previously named game.
+  const roomCommand = (hasCreateVerb || continuation) && (hasRoomNoun || Boolean(game));
   if (!roomCommand) return undefined;
-  if (!context.mentioned) {
+  if (!game) {
     return { answer: "حدد اسم اللعبة أيضًا، مثل: «اعمل روم Minecraft لأربعة لاعبين مع فويس». لن أنشئ غرفة قبل معرفة اللعبة.", action: { type: "NEEDS_GAME" }, suggestions: context.suggestions };
   }
-  if (context.mentioned.slug === "roblox") {
+  if (game.slug === "roblox") {
     const mapMatch = message.match(/(?:ماب|map)\s*[:：-]?\s*([^،,]{2,60})/iu);
     if (!mapMatch) return { answer: "اكتب اسم ماب Roblox أولًا، مثل: «اعملي غرفة Roblox ماب Blox Fruits». لن أنشئ الغرفة بدون اسم الماب.", action: { type: "NEEDS_MAP" }, suggestions: context.suggestions };
   }
   const playerMatch = normalized.match(/(?:عدد\s*)?(\d{1,2})\s*(?:لاعب|لاعبين|players?)/) ?? normalized.match(/(?:لاعبين|players?)\s*(\d{1,2})/);
   const requestedPlayers = playerMatch ? Number(playerMatch[1]) : 4;
-  const maxPlayers = Math.min(context.mentioned.maxPlayers, Math.max(context.mentioned.minPlayers, requestedPlayers));
+  const maxPlayers = Math.min(game.maxPlayers, Math.max(game.minPlayers, requestedPlayers));
   const minuteMatch = normalized.match(/(\d{1,3})\s*(?:دقيقه|دقائق|minute|minutes)/);
   const hourMatch = normalized.match(/(\d{1,2})\s*(?:ساعه|ساعات|hour|hours)/);
   const durationMinutes = Math.min(360, Math.max(15, minuteMatch ? Number(minuteMatch[1]) : hourMatch ? Number(hourMatch[1]) * 60 : 60));
   const needsVoice = !/(?:بدون|بلا)\s*(?:فويس|voice)/.test(normalized);
-  const mapName = context.mentioned.slug === "roblox" ? message.match(/(?:ماب|map)\s*[:：-]?\s*([^،,]{2,60})/iu)?.[1].trim() : undefined;
-  const room = await createLfgRoom({ userId: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, gameSlug: context.mentioned.slug, maxPlayers, durationMinutes, needsVoice, mapName, description: "أنشئت عبر مساعد Zark" });
+  const mapName = game.slug === "roblox" ? message.match(/(?:ماب|map)\s*[:：-]?\s*([^،,]{2,60})/iu)?.[1].trim() : undefined;
+  const room = await createLfgRoom({ userId: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, gameSlug: game.slug, maxPlayers, durationMinutes, needsVoice, mapName, description: "أنشئت عبر مساعد Zark" });
+  pendingRoomRequests.delete(input.userId);
   return {
-    answer: `✅ أنشأت غرفة ${context.mentioned.name} بنجاح: ${room.currentPlayers}/${room.maxPlayers}${needsVoice ? " مع Voice" : " بدون Voice"}. سيقوم Zark بإشعار المهتمين وتظهر الغرفة الآن في الموقع وDiscord.`,
+    answer: `✅ أنشأت غرفة ${game.name} بنجاح: ${room.currentPlayers}/${room.maxPlayers}${needsVoice ? " مع Voice" : " بدون Voice"}. سيقوم Zark بإشعار المهتمين وتظهر الغرفة الآن في الموقع وDiscord.`,
     action: { type: "LFG_CREATED", roomId: room.id, gameSlug: room.gameSlug },
     suggestions: [{ roomId: room.id, label: `${room.gameIcon ?? "🎮"} فتح غرفة ${room.gameName}`, gameSlug: room.gameSlug }],
   };

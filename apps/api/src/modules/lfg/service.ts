@@ -282,7 +282,7 @@ export async function smartMatchLfg(input: { userId: string; displayName: string
   return { room, insight, joinedExisting: false };
 }
 
-export async function processAutoSmartRooms() {
+export async function processAutoSmartRooms(options: { force?: boolean } = {}) {
   const settings = await getGuildRuntimeSettings();
   if (!settings.autoSmartRoomsEnabled) return { created: false, reason: "disabled" as const };
   const now = new Date();
@@ -290,7 +290,7 @@ export async function processAutoSmartRooms() {
   const claimed = await serializable(async (tx) => {
     const previous = await tx.serviceHeartbeat.findUnique({ where: { service } });
     // Serializable transaction forms a distributed lock across bot instances.
-    if (previous && now.getTime() - previous.lastSeenAt.getTime() < settings.autoRoomIntervalMinutes * 60_000) return false;
+    if (!options.force && previous && now.getTime() - previous.lastSeenAt.getTime() < settings.autoRoomIntervalMinutes * 60_000) return false;
     await tx.serviceHeartbeat.upsert({ where: { service }, update: { instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } }, create: { service, instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } } });
     return true;
   });
