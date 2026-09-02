@@ -3,6 +3,7 @@ import { db } from "../../../../../packages/db/src/client.js";
 import { enforceRateLimit, publish } from "../../events.js";
 import type { WebUser } from "../../auth.js";
 import { isOwnerId } from "../security/service.js";
+import sharp from "sharp";
 
 const activeStatuses: TradeStatus[] = ["OPEN", "PENDING", "COMPLETION_PENDING"];
 const publicTrade = {
@@ -10,6 +11,18 @@ const publicTrade = {
   game: { select: { id: true, slug: true, name: true, icon: true } },
   _count: { select: { interests: true, conversations: true } },
 } satisfies Prisma.TradeInclude;
+
+// Market grids never need the original base64 upload. Excluding it prevents a
+// page of trades from becoming a response containing tens of megabytes.
+const tradeListSelect = {
+  id: true, publicId: true, ownerId: true, lfgGameId: true, itemName: true,
+  thumbnailData: true, haveText: true, wantText: true, description: true, status: true,
+  completionRequestedBy: true, completionConversationId: true,
+  expiresAt: true, closedAt: true, createdAt: true, updatedAt: true,
+  owner: publicTrade.owner,
+  game: publicTrade.game,
+  _count: publicTrade._count,
+} satisfies Prisma.TradeSelect;
 
 export function isTradeModerator(user: WebUser) {
   if (isOwnerId(user.userId)) return true;
@@ -50,11 +63,11 @@ export async function listTrades(input: { search?: string; game?: string; status
         { game: { name: { contains: search, mode: "insensitive" } } },
       ] : undefined,
     },
-    include: publicTrade,
+    select: tradeListSelect,
     orderBy: input.sort === "oldest" ? { createdAt: "asc" } : input.sort === "active" ? { updatedAt: "desc" } : { createdAt: "desc" },
     take: 100,
   });
-  return rows.map(presentTrade);
+  return rows.map(({ thumbnailData, ...trade }) => ({ ...presentTrade(trade), imageData: thumbnailData }));
 }
 
 export async function getTrade(identifier: string, viewerId?: string) {
@@ -74,6 +87,7 @@ export async function createTrade(user: WebUser, input: { gameSlug: string; item
   await enforceRateLimit("trade-create", user.userId, 3, 60 * 60);
   if (!input.acceptedTerms) throw httpError("يجب الموافقة على شروط الأمان قبل نشر العرض", 400);
   validateTradeImage(input.imageData);
+  const thumbnailData = await createTradeThumbnail(input.imageData);
   await syncUser(user);
   const game = await db.lfgGameCatalog.findFirst({ where: { slug: input.gameSlug, enabled: true }, select: { id: true } });
   if (!game) throw httpError("اللعبة غير موجودة أو غير مفعلة", 404);
@@ -87,6 +101,7 @@ export async function createTrade(user: WebUser, input: { gameSlug: string; item
       lfgGameId: game.id,
       itemName: clean(input.itemName, 100),
       imageData: input.imageData,
+      thumbnailData,
       haveText: normalizedHave,
       wantText: normalizedWant,
       description: optional(input.description, 1000),
@@ -104,11 +119,13 @@ export async function updateTrade(identifier: string, user: WebUser, input: { it
   if (trade.ownerId !== user.userId) throw httpError("صاحب العرض فقط يستطيع تعديله", 403);
   if (!["OPEN", "PENDING"].includes(trade.status)) throw httpError("لا يمكن تعديل عرض منتهٍ", 409);
   if (input.imageData) validateTradeImage(input.imageData);
+  const thumbnailData = input.imageData ? await createTradeThumbnail(input.imageData) : undefined;
   const updated = await db.trade.update({
     where: { id: trade.id },
     data: {
       itemName: input.itemName === undefined ? undefined : clean(input.itemName, 100),
       imageData: input.imageData,
+      thumbnailData,
       haveText: input.haveText === undefined ? undefined : clean(input.haveText, 300),
       wantText: input.wantText === undefined ? undefined : clean(input.wantText, 300),
       description: input.description === undefined ? undefined : optional(input.description ?? undefined, 1000),
@@ -186,22 +203,22 @@ export async function listTradeInbox(user: WebUser) {
   const conversations = await db.tradeConversation.findMany({
     where: moderator ? undefined : { OR: [{ ownerId: user.userId }, { interestedUserId: user.userId }] },
     include: {
-      trade: { include: { game: { select: { name: true, icon: true } } } },
+      trade: { select: { id: true, publicId: true, itemName: true, status: true, game: { select: { name: true, icon: true } } } },
       owner: { select: { id: true, displayName: true, avatarUrl: true } },
       interestedUser: { select: { id: true, displayName: true, avatarUrl: true } },
       messages: { orderBy: { createdAt: "desc" }, take: 1, select: { content: true, createdAt: true, senderId: true, deletedAt: true } },
     }, orderBy: { lastMessageAt: "desc" }, take: 100,
   });
-  return conversations.map((item) => ({ ...item, trade: { ...item.trade, code: tradeCode(item.trade.publicId), imageData: undefined }, unread: unreadFor(item, user.userId) }));
+  return conversations.map((item) => ({ ...item, trade: { ...item.trade, code: tradeCode(item.trade.publicId) }, unread: unreadFor(item, user.userId) }));
 }
 
 export async function getTradeConversation(id: string, user: WebUser) {
   const conversation = await db.tradeConversation.findUnique({
     where: { id }, include: {
-      trade: { include: { game: { select: { name: true, slug: true, icon: true } } } },
+      trade: { select: { id: true, publicId: true, itemName: true, status: true, completionConversationId: true, game: { select: { name: true, slug: true, icon: true } } } },
       owner: { select: { id: true, displayName: true, avatarUrl: true } },
       interestedUser: { select: { id: true, displayName: true, avatarUrl: true } },
-      messages: { orderBy: { createdAt: "asc" }, include: { sender: { select: { id: true, displayName: true, avatarUrl: true } } } },
+      messages: { orderBy: { createdAt: "desc" }, take: 500, include: { sender: { select: { id: true, displayName: true, avatarUrl: true } } } },
     },
   });
   if (!conversation) throw httpError("المحادثة غير موجودة", 404);
@@ -210,7 +227,7 @@ export async function getTradeConversation(id: string, user: WebUser) {
   if (conversation.ownerId === user.userId) await db.tradeConversation.update({ where: { id }, data: { ownerReadAt: new Date() } });
   if (conversation.interestedUserId === user.userId) await db.tradeConversation.update({ where: { id }, data: { interestedReadAt: new Date() } });
   await db.tradeAuditLog.create({ data: { actorId: user.userId, tradeId: conversation.tradeId, conversationId: id, action: moderator && !isParticipant(conversation, user.userId) ? "trade.conversation_admin_viewed" : "trade.conversation_viewed" } });
-  return { ...conversation, trade: { ...conversation.trade, code: tradeCode(conversation.trade.publicId) }, moderatorView: moderator && !isParticipant(conversation, user.userId) };
+  return { ...conversation, messages: [...conversation.messages].reverse(), trade: { ...conversation.trade, code: tradeCode(conversation.trade.publicId) }, moderatorView: moderator && !isParticipant(conversation, user.userId) };
 }
 
 export async function sendTradeMessage(id: string, user: WebUser, rawContent: string) {
@@ -299,7 +316,7 @@ export async function reportTrade(identifier: string, user: WebUser, input: { co
   if (!trade) throw httpError("العرض غير موجود", 404);
   let conversation = null;
   if (input.conversationId) {
-    conversation = await db.tradeConversation.findUnique({ where: { id: input.conversationId }, include: { messages: { orderBy: { createdAt: "asc" }, select: { id: true, senderId: true, content: true, createdAt: true, editedAt: true, deletedAt: true } } } });
+    conversation = await db.tradeConversation.findUnique({ where: { id: input.conversationId }, include: { messages: { orderBy: { createdAt: "desc" }, take: 500, select: { id: true, senderId: true, content: true, createdAt: true, editedAt: true, deletedAt: true } } } });
     if (!conversation || conversation.tradeId !== trade.id) throw httpError("المحادثة لا تخص هذا العرض", 400);
     requireParticipant(conversation, user.userId);
   }
@@ -315,7 +332,7 @@ export async function reportTrade(identifier: string, user: WebUser, input: { co
   const evidence = {
     capturedAt: new Date().toISOString(),
     trade: { id: trade.id, code: tradeCode(trade.publicId), ownerId: trade.ownerId, itemName: trade.itemName, haveText: trade.haveText, wantText: trade.wantText, description: trade.description, status: trade.status },
-    conversation: conversation ? { id: conversation.id, ownerId: conversation.ownerId, interestedUserId: conversation.interestedUserId, messages: conversation.messages } : null,
+    conversation: conversation ? { id: conversation.id, ownerId: conversation.ownerId, interestedUserId: conversation.interestedUserId, messages: [...conversation.messages].reverse() } : null,
   };
   const report = await db.$transaction(async (tx) => {
     const created = await tx.tradeReport.create({ data: { tradeId: trade.id, conversationId: conversation?.id, messageId: input.messageId, reporterId: user.userId, reportedUserId: input.reportedUserId, reason: input.reason, details: optional(input.details, 1500), evidence } });
@@ -338,11 +355,31 @@ export async function setTradeDiscordMessage(identifier: string, channelId: stri
 }
 
 export async function expireDueTrades() {
-  const due = await db.trade.findMany({ where: { status: "OPEN", expiresAt: { lte: new Date() } }, select: { id: true, publicId: true, ownerId: true } });
+  const due = await db.trade.findMany({ where: { status: "OPEN", expiresAt: { lte: new Date() } }, select: { id: true, publicId: true, ownerId: true }, take: 500 });
   if (!due.length) return 0;
   await db.trade.updateMany({ where: { id: { in: due.map((item) => item.id) }, status: "OPEN" }, data: { status: "EXPIRED", closedAt: new Date() } });
   for (const trade of due) publish({ type: "trade.status_changed", tradeId: trade.id, publicId: trade.publicId, status: "EXPIRED", ownerId: trade.ownerId });
   return due.length;
+}
+
+export async function backfillTradeThumbnails(limit = 25) {
+  const rows = await db.trade.findMany({ where: { thumbnailData: null }, select: { id: true, imageData: true }, take: Math.min(100, Math.max(1, limit)) });
+  let updated = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      const thumbnailData = await createTradeThumbnail(row.imageData);
+      const result = await db.trade.updateMany({ where: { id: row.id, thumbnailData: null }, data: { thumbnailData } });
+      updated += result.count;
+    } catch (error) {
+      console.error(`Could not create thumbnail for legacy trade ${row.id}`, error);
+      // Empty means "use the branded fallback" and prevents retrying the same
+      // corrupt legacy upload every five minutes forever.
+      await db.trade.updateMany({ where: { id: row.id, thumbnailData: null }, data: { thumbnailData: "" } }).catch(() => undefined);
+      failed += 1;
+    }
+  }
+  return { scanned: rows.length, updated, failed };
 }
 
 export async function readTradeNotifications(userId: string) {
@@ -430,6 +467,21 @@ export function validateTradeImage(value: string) {
   if (!match) throw httpError("ارفع صورة PNG أو JPG أو WEBP من جهازك", 400);
   const bytes = Math.floor(match[2].length * 0.75) - (match[2].endsWith("==") ? 2 : match[2].endsWith("=") ? 1 : 0);
   if (bytes > 1_500_000) throw httpError("حجم الصورة يجب ألا يتجاوز 1.5MB", 400);
+}
+
+export async function createTradeThumbnail(value: string) {
+  const match = value.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) throw httpError("ارفع صورة PNG أو JPG أو WEBP من جهازك", 400);
+  try {
+    const output = await sharp(Buffer.from(match[2], "base64"), { failOn: "error" })
+      .rotate()
+      .resize(640, 400, { fit: "cover", position: "centre", withoutEnlargement: true })
+      .webp({ quality: 72, effort: 4 })
+      .toBuffer();
+    return `data:image/webp;base64,${output.toString("base64")}`;
+  } catch {
+    throw httpError("ملف الصورة تالف أو ليس صورة حقيقية", 400);
+  }
 }
 
 function clean(value: string, max: number) {

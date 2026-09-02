@@ -2,6 +2,7 @@ import { db } from "../../../../../packages/db/src/client.js";
 import type { WebUser } from "../../auth.js";
 import { HttpError } from "../../auth.js";
 import { publish } from "../../events.js";
+import { serializable } from "../../db-transaction.js";
 
 const BROADCAST_COOLDOWN_MS = 30 * 60_000;
 
@@ -19,13 +20,15 @@ export async function createBroadcast(admin: WebUser, input: { title: string; co
   const content = cleanBroadcastText(input.content, 1500);
   if (title.length < 2 || content.length < 2) throw new HttpError("اكتب عنوانًا ومحتوى واضحين", 400);
 
-  const active = await db.adminBroadcast.findFirst({ where: { status: { in: ["PENDING", "RUNNING"] } } });
-  if (active) throw new HttpError("توجد رسالة جماعية قيد الإرسال؛ انتظر حتى تنتهي", 409);
-  const recent = await db.adminBroadcast.findFirst({ where: { createdAt: { gte: new Date(Date.now() - BROADCAST_COOLDOWN_MS) }, status: { in: ["PENDING", "RUNNING", "COMPLETED"] } }, orderBy: { createdAt: "desc" } });
-  if (recent) throw new HttpError("لحماية الأعضاء من الإزعاج، يمكن بدء حملة واحدة كل 30 دقيقة", 429);
-
-  const campaign = await db.adminBroadcast.create({ data: { adminId: admin.userId, title, content } });
-  await db.auditLog.create({ data: { adminId: admin.userId, action: "broadcast.created", targetId: campaign.id, details: { title } } });
+  const campaign = await serializable(async (tx) => {
+    const active = await tx.adminBroadcast.findFirst({ where: { status: { in: ["PENDING", "RUNNING"] } } });
+    if (active) throw new HttpError("توجد رسالة جماعية قيد الإرسال؛ انتظر حتى تنتهي", 409);
+    const recent = await tx.adminBroadcast.findFirst({ where: { createdAt: { gte: new Date(Date.now() - BROADCAST_COOLDOWN_MS) }, status: { in: ["PENDING", "RUNNING", "COMPLETED"] } }, orderBy: { createdAt: "desc" } });
+    if (recent) throw new HttpError("لحماية الأعضاء من الإزعاج، يمكن بدء حملة واحدة كل 30 دقيقة", 429);
+    const created = await tx.adminBroadcast.create({ data: { adminId: admin.userId, title, content } });
+    await tx.auditLog.create({ data: { adminId: admin.userId, action: "broadcast.created", targetId: created.id, details: { title } } });
+    return created;
+  });
   publish({ type: "broadcast.created", broadcastId: campaign.id, adminId: admin.userId });
   return campaign;
 }

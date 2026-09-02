@@ -33,10 +33,10 @@ const gameAliases: Record<string, string[]> = {
   fortnite: ["فورتنايت", "فورت نايت"],
   rust: ["رست"],
   "gta-v": ["gta", "gta 5", "قراند", "جراند", "جراند ثفت اوتو"],
-  "counter-strike-2": ["cs2", "كاونتر", "كاونتر سترايك"],
+  cs2: ["counter strike 2", "كاونتر", "كاونتر سترايك"],
   "rocket-league": ["روكيت ليق", "روكيت ليج"],
   "league-of-legends": ["lol", "ليج اوف ليجندز"],
-  "call-of-duty-warzone": ["وارزون", "كول اوف ديوتي"],
+  warzone: ["call of duty warzone", "وارزون", "كول اوف ديوتي"],
   "rainbow-six-siege": ["رينبو", "رينبو سكس"],
   "overwatch-2": ["اوفر واتش", "اوفر واتش 2"],
   "apex-legends": ["ايبكس", "ابكس ليجندز"],
@@ -420,7 +420,7 @@ async function executeSupportAction(input: { userId: string; displayName: string
   };
 }
 
-function findMentionedGame<T extends { slug: string; name: string }>(message: string, games: T[]) {
+export function findMentionedGame<T extends { slug: string; name: string }>(message: string, games: T[]) {
   const exact = games.find((game) => [game.name, game.slug, ...(gameAliases[game.slug] ?? [])].some((alias) => message.includes(normalize(alias))));
   if (exact) return exact;
   const words = message.split(" ");

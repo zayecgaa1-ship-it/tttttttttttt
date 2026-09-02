@@ -209,7 +209,7 @@ model GuildSettings {
   maxAutoRoomsPerGame          Int       @default(1)
   autoRoomDmInterestedUsers    Boolean   @default(true)
   deleteExpiredAutoRooms       Boolean   @default(true)
-  voiceEmptyGraceMinutes       Int       @default(5)
+  voiceEmptyGraceMinutes       Int       @default(10)
   singlePlayerIdleMinutes      Int       @default(15)
   waitingSessionTimeoutMinutes Int       @default(120)
   ratingsEnabled               Boolean   @default(true)
@@ -489,6 +489,7 @@ model Trade {
   lfgGameId                String
   itemName                 String
   imageData                String
+  thumbnailData            String?
   haveText                 String
   wantText                 String
   description              String?

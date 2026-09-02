@@ -19,7 +19,9 @@ export async function registerDiscordAuth(app: FastifyInstance) {
     const redirectUri = required("DISCORD_REDIRECT_URI");
     const state = randomBytes(24).toString("hex");
     reply.setCookie(stateCookie, state, cookieOptions(600));
-    const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "identify guilds.members.read", state, prompt: "none" });
+    // Do not force a silent OAuth flow. First-time visitors and expired
+    // Discord sessions must be allowed to see Discord's login/consent screen.
+    const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "identify guilds.members.read", state });
     return reply.redirect(`https://discord.com/oauth2/authorize?${params}`);
   });
 

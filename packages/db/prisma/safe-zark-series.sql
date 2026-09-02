@@ -17,3 +17,19 @@ BEGIN
   END IF;
 END
 $zark_series_migration$;
+
+-- Early deployments used five minutes for an empty Voice channel. The room
+-- contract is now ten minutes, matching the website leave flow and the member
+-- warning shown by Zark. Preserve any custom value that is not the old default.
+DO $zark_room_grace_migration$
+BEGIN
+  IF to_regclass('"GuildSettings"') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'GuildSettings' AND column_name = 'voiceEmptyGraceMinutes'
+  ) THEN
+    UPDATE "GuildSettings"
+    SET "voiceEmptyGraceMinutes" = 10
+    WHERE "voiceEmptyGraceMinutes" = 5;
+  END IF;
+END
+$zark_room_grace_migration$;

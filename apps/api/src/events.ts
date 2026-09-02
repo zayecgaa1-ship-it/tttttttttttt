@@ -9,6 +9,7 @@ const instanceId = randomUUID();
 let publisher: RedisClientType | undefined;
 let subscriber: RedisClientType | undefined;
 const localRateLimits = new Map<string, { count: number; resetAt: number }>();
+const maxEventClients = Math.max(50, Math.min(5_000, Number(process.env.MAX_SSE_CLIENTS) || 500));
 
 export async function initEvents() {
   const url = process.env.REDIS_URL;
@@ -54,6 +55,10 @@ export function subscribe(response: ServerResponse) {
     clearInterval(heartbeat);
     clients.delete(response);
   });
+}
+
+export function hasEventCapacity() {
+  return clients.size < maxEventClients;
 }
 
 export function publish(event: ZarkEvent) {

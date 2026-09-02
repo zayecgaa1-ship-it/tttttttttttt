@@ -9,7 +9,7 @@ import cookie from "@fastify/cookie";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
-import { closeEvents, initEvents, subscribe } from "./events.js";
+import { closeEvents, enforceRateLimit, hasEventCapacity, initEvents, subscribe } from "./events.js";
 import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
@@ -18,11 +18,13 @@ import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuesti
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
-import { answerTradeCompletion, createTrade, decideInterest, deleteTradePermanently, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
+import { answerTradeCompletion, backfillTradeThumbnails, createTrade, decideInterest, deleteTradePermanently, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
 import { claimBroadcast, createBroadcast, getPendingBroadcast, listBroadcasts, updateBroadcastProgress } from "./modules/broadcast/service.js";
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
-const app = Fastify({ logger: true, bodyLimit: 2 * 1024 * 1024 });
+// A validated 1.5MB image becomes roughly 2MB after base64 encoding; leave
+// room for JSON fields so legitimate uploads are not rejected before Zod runs.
+const app = Fastify({ logger: true, bodyLimit: 3 * 1024 * 1024 });
 const uploadedImageSchema = z.string().max(2_000_000).refine((value) => /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(value) || /^https:\/\//i.test(value), "صورة غير صالحة");
 const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansArabic.ttf");
 const arabicFont = fs.existsSync(arabicFontPath) ? fs.readFileSync(arabicFontPath) : undefined;
@@ -92,6 +94,7 @@ app.get("/api/trades", async (request) => {
   return listTrades(query);
 });
 app.get("/api/trades/:id", async (request) => {
+  await enforceRateLimit("trade-public-detail", request.ip, 120, 60);
   const params = z.object({ id: z.string() }).parse(request.params);
   const user = await getWebUser(request);
   return getTrade(params.id, user?.userId);
@@ -470,15 +473,23 @@ app.delete("/api/web-admin/reports/:kind/:id", async (request) => {
   const params = z.object({ kind: z.enum(["PLAYER", "BUG"]), id: z.string() }).parse(request.params);
   return deleteReportTicket(params.kind, params.id, admin.userId);
 });
-app.get("/api/state", async () => {
-  const lfgCatalog = await getLfgCatalog();
+app.get("/api/state", async (request) => {
+  await enforceRateLimit("public-state", request.ip, 120, 60);
+  const [lfgCatalog, identity, daily, currentLeaderboard, rooms, zarkGames] = await Promise.all([
+    getLfgCatalog(),
+    db.botIdentity.upsert({ where: { id: 1 }, update: {}, create: { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل" } }),
+    getOrCreateDaily(),
+    leaderboard(),
+    listLfgRooms(),
+    listZarkGames(),
+  ]);
   return {
     guildId: process.env.DISCORD_GUILD_ID,
-    identity: await db.botIdentity.upsert({ where: { id: 1 }, update: {}, create: { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل" } }),
-    daily: await getOrCreateDaily(),
-    leaderboard: await leaderboard(),
-    rooms: await listLfgRooms(),
-    zarkGames: await listZarkGames(),
+    identity,
+    daily,
+    leaderboard: currentLeaderboard,
+    rooms,
+    zarkGames,
     lfgCatalog,
     lfgGames: lfgCatalog.flatMap((category) => category.games),
   };
@@ -720,8 +731,15 @@ app.post("/api/security/actions", { preHandler: requireServiceKey }, async (requ
   return recordSecurityAction({ ...body, metadata: body.metadata as Prisma.InputJsonValue | undefined });
 });
 app.post("/api/bot/heartbeat", { preHandler: requireServiceKey }, async (request) => {
-  const body = z.object({ instanceId: z.string().max(100).optional(), botUserId: z.string().optional(), tag: z.string().max(100).optional(), guilds: z.number().int().min(0).optional() }).parse(request.body ?? {});
-  return recordServiceHeartbeat("discord-bot", body.instanceId, { botUserId: body.botUserId, tag: body.tag, guilds: body.guilds });
+  const body = z.object({
+    instanceId: z.string().max(100).optional(), botUserId: z.string().optional(), tag: z.string().max(100).optional(), guilds: z.number().int().min(0).optional(),
+    securityReady: z.boolean().optional(), securityMissingPermissions: z.array(z.string().max(100)).max(20).optional(),
+    securityBlockedRoles: z.array(z.object({ id: z.string().max(30), name: z.string().max(100) })).max(100).optional(),
+  }).parse(request.body ?? {});
+  return recordServiceHeartbeat("discord-bot", body.instanceId, {
+    botUserId: body.botUserId, tag: body.tag, guilds: body.guilds,
+    securityReady: body.securityReady, securityMissingPermissions: body.securityMissingPermissions, securityBlockedRoles: body.securityBlockedRoles,
+  });
 });
 app.post("/api/bot/bump-reminder/claim", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ guildId: z.string().min(1).max(30) }).parse(request.body);
@@ -732,6 +750,7 @@ app.post("/api/bot/bump-reminder/completed", { preHandler: requireServiceKey }, 
   return recordBumpCompleted(body.guildId, body.userId);
 });
 app.get("/api/stream", async (request, reply) => {
+  if (!hasEventCapacity()) return reply.status(503).send({ error: "خدمة التحديث المباشر ممتلئة مؤقتًا؛ سيعيد الموقع المحاولة تلقائيًا" });
   reply.hijack();
   reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   reply.raw.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
@@ -770,12 +789,15 @@ console.log(`Zark API listening on http://localhost:${port}`);
 void processDueLfgRooms().catch((error) => app.log.error(error));
 void processAutoSmartRooms().catch((error) => app.log.error(error));
 void expireDueTrades().catch((error) => app.log.error(error));
+void backfillTradeThumbnails().catch((error) => app.log.error(error));
 const roomLifecycleTimer = setInterval(() => void processDueLfgRooms().catch((error) => app.log.error(error)), 30_000);
 const autoSmartRoomTimer = setInterval(() => void processAutoSmartRooms().catch((error) => app.log.error(error)), 5 * 60_000);
 const tradeExpiryTimer = setInterval(() => void expireDueTrades().catch((error) => app.log.error(error)), 5 * 60_000);
+const tradeThumbnailTimer = setInterval(() => void backfillTradeThumbnails().catch((error) => app.log.error(error)), 5 * 60_000);
 roomLifecycleTimer.unref();
 autoSmartRoomTimer.unref();
 tradeExpiryTimer.unref();
+tradeThumbnailTimer.unref();
 let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -784,6 +806,7 @@ async function shutdown(signal: string) {
   clearInterval(roomLifecycleTimer);
   clearInterval(autoSmartRoomTimer);
   clearInterval(tradeExpiryTimer);
+  clearInterval(tradeThumbnailTimer);
   await closeEvents();
   await app.close();
   await db.$disconnect();

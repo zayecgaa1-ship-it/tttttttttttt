@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isTradeModerator, tradeCode, validateTradeImage } from "../../../apps/api/src/modules/trade/service.js";
+import { createTradeThumbnail, isTradeModerator, tradeCode, validateTradeImage } from "../../../apps/api/src/modules/trade/service.js";
 
 test("trade public IDs use a stable readable code", () => {
   assert.equal(tradeCode(1), "TR-000001");
@@ -42,4 +42,11 @@ test("trade images reject GIFs, external URLs and malformed data", () => {
 
 test("trade images reject decoded files over 1.5 MB", () => {
   assert.throws(() => validateTradeImage(`data:image/png;base64,${"A".repeat(2_100_000)}`), /1.5MB/);
+});
+
+test("trade uploads produce a small WEBP card thumbnail", async () => {
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const thumbnail = await createTradeThumbnail(png);
+  assert.match(thumbnail, /^data:image\/webp;base64,/);
+  assert.ok(thumbnail.length < png.length * 10);
 });

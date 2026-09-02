@@ -85,7 +85,7 @@ export async function recordSecurityAction(input: SecurityEventInput) {
 }
 
 /** One enforcement decision for every audit event: owner → bot → human exemption → human. */
-function securityPolicy(input: SecurityEventInput, settings: Awaited<ReturnType<typeof getSecuritySettings>>) {
+export function securityPolicy(input: SecurityEventInput, settings: Pick<Awaited<ReturnType<typeof getSecuritySettings>>, "operationalExemptUserIds">) {
   const owner = Boolean(input.executorId && isOwnerId(input.executorId));
   const bot = Boolean(input.executorId && input.executorIsBot);
   const humanExempt = Boolean(input.executorId && !bot && settings.operationalExemptUserIds.includes(input.executorId) && isExemptibleAction(input.actionType));
@@ -106,14 +106,15 @@ function securityMetadata(metadata: Prisma.InputJsonValue | undefined, policy: R
 
 export async function securityDashboard(guildId: string) {
   const since = new Date(Date.now() - 60 * 60_000);
-  const [settings, actions, suspensions, alerts, counts] = await Promise.all([
+  const [settings, actions, suspensions, alerts, counts, botRuntime] = await Promise.all([
     getSecuritySettings(guildId),
     db.securityAction.findMany({ where: { guildId }, orderBy: { timestamp: "desc" }, take: 100 }),
     db.adminSuspension.findMany({ where: { guildId }, include: { roleSnapshots: true }, orderBy: { suspendedAt: "desc" }, take: 100 }),
     db.securityAlert.findMany({ where: { guildId }, orderBy: { createdAt: "desc" }, take: 50 }),
     countAll(db, guildId, since),
+    db.serviceHeartbeat.findUnique({ where: { service: "discord-bot" } }),
   ]);
-  return { protection: { active: settings.enabled, guildId, ownerUserId: ownerUserId() }, settings, counts, actions, suspensions, alerts };
+  return { protection: { active: settings.enabled, guildId, ownerUserId: ownerUserId() }, settings, counts, actions, suspensions, alerts, botRuntime };
 }
 
 export async function restoreSuspendedAdmin(guildId: string, userId: string, restoredBy: string) {
@@ -168,7 +169,7 @@ function reachedThreshold(settings: Awaited<ReturnType<typeof getSecuritySetting
   if (type === "MEMBER_TIMEOUT" && counts.timeouts >= settings.maxTimeoutsPerHour) return { reason: `Timeout limit reached (${counts.timeouts}/${settings.maxTimeoutsPerHour} in 60m)` };
   if (type === "MEMBER_KICK" && counts.kicks >= settings.maxKicksPerHour) return { reason: `Kick limit reached (${counts.kicks}/${settings.maxKicksPerHour} in 60m)` };
   if (["ROLE_ADDED", "ROLE_REMOVED", "ROLE_CREATED", "ROLE_DELETED", "ROLE_UPDATED"].includes(type) && counts.roles >= settings.maxRoleChangesPerHour) return { reason: `Role-change limit reached (${counts.roles}/${settings.maxRoleChangesPerHour} in 60m)` };
-  if (type === "CHANNEL_DELETED" && counts.channels >= settings.maxChannelDeletesPerHour) return { reason: `Channel-change limit reached (${counts.channels}/${settings.maxChannelDeletesPerHour} in 60m)` };
+  if (["CHANNEL_CREATED", "CHANNEL_DELETED", "CHANNEL_UPDATED"].includes(type) && counts.channels >= settings.maxChannelDeletesPerHour) return { reason: `Channel-change limit reached (${counts.channels}/${settings.maxChannelDeletesPerHour} in 60m)` };
   if (["WEBHOOK_CREATED", "WEBHOOK_DELETED", "WEBHOOK_UPDATED"].includes(type) && counts.webhooks >= settings.maxWebhookChangesPerHour) return { reason: `Webhook-change limit reached (${counts.webhooks}/${settings.maxWebhookChangesPerHour} in 60m)` };
   return undefined;
 }

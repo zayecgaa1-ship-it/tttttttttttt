@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>ZARK ADMIN PROTECTION</title><link rel="stylesheet" href="/styles.css?v=security1">
+  <title>ZARK ADMIN PROTECTION</title><link rel="stylesheet" href="/styles.css?v=security2">
 </head>
 <body data-page="security">
   <header id="site-nav"></header>
@@ -11,6 +11,7 @@
     <div id="security-content" hidden>
       <section class="page-hero small"><span class="eyebrow">ZARK ADMIN PROTECTION</span><h1>مركز <em>الحماية.</em></h1><p>مراقبة عمليات الإدارة من Discord، تعليق صلاحيات السلوك المشبوه، وحفظ الرتب لاسترجاعها يدويًا بأمان.</p></section>
       <section class="section admin-dashboard"><div id="security-stats" class="stats"></div></section>
+      <section id="security-readiness" class="surface security-readiness"></section>
       <section class="admin-section"><div class="admin-section-title"><div><span>⚙️</span><div><h2>إعدادات Anti-Abuse</h2><p>لكل Guild؛ تُفحص الحدود خلال آخر 60 دقيقة متحركة.</p></div></div></div>
         <form id="security-settings-form" class="surface admin-settings"><div class="toggle-grid two"><label class="toggle-card"><input id="security-enabled" type="checkbox"><span><b>تفعيل الحماية</b><small>تعليق الرتب الخطرة بعد تجاوز الحد</small></span></label><label class="toggle-card"><input id="security-ownerDmAlertsEnabled" type="checkbox"><span><b>تنبيهات DM للمالك</b><small>إرسال تنبيه عند تعليق إدمن</small></span></label></div>
           <div class="settings-grid three"><label>Ban / 60m<input id="security-maxBansPerHour" type="number" min="1" max="100"></label><label>Timeout / 60m<input id="security-maxTimeoutsPerHour" type="number" min="1" max="100"></label><label>Kick / 60m<input id="security-maxKicksPerHour" type="number" min="1" max="200"></label><label>تغييرات الرتب / 60m<input id="security-maxRoleChangesPerHour" type="number" min="1" max="500"></label><label>تغييرات القنوات / 60m<input id="security-maxChannelDeletesPerHour" type="number" min="1" max="100"></label><label>Webhook / 60m<input id="security-maxWebhookChangesPerHour" type="number" min="1" max="100"></label><label>قناة Security Log<input id="security-securityLogChannelId" inputmode="numeric" placeholder="Discord Channel ID (اختياري)"></label></div>
@@ -21,5 +22,5 @@
       <section class="admin-section"><div class="section-heading compact"><div><span class="eyebrow">SUSPENDED ADMINS</span><h2>الإدارات المعلّقة</h2></div></div><div id="security-suspensions" class="admin-room-list"></div></section>
       <section class="admin-section"><div class="section-heading compact"><div><span class="eyebrow">SECURITY LOGS</span><h2>أحداث الحماية الأخيرة</h2></div></div><div id="security-events" class="admin-room-list"></div></section>
     </div>
-  </main><footer id="site-footer"></footer><script src="/app.js?v=security1"></script>
+  </main><footer id="site-footer"></footer><script src="/app.js?v=security2"></script>
 </body></html>

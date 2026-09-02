@@ -94,8 +94,8 @@ export async function reportBug(input: { reporterId: string; reporterName: strin
 
 export async function getMyReports(userId: string) {
   const [playerReports, bugReports] = await Promise.all([
-    db.report.findMany({ where: { reporterId: userId }, include: { reported: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" } }),
-    db.bugReport.findMany({ where: { reporterId: userId }, include: { _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" } }),
+    db.report.findMany({ where: { reporterId: userId }, include: { reported: { select: { id: true, displayName: true, avatarUrl: true } }, _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
+    db.bugReport.findMany({ where: { reporterId: userId }, include: { _count: { select: { messages: true } } }, orderBy: { updatedAt: "desc" }, take: 100 }),
   ]);
   return { playerReports, bugReports };
 }
@@ -207,13 +207,13 @@ export async function deleteReportTicket(kind: ReportKind, reportId: string, adm
 
 async function loadReportThread(kind: ReportKind, reportId: string) {
   if (kind === "PLAYER") {
-    const report = await db.report.findUnique({ where: { id: reportId }, include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, reported: { select: { id: true, displayName: true, avatarUrl: true } }, messages: { orderBy: { createdAt: "asc" } } } });
+    const report = await db.report.findUnique({ where: { id: reportId }, include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, reported: { select: { id: true, displayName: true, avatarUrl: true } }, messages: { orderBy: { createdAt: "desc" }, take: 500 } } });
     if (!report) throw notFound("البلاغ غير موجود");
-    return { kind, ...report, title: `بلاغ لاعب: ${report.reason}` };
+    return { kind, ...report, messages: [...report.messages].reverse(), title: `بلاغ لاعب: ${report.reason}` };
   }
-  const report = await db.bugReport.findUnique({ where: { id: reportId }, include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, messages: { orderBy: { createdAt: "asc" } } } });
+  const report = await db.bugReport.findUnique({ where: { id: reportId }, include: { reporter: { select: { id: true, displayName: true, avatarUrl: true } }, messages: { orderBy: { createdAt: "desc" }, take: 500 } } });
   if (!report) throw notFound("تقرير الخطأ غير موجود");
-  return { kind, ...report, title: `خطأ: ${report.title}` };
+  return { kind, ...report, messages: [...report.messages].reverse(), title: `خطأ: ${report.title}` };
 }
 
 function forbidden(message: string) {

@@ -130,14 +130,20 @@ export async function updateProfileSettings(userId: string, input: { bio?: strin
 }
 
 export async function getTopLfgPlayers(metric: "engagement" | "sessions" | "rating" = "engagement", limit = 10) {
-  const [users, ratings] = await Promise.all([
-    db.user.findMany({ include: { points: true, memberships: { where: { status: "COMPLETED" }, select: { roomId: true } } } }),
+  const [engagementRows, sessionRows, ratings] = await Promise.all([
+    db.engagementPoint.groupBy({ by: ["userId"], _sum: { points: true } }),
+    db.lfgMember.groupBy({ by: ["userId"], where: { status: "COMPLETED" }, _count: { _all: true } }),
     db.rating.groupBy({ by: ["ratedId"], _avg: { stars: true }, _count: { _all: true } }),
   ]);
+  const participantIds = new Set([...engagementRows.map((row) => row.userId), ...sessionRows.map((row) => row.userId), ...ratings.map((row) => row.ratedId)]);
+  if (!participantIds.size) return [];
+  const users = await db.user.findMany({ where: { id: { in: [...participantIds] } }, select: { id: true, displayName: true, avatarUrl: true } });
+  const engagementByUser = new Map(engagementRows.map((row) => [row.userId, row._sum.points ?? 0]));
+  const sessionsByUser = new Map(sessionRows.map((row) => [row.userId, row._count._all]));
   const ratingsByUser = new Map(ratings.map((rating) => [rating.ratedId, rating]));
   const rows = users.map((user) => {
     const rating = ratingsByUser.get(user.id);
-    return { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, engagement: user.points.reduce((sum, point) => sum + point.points, 0), completedSessions: user.memberships.length, rating: rating?._avg.stars ?? 0, ratingCount: rating?._count._all ?? 0 };
+    return { userId: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, engagement: engagementByUser.get(user.id) ?? 0, completedSessions: sessionsByUser.get(user.id) ?? 0, rating: rating?._avg.stars ?? 0, ratingCount: rating?._count._all ?? 0 };
   });
   const score = (row: typeof rows[number]) => metric === "sessions" ? row.completedSessions : metric === "rating" ? (row.ratingCount >= 2 ? row.rating : 0) : row.engagement;
   return rows.sort((a, b) => score(b) - score(a)).slice(0, Math.min(50, limit));

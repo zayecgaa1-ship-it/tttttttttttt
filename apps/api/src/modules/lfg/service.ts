@@ -5,6 +5,7 @@ import { enforceRateLimit, publish } from "../../events.js";
 import { serializable } from "../../db-transaction.js";
 import { getGuildRuntimeSettings } from "../admin/service.js";
 import { awardLoyaltyPoints } from "../loyalty/service.js";
+import { LFG_GATHER_WINDOW_MINUTES, lfgWarningCloseAt } from "../../../../../packages/shared/src/lfg-lifecycle.js";
 
 const categories = [
   { slug: "sandbox", name: "عالم مفتوح وبناء", icon: "🧱", sortOrder: 1 },
@@ -225,12 +226,10 @@ export async function createLfgRoom(input: { userId: string; displayName: string
         status: scheduledFor ? "SCHEDULED" : "OPEN",
         source: "MANUAL",
         scheduledFor,
-        // التجمع المجدول لا يُغلق بعد 10 دقائق. عند موعده نعطيه 30 دقيقة
-        // ليتجمع، ثم تحذير 15 دقيقة قبل الإغلاق.
-        // A live room gets 30 minutes to gather and enter voice. Once two
-        // members enter, recordLfgVoiceEvent starts the session and clears it.
-        autoDeleteAt: scheduledFor ? null : new Date(Date.now() + settings.waitingSessionTimeoutMinutes * 60_000),
-        expiresAt: scheduledFor ? null : new Date(Date.now() + settings.waitingSessionTimeoutMinutes * 60_000),
+        // Every room receives 30 minutes to actually start, then a separate
+        // 15-minute warning. processDueLfgRooms owns both transitions.
+        autoDeleteAt: null,
+        expiresAt: null,
         title: input.title?.trim() || null,
         description: input.description,
         gameMode: input.gameMode,
@@ -318,10 +317,10 @@ export async function processAutoSmartRooms(options: { force?: boolean } = {}) {
       hostId: autoOrganizer.userId, lfgGameId: game.id, memberCount: 0,
       maxPlayers: Math.min(game.maxPlayers, Math.max(settings.autoRoomMinimumInterested, candidate.interestedCount)),
       durationMinutes: settings.defaultRoomDurationMinutes, status: "OPEN", source: "AUTO", needsVoice: true,
-      expiresAt: new Date(now.getTime() + settings.autoRoomLifetimeMinutes * 60_000),
+      expiresAt: null,
       title: `تجمع Zark تلقائي • ${candidate.interestPercent}% مهتمون`,
       description: `اختاره Zark تلقائيًا: ${candidate.availableNowCount} عضوًا متفرغًا الآن من المهتمين باللعبة (الحد التلقائي: ${candidate.autoMinAvailable}).`,
-      roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: new Date(now.getTime() + settings.autoRoomLifetimeMinutes * 60_000),
+      roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: null,
     }, include: roomInclude,
   });
   const live = toLiveRoom(room);
@@ -334,17 +333,16 @@ export async function joinLfgRoom(roomId: string, input: { userId: string; displ
   const settings = await getGuildRuntimeSettings();
   await upsertActor(input);
   await serializable(async (tx) => {
-    const room = await tx.lfgRoom.findUnique({ where: { id: roomId }, include: { lfgGame: { select: { minPlayers: true } } } });
+    const room = await tx.lfgRoom.findUnique({ where: { id: roomId } });
     if (!room || !["SCHEDULED", "OPEN", "FULL", "ACTIVE"].includes(room.status)) throw new Error("الغرفة غير متاحة");
     if (room.locked) throw new Error("الغرفة مقفلة من المضيف");
     const membership = await tx.lfgMember.findUnique({ where: { roomId_userId: { roomId, userId: input.userId } } });
     if (membership?.status === "ACTIVE") return;
     const activeRooms = await tx.lfgMember.count({ where: { userId: input.userId, status: "ACTIVE", roomId: { not: roomId }, room: { status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } } } });
     if (activeRooms >= settings.maxActiveRoomsPerUser) throw new Error("اخرج من أحد تجمعاتك الحالية قبل دخول تجمع آخر");
-    const gathersRoom = Boolean(room.attendanceWarningAt && room.memberCount + 1 >= room.lfgGame.minPlayers);
     const reserved = await tx.lfgRoom.updateMany({
       where: { id: roomId, memberCount: { lt: room.maxPlayers }, status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] }, locked: false },
-      data: { memberCount: { increment: 1 }, version: { increment: 1 }, emptySince: null, autoDeleteAt: room.autoDeleteAt, attendanceWarningAt: gathersRoom ? null : room.attendanceWarningAt, hostId: room.memberCount === 0 ? input.userId : room.hostId },
+      data: { memberCount: { increment: 1 }, version: { increment: 1 }, emptySince: null, hostId: room.memberCount === 0 ? input.userId : room.hostId },
     });
     if (reserved.count !== 1) throw new Error("الغرفة ممتلئة");
     await tx.lfgMember.upsert({
@@ -465,7 +463,7 @@ export async function completeLfgRoom(roomId: string, actorId?: string) {
 
 export async function listLfgRooms() {
   const recentlyCompleted = new Date(Date.now() - 2 * 60_000);
-  const rooms = await db.lfgRoom.findMany({ where: { OR: [{ status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, { status: "COMPLETED", completedAt: { gte: recentlyCompleted } }] }, include: roomInclude, orderBy: [{ scheduledFor: "asc" }, { createdAt: "desc" }] });
+  const rooms = await db.lfgRoom.findMany({ where: { OR: [{ status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, { status: "COMPLETED", completedAt: { gte: recentlyCompleted } }] }, include: roomInclude, orderBy: [{ scheduledFor: "asc" }, { createdAt: "desc" }], take: 100 });
   return rooms.map(toLiveRoom);
 }
 
@@ -529,6 +527,7 @@ export async function listRoomCleanupResources() {
       OR: [{ textChannelId: { not: null } }, { voiceChannelId: { not: null } }],
     },
     include: roomInclude,
+    take: 100,
   });
   return rooms.map(toLiveRoom);
 }
@@ -573,7 +572,7 @@ export async function startLfgRoom(roomId: string, actorId: string) {
     const startedAt = new Date();
     await db.lfgRoom.update({
       where: { id: roomId },
-      data: { status: "ACTIVE", startedAt, playEndsAt: new Date(startedAt.getTime() + current.durationMinutes * 60_000), emptySince: null, autoDeleteAt: null, version: { increment: 1 } },
+      data: { status: "ACTIVE", startedAt, playEndsAt: new Date(startedAt.getTime() + current.durationMinutes * 60_000), emptySince: null, attendanceWarningAt: null, autoDeleteAt: null, expiresAt: null, version: { increment: 1 } },
     });
     if (!current.needsVoice) await db.lfgMember.updateMany({ where: { roomId, status: "ACTIVE" }, data: { played: true } });
   }
@@ -612,9 +611,9 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
     if (input.action === "JOIN") {
       if (!member.voiceJoinedAt) await tx.lfgMember.update({ where: { roomId_userId: { roomId, userId: input.userId } }, data: { voiceJoinedAt: now } });
       const voiceMembers = await tx.lfgMember.findMany({ where: { roomId, status: "ACTIVE", voiceJoinedAt: { not: null } } });
-      const scheduledStartReady = Boolean(room.scheduledFor && room.scheduledFor.getTime() <= now.getTime());
-      const joinedWithinGatheringWindow = !room.scheduledFor && now.getTime() <= room.createdAt.getTime() + 30 * 60_000;
-      const shouldStart = (scheduledStartReady || joinedWithinGatheringWindow || room.source === "AUTO") && voiceMembers.length >= room.lfgGame.minPlayers && room.status !== "ACTIVE";
+      const startWindowOpen = !room.scheduledFor || room.scheduledFor.getTime() <= now.getTime();
+      const shouldStart = startWindowOpen && voiceMembers.length >= room.lfgGame.minPlayers && room.status !== "ACTIVE";
+      const sessionActive = room.status === "ACTIVE" || shouldStart;
       await tx.lfgRoom.update({
         where: { id: roomId },
         data: {
@@ -625,7 +624,9 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
           singlePlayerSince: voiceMembers.length === 1 ? now : null,
           idleWarningAt: null,
           lastVoiceActivityAt: now,
-          autoDeleteAt: null,
+          attendanceWarningAt: sessionActive ? null : room.attendanceWarningAt,
+          autoDeleteAt: sessionActive ? null : room.autoDeleteAt,
+          expiresAt: sessionActive ? null : room.expiresAt,
           version: { increment: 1 },
         },
       });
@@ -657,23 +658,45 @@ export async function processDueLfgRooms() {
     const claimed = await db.lfgRoom.updateMany({ where: { id: room.id, readyNotifiedAt: null }, data: { readyNotifiedAt: now, version: { increment: 1 } } });
     if (claimed.count === 1) publish({ type: "lfg.room_ready", room: await getLfgRoom(room.id) });
   }
-  const startingRooms = await db.lfgRoom.findMany({ where: { status: "SCHEDULED", scheduledFor: { lte: now } }, select: { id: true, memberCount: true, maxPlayers: true }, take: 50 });
+  const startingRooms = await db.lfgRoom.findMany({
+    where: { status: "SCHEDULED", scheduledFor: { lte: now } },
+    select: {
+      id: true, memberCount: true, maxPlayers: true, durationMinutes: true, needsVoice: true,
+      lfgGame: { select: { minPlayers: true } },
+      members: { where: { status: "ACTIVE", voiceJoinedAt: { not: null } }, select: { userId: true } },
+    },
+    take: 50,
+  });
   for (const room of startingRooms) {
+    const hasStartedAttendance = room.needsVoice ? room.members.length >= room.lfgGame.minPlayers : room.memberCount >= room.lfgGame.minPlayers;
     const updated = await db.lfgRoom.updateMany({
       where: { id: room.id, status: "SCHEDULED" },
-      data: { status: room.memberCount >= room.maxPlayers ? "FULL" : "OPEN", version: { increment: 1 } },
+      data: hasStartedAttendance
+        ? { status: "ACTIVE", startedAt: now, playEndsAt: new Date(now.getTime() + room.durationMinutes * 60_000), attendanceWarningAt: null, autoDeleteAt: null, expiresAt: null, version: { increment: 1 } }
+        : { status: room.memberCount >= room.maxPlayers ? "FULL" : "OPEN", version: { increment: 1 } },
     });
-    if (updated.count === 1) publish({ type: "lfg.updated", room: await getLfgRoom(room.id) });
+    if (updated.count !== 1) continue;
+    if (hasStartedAttendance) {
+      await db.lfgMember.updateMany({
+        where: { roomId: room.id, status: "ACTIVE", ...(room.needsVoice ? { voiceJoinedAt: { not: null } } : {}) },
+        data: { played: true },
+      });
+    }
+    const live = await getLfgRoom(room.id);
+    publish({ type: hasStartedAttendance ? "lfg.started" : "lfg.updated", room: live });
   }
+  const gatherCutoff = new Date(now.getTime() - LFG_GATHER_WINDOW_MINUTES * 60_000);
   const attendanceRooms = await db.lfgRoom.findMany({
-    where: { status: { in: ["OPEN", "FULL"] }, scheduledFor: { lte: new Date(now.getTime() - 30 * 60_000) }, startedAt: null, attendanceWarningAt: null },
-    include: { lfgGame: { select: { minPlayers: true } } }, take: 50,
+    where: {
+      status: { in: ["OPEN", "FULL"] }, startedAt: null, attendanceWarningAt: null,
+      OR: [{ scheduledFor: { lte: gatherCutoff } }, { scheduledFor: null, createdAt: { lte: gatherCutoff } }],
+    },
+    select: { id: true }, take: 50,
   });
   for (const room of attendanceRooms) {
-    if (room.memberCount >= room.lfgGame.minPlayers) continue;
     const claimed = await db.lfgRoom.updateMany({
       where: { id: room.id, attendanceWarningAt: null, startedAt: null },
-      data: { attendanceWarningAt: now, autoDeleteAt: new Date(now.getTime() + 15 * 60_000), version: { increment: 1 } },
+      data: { attendanceWarningAt: now, autoDeleteAt: lfgWarningCloseAt(now), expiresAt: null, version: { increment: 1 } },
     });
     if (claimed.count === 1) publish({ type: "lfg.attendance_warning", room: await getLfgRoom(room.id) });
   }
@@ -683,11 +706,6 @@ export async function processDueLfgRooms() {
   for (const room of idleRooms) {
     const claimed = await db.lfgRoom.updateMany({ where: { id: room.id, idleWarningAt: null }, data: { idleWarningAt: now, autoDeleteAt: new Date(now.getTime() + 5 * 60_000), version: { increment: 1 } } });
     if (claimed.count) publish({ type: "lfg.attendance_warning", room: await getLfgRoom(room.id) });
-  }
-  const expiredWaiting = await db.lfgRoom.findMany({ where: { status: { in: ["SCHEDULED", "OPEN", "FULL"] }, expiresAt: { lte: now }, startedAt: null }, select: { id: true }, take: 50 });
-  for (const room of expiredWaiting) {
-    const claimed = await db.lfgRoom.updateMany({ where: { id: room.id, status: { in: ["SCHEDULED", "OPEN", "FULL"] }, startedAt: null }, data: { status: "EXPIRED", closedAt: now, memberCount: 0, version: { increment: 1 } } });
-    if (claimed.count) publish({ type: "lfg.closed", roomId: room.id, room: await getLfgRoom(room.id) });
   }
   const due = await db.lfgRoom.findMany({
     where: {
@@ -708,7 +726,7 @@ export async function processDueLfgRooms() {
       await closeLfgRoom(room.id);
     }
   }
-  return { processed: due.length + expiredWaiting.length, readied: readyRooms.length, started: startingRooms.length, idled: idleRooms.length, expired: expiredWaiting.length };
+  return { processed: due.length, readied: readyRooms.length, started: startingRooms.length, warned: attendanceRooms.length, idled: idleRooms.length, expired: 0 };
 }
 
 export async function searchLfgRooms(query: string) {
@@ -818,6 +836,7 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     readyNotifiedAt: room.readyNotifiedAt?.toISOString(),
     reminderDeliveredAt: room.reminderDeliveredAt?.toISOString(),
     attendanceWarningAt: room.attendanceWarningAt?.toISOString(),
+    idleWarningAt: room.idleWarningAt?.toISOString(),
     startedAt: room.startedAt?.toISOString(),
     playEndsAt: room.playEndsAt?.toISOString(),
     completedAt: room.completedAt?.toISOString(),

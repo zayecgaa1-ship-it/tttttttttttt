@@ -23,6 +23,7 @@ export type LiveRoom = {
   readyNotifiedAt?: string;
   reminderDeliveredAt?: string;
   attendanceWarningAt?: string;
+  idleWarningAt?: string;
   startedAt?: string;
   playEndsAt?: string;
   completedAt?: string;

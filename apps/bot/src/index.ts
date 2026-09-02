@@ -51,7 +51,7 @@ let runtimeSettings: GuildRuntimeSettings = {
   maxAutoRoomsPerGame: 1,
   autoRoomDmInterestedUsers: true,
   deleteExpiredAutoRooms: true,
-  voiceEmptyGraceMinutes: 5,
+  voiceEmptyGraceMinutes: 10,
   singlePlayerIdleMinutes: 15,
   waitingSessionTimeoutMinutes: 120,
   ratingsEnabled: true,
@@ -105,6 +105,7 @@ if (!token) {
   const roomByVoiceChannel = new Map<string, string>();
   const mentionStatusCooldown = new Map<string, number>();
   const moderationAlertCooldown = new Map<string, number>();
+  let securityReadiness: { checked: boolean; ready: boolean; missingPermissions: string[]; blockedRoles: Array<{ id: string; name: string }> } = { checked: false, ready: false, missingPermissions: [], blockedRoles: [] };
   let hackAlertChannelId = configuredHackAlertChannelId && /^\d{17,20}$/.test(configuredHackAlertChannelId) ? configuredHackAlertChannelId : undefined;
   let botEventSubscriber: ReturnType<typeof createClient> | undefined;
 
@@ -124,6 +125,7 @@ if (!token) {
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
     if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: blocking user image uploads in every channel until DISCORD_MEDIA_ALLOWED_CHANNEL_IDS is set.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
+    await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
     const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel(), processPendingBroadcast()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
@@ -142,7 +144,6 @@ if (!token) {
     securityRestoreTimer.unref();
     securityAuditTimer.unref();
     broadcastTimer.unref();
-    await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
     await reconcileSecurityAuditLogs().catch((error) => console.error("Security audit bootstrap failed", error));
     await restoreApprovedAdmins().catch((error) => console.error("Security restore bootstrap failed", error));
   });
@@ -1037,7 +1038,12 @@ if (!token) {
 
   async function sendHeartbeat() {
     if (!client.user) return;
-    await apiSend("/api/bot/heartbeat", "POST", { instanceId: `${process.pid}`, botUserId: client.user.id, tag: client.user.tag, guilds: client.guilds.cache.size }).catch((error) => console.error("Bot heartbeat failed", error));
+    await apiSend("/api/bot/heartbeat", "POST", {
+      instanceId: `${process.pid}`, botUserId: client.user.id, tag: client.user.tag, guilds: client.guilds.cache.size,
+      securityReady: securityReadiness.ready,
+      securityMissingPermissions: securityReadiness.missingPermissions,
+      securityBlockedRoles: securityReadiness.blockedRoles,
+    }).catch((error) => console.error("Bot heartbeat failed", error));
   }
 
   async function sendBumpReminder(channel: any) {
@@ -1236,7 +1242,9 @@ if (!token) {
 
   async function notifyScheduledAttendanceWarning(room: LiveRoom) {
     const closeUnix = room.autoDeleteAt ? Math.floor(new Date(room.autoDeleteAt).getTime() / 1000) : undefined;
-    const content = `⚠️ **تجمع ${room.gameName} لم يكتمل بعد.** إذا لم ينضم لاعبون إضافيون خلال 15 دقيقة، ستُغلق الغرفة تلقائيًا${closeUnix ? ` <t:${closeUnix}:R>` : ""}.`;
+    const content = room.idleWarningAt
+      ? `⚠️ **بقي لاعب واحد فقط في Voice الخاص بـ${room.gameName}.** عودوا إلى الغرفة خلال 5 دقائق وإلا ستُغلق تلقائيًا${closeUnix ? ` <t:${closeUnix}:R>` : ""}.`
+      : `<@${room.hostId}> ⚠️ **جلسة ${room.gameName} لم تبدأ فعليًا خلال 30 دقيقة.** ادخلوا Voice أو ابدأوا الجلسة خلال 15 دقيقة وإلا ستُغلق الغرفة تلقائيًا${closeUnix ? ` <t:${closeUnix}:R>` : ""}.`;
     const targetId = room.textChannelId ?? room.listingChannelId;
     if (!targetId) return;
     const channel = await client.channels.fetch(targetId).catch(() => null);
@@ -1813,15 +1821,18 @@ if (!token) {
     if (entry.action === AuditLogEvent.MemberUpdate && !entry.changes?.some((change: any) => change.key === "communication_disabled_until")) return;
     const executorId = entry.executorId ?? entry.executor?.id;
     const targetId = entry.targetId ?? entry.target?.id;
+    const executor = entry.executor ?? (executorId ? await client.users.fetch(executorId).catch(() => undefined) : undefined);
     const snapshots = executorId ? await dangerousRoleSnapshots(guild, executorId) : [];
     const result = await apiSend<SecurityResult>("/api/security/actions", "POST", {
-      guildId: guild.id, executorId, executorIsBot: Boolean(entry.executor?.bot), targetId, actionType, auditLogId: entry.id,
+      guildId: guild.id, executorId, executorIsBot: Boolean(executor?.bot), targetId, actionType, auditLogId: entry.id,
       reason: entry.reason ?? undefined,
       metadata: { auditAction: entry.action, createdTimestamp: entry.createdTimestamp, targetType: entry.targetType ?? undefined },
       roleSnapshots: snapshots,
     });
     if (result.suspend && executorId) await suspendDiscordAdmin(guild, executorId, result, snapshots);
-    if (actionType === "MEMBER_TIMEOUT" && executorId && !result.duplicate && (result.counts?.timeouts ?? 0) >= 2) await sendTimeoutOwnerAlert(guild, entry, executorId, result);
+    // Suspension already sends a detailed owner alert. A separate timeout
+    // warning is useful only before suspension, otherwise it becomes duplicate DM spam.
+    if (actionType === "MEMBER_TIMEOUT" && executorId && !result.duplicate && !result.suspend && (result.counts?.timeouts ?? 0) >= 2) await sendTimeoutOwnerAlert(guild, entry, executorId, result);
   }
 
   async function sendTimeoutOwnerAlert(guild: any, entry: any, executorId: string, result: SecurityResult) {
@@ -1885,12 +1896,28 @@ if (!token) {
   async function verifyProtectionHierarchy() {
     if (!guildId) return;
     const guild = await client.guilds.fetch(guildId);
+    await guild.roles.fetch();
     const botMember = await guild.members.fetchMe();
-    const missing = [PermissionFlagsBits.ViewAuditLog, PermissionFlagsBits.ManageRoles].filter((permission) => !botMember.permissions.has(permission));
-    if (missing.length) console.warn("ZARK ADMIN PROTECTION CRITICAL: the bot needs View Audit Log and Manage Roles; timeout alerts or role suspension cannot work until both are granted.");
-    const riskyRoles = guild.roles.cache.filter((role: any) => !role.managed && role.permissions.has(PermissionFlagsBits.Administrator));
-    const blocked = riskyRoles.filter((role: any) => role.position >= botMember.roles.highest.position);
-    if (blocked.size) console.warn(`ZARK ADMIN PROTECTION WARNING: bot role is below ${blocked.size} Administrator role(s); it cannot remove them safely.`);
+    const requiredPermissions = [
+      { value: PermissionFlagsBits.ViewAuditLog, label: "View Audit Log" },
+      { value: PermissionFlagsBits.ManageRoles, label: "Manage Roles" },
+    ];
+    const missingPermissions = requiredPermissions.filter((permission) => !botMember.permissions.has(permission.value)).map((permission) => permission.label);
+    const riskyPermissions = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild, PermissionFlagsBits.BanMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.ModerateMembers, PermissionFlagsBits.ManageRoles, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageWebhooks];
+    const blockedRoles = guild.roles.cache
+      .filter((role: any) => !role.managed && riskyPermissions.some((permission) => role.permissions.has(permission)) && (role.id === guild.id || role.position >= botMember.roles.highest.position))
+      .map((role: any) => ({ id: role.id, name: role.name }));
+    securityReadiness = { checked: true, ready: !missingPermissions.length && !blockedRoles.length, missingPermissions, blockedRoles };
+    if (securityReadiness.ready) return;
+    if (missingPermissions.length) console.warn(`ZARK ADMIN PROTECTION CRITICAL: missing ${missingPermissions.join(", ")}.`);
+    if (blockedRoles.length) console.warn(`ZARK ADMIN PROTECTION WARNING: ${blockedRoles.length} dangerous role(s) are above the bot or unmanageable.`);
+    const embed = new EmbedBuilder().setColor(0xed1c24).setTitle("⚠️ حماية Zark غير جاهزة بالكامل")
+      .setDescription("لن يستطيع البوت مراقبة كل عمليات الإدارة أو إزالة الرتب الخطرة حتى تُحل المشاكل التالية.")
+      .addFields(
+        { name: "الصلاحيات الناقصة", value: missingPermissions.join("، ") || "لا يوجد", inline: false },
+        { name: "رتب لا يستطيع البوت إزالتها", value: blockedRoles.map((role) => `${role.name} (${role.id})`).join("\n").slice(0, 1024) || "لا يوجد", inline: false },
+      ).setFooter({ text: "ارفع رتبة Zark فوق رتب الإدارة الخطرة وامنحه View Audit Log + Manage Roles" }).setTimestamp();
+    await client.users.send(ownerUserId, { embeds: [embed] }).catch((error) => console.error("Security readiness owner DM failed", error));
   }
 
   async function reconcileSecurityAuditLogs() {
@@ -1898,14 +1925,14 @@ if (!token) {
     const guild = await client.guilds.fetch(guildId);
     const botMember = await guild.members.fetchMe();
     if (!botMember.permissions.has(PermissionFlagsBits.ViewAuditLog)) return;
-    // Gateway may reconnect while an admin action happens. This lightweight
-    // polling fallback replays recent entries; PostgreSQL auditLogId dedupe
-    // guarantees that neither counters nor owner DMs are duplicated.
-    const logs = await guild.fetchAuditLogs({ type: AuditLogEvent.MemberUpdate, limit: 50 });
+    // Gateway may reconnect while any protected action happens. Replay all
+    // recognized recent entries; PostgreSQL auditLogId dedupe prevents double
+    // counters and duplicate owner alerts.
+    const logs = await guild.fetchAuditLogs({ limit: 100 });
     const cutoff = Date.now() - 10 * 60_000;
     for (const entry of logs.entries.values()) {
       if (entry.createdTimestamp < cutoff) continue;
-      if (!entry.changes?.some((change: any) => change.key === "communication_disabled_until")) continue;
+      if (!auditActionType(entry.action)) continue;
       await recordDiscordAuditEvent(guild, entry);
     }
   }
@@ -2018,7 +2045,7 @@ type RaceProgress = { completed: true; seriesId: string; totalRounds: number; st
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
-type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
+type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type TradeView = { id: string; code: string; publicId: number; itemName: string; imageData: string; haveText: string; wantText: string; description?: string; status: string; discordChannelId?: string; discordMessageId?: string; owner: { id: string; displayName: string; avatarUrl?: string }; game: { name: string; icon?: string }; _count?: { interests: number; conversations: number } };
