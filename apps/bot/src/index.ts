@@ -99,7 +99,6 @@ if (!token) {
   const commands = buildCommands();
   const listingInFlight = new Set<string>();
   const roomSpaceInFlight = new Set<string>();
-  const notifiedRooms = new Set<string>();
   const ratingRequestsInFlight = new Set<string>();
   const broadcastsInFlight = new Set<string>();
   const roomByVoiceChannel = new Map<string, string>();
@@ -200,6 +199,7 @@ if (!token) {
         if (interaction.commandName === "leaderboard") return await gameLeaderboard(interaction, interaction.options.getString("type") ?? "game");
         if (interaction.commandName === "help") return await help(interaction);
         if (interaction.commandName === "help-plus") return await helpPlus(interaction);
+        if (interaction.commandName === "dm-test") return await testDirectMessage(interaction);
         if (["availability", "وقت-فراغي"].includes(interaction.commandName)) return await availability(interaction);
         if (interaction.commandName === "lfg") return await handleLfgCommand(interaction);
       }
@@ -1190,15 +1190,10 @@ if (!token) {
   }
 
   async function notifyInterestedPlayers(room: LiveRoom) {
-    if (notifiedRooms.has(room.id)) return;
-    notifiedRooms.add(room.id);
-    try {
-      const result = await sendRoomInvites(room);
-      // Keep failed deliveries eligible for the recovery cycle. Successful
-      // and ignored deliveries remain deduplicated in the API/database.
-      if (result.failedCount > 0) notifiedRooms.delete(room.id);
-    }
-    catch (error) { notifiedRooms.delete(room.id); throw error; }
+    // The database owns deduplication. Running this during the recovery cycle
+    // lets newly interested members and transiently failed DMs receive an
+    // invitation without ever re-sending successful or ignored deliveries.
+    await sendRoomInvites(room);
   }
 
   // Redis delivers events immediately. This short recovery cycle covers room
@@ -1236,6 +1231,22 @@ if (!token) {
       }
     }
     return { sentCount, failedCount };
+  }
+
+  async function testDirectMessage(interaction: any) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await interaction.user.send({
+        embeds: [baseEmbed()
+          .setTitle("✅ اختبار الرسائل الخاصة نجح")
+          .setDescription(`هذه رسالة اختبار من Zark. ستصلك دعوات LFG والتقييمات وتنبيهات الدعم في الخاص عندما تكون الإشعارات مفعلة.\n\nافتح صفحة LFG وتأكد أن اللعبة على **مهتم** وأن زر الإشعارات مفعّل.`)],
+      });
+      return interaction.editReply({ content: "✅ وصلت رسالة اختبار إلى الخاص. نظام DM يعمل لحسابك." });
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "unknown";
+      console.warn(`DM test failed for ${interaction.user.id} (${code})`, error);
+      return interaction.editReply({ content: "❌ Discord منع الرسالة الخاصة لهذا الحساب. من إعدادات Discord > Content & Social فعّل السماح بالرسائل الخاصة من أعضاء السيرفر، ثم أعد `/dm-test`." });
+    }
   }
 
   async function notifyScheduledMembers(room: LiveRoom) {
@@ -2009,6 +2020,7 @@ function buildCommands() {
   return [
     new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
     new SlashCommandBuilder().setName("help-plus").setDescription("شرح كامل ومبسط لكل أنظمة Zark"),
+    new SlashCommandBuilder().setName("dm-test").setDescription("اختبر وصول رسائل Zark الخاصة إلى حسابك"),
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
     new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),

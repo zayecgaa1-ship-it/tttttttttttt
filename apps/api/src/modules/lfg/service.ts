@@ -767,7 +767,6 @@ export async function getNotificationCandidates(roomId: string) {
       ...(isAutomaticRoom ? { autoInvitesEnabled: true } : {}),
       OR: [{ mutedUntil: null }, { mutedUntil: { lt: new Date() } }],
       userId: { not: room.hostId },
-      user: { memberships: { none: { status: "ACTIVE" } } },
     },
     include: { user: { include: { weeklyAvailability: true } }, game: true },
     take: 50,
