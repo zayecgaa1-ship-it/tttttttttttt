@@ -37,10 +37,9 @@ $zark_game_updated_at_migration$;
 -- so the built-in question synchronizer continues to recognize it.
 DO $game_question_source_key_migration$
 BEGIN
-  IF to_regclass('"GameQuestion"') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = current_schema() AND table_name = 'GameQuestion' AND column_name = 'sourceKey'
-  ) THEN
+  IF to_regclass('"GameQuestion"') IS NOT NULL THEN
+    ALTER TABLE "GameQuestion" ADD COLUMN IF NOT EXISTS "sourceKey" TEXT;
+
     WITH ranked_keys AS (
       SELECT "id", ROW_NUMBER() OVER (
         PARTITION BY "gameId", "sourceKey"
@@ -54,6 +53,20 @@ BEGIN
     FROM ranked_keys
     WHERE question."id" = ranked_keys."id"
       AND ranked_keys.duplicate_number > 1;
+
+    -- A legacy non-unique index with Prisma's target name would make
+    -- CREATE INDEX IF NOT EXISTS a no-op. Remove only that incompatible index.
+    IF EXISTS (
+      SELECT 1
+      FROM pg_class AS index_class
+      JOIN pg_namespace AS index_namespace ON index_namespace.oid = index_class.relnamespace
+      JOIN pg_index AS index_metadata ON index_metadata.indexrelid = index_class.oid
+      WHERE index_namespace.nspname = current_schema()
+        AND index_class.relname = 'GameQuestion_gameId_sourceKey_key'
+        AND index_metadata.indisunique = FALSE
+    ) THEN
+      DROP INDEX "GameQuestion_gameId_sourceKey_key";
+    END IF;
 
     CREATE UNIQUE INDEX IF NOT EXISTS "GameQuestion_gameId_sourceKey_key"
       ON "GameQuestion"("gameId", "sourceKey");
