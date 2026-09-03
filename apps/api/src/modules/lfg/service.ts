@@ -648,6 +648,16 @@ export async function recordLfgVoiceEvent(roomId: string, input: { userId: strin
 export async function processDueLfgRooms() {
   const now = new Date();
   const settings = await getGuildRuntimeSettings();
+  // A short PostgreSQL-backed lease makes this safe when Railway runs more
+  // than one API instance. Per-room conditional updates remain the final guard.
+  const claimed = await serializable(async (tx) => {
+    const service = `lfg-lifecycle:${settings.guildId}`;
+    const previous = await tx.serviceHeartbeat.findUnique({ where: { service } });
+    if (previous && now.getTime() - previous.lastSeenAt.getTime() < 20_000) return false;
+    await tx.serviceHeartbeat.upsert({ where: { service }, update: { instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } }, create: { service, instanceId: String(process.pid), metadata: { lastRunAt: now.toISOString() } } });
+    return true;
+  });
+  if (!claimed) return { processed: 0, readied: 0, started: 0, warned: 0, idled: 0, expired: 0, skipped: true };
   const readyCutoff = new Date(now.getTime() + 10 * 60_000);
   const readyRooms = await db.lfgRoom.findMany({
     where: { status: "SCHEDULED", scheduledFor: { lte: readyCutoff }, readyNotifiedAt: null },

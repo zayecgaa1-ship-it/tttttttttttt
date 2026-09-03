@@ -34,7 +34,15 @@ async function boot() {
   await tutorialManager.autoStart();
   const stream = new EventSource('/api/stream');
   let timer;
-  stream.onmessage = () => {
+  stream.onopen=()=>setRealtimeStatus(true);
+  stream.onerror=()=>setRealtimeStatus(false);
+  stream.onmessage = (message) => {
+    let event;try{event=JSON.parse(message.data)}catch{}
+    // Do not rebuild the whole Trade page while a desktop user is typing.
+    // Re-rendering was sending them back to the market after every message.
+    if(page==='trade'&&activeTradeConversationId&&String(event?.eventType||'').startsWith('trade.')){
+      clearTimeout(timer);timer=setTimeout(async()=>{try{await loadTradeInbox();showTradeTab('inbox');await openTradeConversation(activeTradeConversationId);}catch(error){console.error('Trade realtime refresh failed',error)}},180);return;
+    }
     clearTimeout(timer);
     timer = setTimeout(async () => { try{state = await api('/api/state');await renderPage(true);}catch(error){console.error('Realtime refresh failed',error)} }, 500);
   };
@@ -48,7 +56,7 @@ function renderShell() {
   $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div></div></div>`;
   $('nav-links').insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
   $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
-  document.body.insertAdjacentHTML('beforeend','<button id="tutorial-help-fab" class="tutorial-help-fab" type="button" aria-label="فتح مركز الشرح">؟<span>الشرح</span></button>');
+  document.body.insertAdjacentHTML('beforeend','<button id="tutorial-help-fab" class="tutorial-help-fab" type="button" aria-label="فتح مركز الشرح">؟<span>الشرح</span></button><span id="realtime-status" class="realtime-status" title="حالة التحديث المباشر">● مباشر</span>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="/status.html">حالة النظام</a>');
   $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
@@ -621,6 +629,7 @@ function auditActionLabel(action){return({
 function auditTargetLabel(action){return action?.startsWith('loyalty.')||action?.startsWith('report.')?'معرّف العضو أو البلاغ':action?.startsWith('lfg.')?'معرّف الغرفة':action?.startsWith('trade.')?'معرّف العرض':'المعرّف المرتبط'}
 function supportTokenLabel(status){const names={GEMINI:'Gemini',GROQ:'Groq',OPENROUTER:'OpenRouter'},provider=names[status.provider]||'مساعد Zark',remaining=Number.isFinite(status.remainingMessages)?` · ${formatValue(status.remainingMessages)} رسالة متبقية اليوم`:'';if(status.mode==='AI')return`${provider} متصل${remaining}`;if(status.mode==='ACTION')return`نفّذ Zark الطلب${remaining}`;if(status.aiError)return`تحويل تلقائي للمساعد المحلي${remaining}`;if(status.setupRequired||!status.provider)return`المساعد المحلي متاح${remaining}`;return`${provider} جاهز${remaining}`}
 function empty(message){return `<div class="empty-state">${escapeHtml(message)}</div>`}
+function setRealtimeStatus(connected){const node=$('realtime-status');if(!node)return;node.textContent=connected?'● مباشر':'● يعيد الاتصال';node.classList.toggle('offline',!connected);node.title=connected?'التحديث المباشر متصل':'جارِ إعادة اتصال التحديث المباشر';}
 function formatValue(value){return typeof value==='number'?new Intl.NumberFormat('ar').format(value):value??0}
 function formatDuration(seconds){const value=Math.max(0,Number(seconds)||0);const hours=Math.floor(value/3600);const minutes=Math.floor((value%3600)/60);return hours?`${hours}س ${minutes}د`:`${minutes} دقيقة`}
 function minutesToTime(minutes){const value=Math.max(0,Math.min(1439,Number(minutes)||0));return`${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}`}
