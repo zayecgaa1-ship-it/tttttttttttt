@@ -778,12 +778,19 @@ export async function getNotificationCandidates(roomId: string) {
   const selected = [];
   for (const candidate of candidates) {
     try {
-      await db.notificationDelivery.create({ data: { userId: candidate.userId, lfgGameId: room.lfgGameId, roomId, dedupeKey: `${roomId}:${candidate.userId}` } });
+      const dedupeKey = `${roomId}:${candidate.userId}`;
+      const previous = await db.notificationDelivery.findUnique({ where: { dedupeKey }, select: { status: true } });
+      if (previous?.status === "SENT" || previous?.status === "IGNORED") continue;
+      if (previous) {
+        await db.notificationDelivery.update({ where: { dedupeKey }, data: { status: "RESERVED", sentAt: null, ignoredAt: null } });
+      } else {
+        await db.notificationDelivery.create({ data: { userId: candidate.userId, lfgGameId: room.lfgGameId, roomId, dedupeKey } });
+      }
       selected.push(candidate);
       if (selected.length >= 25) break;
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
-      // Unique dedupeKey means another worker already reserved this invitation.
+      // Another worker reserved this invitation first; it will deliver it.
     }
   }
   return selected;

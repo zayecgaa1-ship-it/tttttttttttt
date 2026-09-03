@@ -1192,7 +1192,12 @@ if (!token) {
   async function notifyInterestedPlayers(room: LiveRoom) {
     if (notifiedRooms.has(room.id)) return;
     notifiedRooms.add(room.id);
-    try { await sendRoomInvites(room); }
+    try {
+      const result = await sendRoomInvites(room);
+      // Keep failed deliveries eligible for the recovery cycle. Successful
+      // and ignored deliveries remain deduplicated in the API/database.
+      if (result.failedCount > 0) notifiedRooms.delete(room.id);
+    }
     catch (error) { notifiedRooms.delete(room.id); throw error; }
   }
 
@@ -1213,17 +1218,24 @@ if (!token) {
       new ButtonBuilder().setCustomId(`lfg:snooze-menu:${room.gameSlug}`).setLabel("غفوة").setEmoji("😴").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`lfg:interest-off:${room.gameSlug}`).setLabel("غير مهتم").setEmoji("🚫").setStyle(ButtonStyle.Danger),
     );
-    await Promise.all(candidates.map(async (candidate) => {
+    let sentCount = 0;
+    let failedCount = 0;
+    for (const candidate of candidates) {
       try {
         const user = await client.users.fetch(candidate.user.id);
         const scheduleText = room.scheduledFor ? `\n🕐 الموعد: <t:${Math.floor(new Date(room.scheduledFor).getTime() / 1000)}:F>` : "";
         const mapText = room.mapName ? `\n🗺️ الماب: **${room.mapName}**` : "";
         await user.send({ embeds: [baseEmbed().setTitle(`${room.gameIcon ?? "🎮"} تجمع ${room.gameName}${room.scheduledFor ? " مجدول" : " الآن"}!`).setDescription(`👥 ${room.currentPlayers}/${room.maxPlayers} لاعبين\n🎙️ Voice: ${room.needsVoice ? "متاح" : "غير مطلوب"}${mapText}${scheduleText}\n\nوصلتك الدعوة لأنك مهتم بهذه اللعبة وإشعاراتها مفعلة.`)], components: [buttons] });
+        sentCount += 1;
         await apiSend(`/api/lfg/${room.id}/notifications/${candidate.user.id}/status`, "POST", { status: "SENT" });
-      } catch {
+      } catch (error) {
+        failedCount += 1;
+        const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "unknown";
+        console.warn(`LFG DM failed for ${candidate.user.id} in room ${room.id} (${code}); will retry.`);
         await apiSend(`/api/lfg/${room.id}/notifications/${candidate.user.id}/status`, "POST", { status: "FAILED" }).catch(() => undefined);
       }
-    }));
+    }
+    return { sentCount, failedCount };
   }
 
   async function notifyScheduledMembers(room: LiveRoom) {
