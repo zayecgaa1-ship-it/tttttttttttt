@@ -105,8 +105,31 @@ if (!token) {
   const mentionStatusCooldown = new Map<string, number>();
   const moderationAlertCooldown = new Map<string, number>();
   let securityReadiness: { checked: boolean; ready: boolean; missingPermissions: string[]; blockedRoles: Array<{ id: string; name: string }> } = { checked: false, ready: false, missingPermissions: [], blockedRoles: [] };
+  let directMessagesQuarantined = false;
   let hackAlertChannelId = configuredHackAlertChannelId && /^\d{17,20}$/.test(configuredHackAlertChannelId) ? configuredHackAlertChannelId : undefined;
   let botEventSubscriber: ReturnType<typeof createClient> | undefined;
+
+  function discordErrorCode(error: unknown) {
+    return typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "unknown";
+  }
+
+  async function sendDirectMessage(user: any, payload: any, context: string) {
+    if (directMessagesQuarantined) return { sent: false, quarantined: true, code: "20026" };
+    try {
+      await user.send(payload);
+      return { sent: true, quarantined: false, code: undefined };
+    } catch (error) {
+      const code = discordErrorCode(error);
+      const quarantined = code === "20026";
+      if (quarantined) {
+        directMessagesQuarantined = true;
+        console.error("Discord has quarantined Zark from all DMs (20026). DM delivery is paused until Discord approves the appeal.");
+      } else {
+        console.warn(`Direct message failed (${context}, ${code}).`);
+      }
+      return { sent: false, quarantined, code };
+    }
+  }
 
   if (guildId && clientId) {
     await new REST({ version: "10" }).setToken(token).put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
@@ -704,11 +727,12 @@ if (!token) {
         .addFields({ name: "Zark LFG System", value: `[فتح الموقع](${siteUrl()})` });
       for (let index = 0; index < recipients.length; index += 1) {
         const member = recipients[index];
-        try {
-          await member.send({ embeds: [embed], allowedMentions: { parse: [] } });
+        const delivery = await sendDirectMessage(member, { embeds: [embed], allowedMentions: { parse: [] } }, "admin broadcast");
+        if (delivery.sent) {
           sentCount += 1;
-        } catch {
+        } else {
           failedCount += 1;
+          if (delivery.quarantined) throw new Error("Discord blocked Zark direct messages with code 20026; campaign stopped to avoid additional anti-spam violations.");
         }
         if ((index + 1) % 20 === 0) await updateBroadcast("RUNNING");
         if ((index + 1) % 5 === 0) await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -1206,6 +1230,7 @@ if (!token) {
   }
 
   async function sendRoomInvites(room: LiveRoom) {
+    if (directMessagesQuarantined) return { sentCount: 0, failedCount: 0 };
     const candidates = await apiGet<Array<{ user: { id: string }; game: { name: string; icon?: string } }>>(`/api/lfg/${room.id}/notification-candidates`, true);
     const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`lfg:join:${room.id}`).setLabel("دخول").setEmoji("✅").setStyle(ButtonStyle.Success),
@@ -1220,12 +1245,18 @@ if (!token) {
         const user = await client.users.fetch(candidate.user.id);
         const scheduleText = room.scheduledFor ? `\n🕐 الموعد: <t:${Math.floor(new Date(room.scheduledFor).getTime() / 1000)}:F>` : "";
         const mapText = room.mapName ? `\n🗺️ الماب: **${room.mapName}**` : "";
-        await user.send({ embeds: [baseEmbed().setTitle(`${room.gameIcon ?? "🎮"} تجمع ${room.gameName}${room.scheduledFor ? " مجدول" : " الآن"}!`).setDescription(`👥 ${room.currentPlayers}/${room.maxPlayers} لاعبين\n🎙️ Voice: ${room.needsVoice ? "متاح" : "غير مطلوب"}${mapText}${scheduleText}\n\nوصلتك الدعوة لأنك مهتم بهذه اللعبة وإشعاراتها مفعلة.`)], components: [buttons] });
+        const delivery = await sendDirectMessage(user, { embeds: [baseEmbed().setTitle(`${room.gameIcon ?? "🎮"} تجمع ${room.gameName}${room.scheduledFor ? " مجدول" : " الآن"}!`).setDescription(`👥 ${room.currentPlayers}/${room.maxPlayers} لاعبين\n🎙️ Voice: ${room.needsVoice ? "متاح" : "غير مطلوب"}${mapText}${scheduleText}\n\nوصلتك الدعوة لأنك مهتم بهذه اللعبة وإشعاراتها مفعلة.`)], components: [buttons] }, `LFG room ${room.id}`);
+        if (!delivery.sent) {
+          failedCount += 1;
+          if (delivery.quarantined) break;
+          await apiSend(`/api/lfg/${room.id}/notifications/${candidate.user.id}/status`, "POST", { status: "FAILED" }).catch(() => undefined);
+          continue;
+        }
         sentCount += 1;
         await apiSend(`/api/lfg/${room.id}/notifications/${candidate.user.id}/status`, "POST", { status: "SENT" });
       } catch (error) {
         failedCount += 1;
-        const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "unknown";
+        const code = discordErrorCode(error);
         console.warn(`LFG DM failed for ${candidate.user.id} in room ${room.id} (${code}); will retry.`);
         await apiSend(`/api/lfg/${room.id}/notifications/${candidate.user.id}/status`, "POST", { status: "FAILED" }).catch(() => undefined);
       }
@@ -1235,18 +1266,16 @@ if (!token) {
 
   async function testDirectMessage(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    try {
-      await interaction.user.send({
-        embeds: [baseEmbed()
-          .setTitle("✅ اختبار الرسائل الخاصة نجح")
-          .setDescription(`هذه رسالة اختبار من Zark. ستصلك دعوات LFG والتقييمات وتنبيهات الدعم في الخاص عندما تكون الإشعارات مفعلة.\n\nافتح صفحة LFG وتأكد أن اللعبة على **مهتم** وأن زر الإشعارات مفعّل.`)],
-      });
+    const delivery = await sendDirectMessage(interaction.user, {
+      embeds: [baseEmbed()
+        .setTitle("✅ اختبار الرسائل الخاصة نجح")
+        .setDescription(`هذه رسالة اختبار من Zark. ستصلك دعوات LFG والتقييمات وتنبيهات الدعم في الخاص عندما تكون الإشعارات مفعلة.\n\nافتح صفحة LFG وتأكد أن اللعبة على **مهتم** وأن زر الإشعارات مفعّل.`)],
+    }, `DM test for ${interaction.user.id}`);
+    if (delivery.sent) {
       return interaction.editReply({ content: "✅ وصلت رسالة اختبار إلى الخاص. نظام DM يعمل لحسابك." });
-    } catch (error) {
-      const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "unknown";
-      console.warn(`DM test failed for ${interaction.user.id} (${code})`, error);
-      return interaction.editReply({ content: "❌ Discord منع الرسالة الخاصة لهذا الحساب. من إعدادات Discord > Content & Social فعّل السماح بالرسائل الخاصة من أعضاء السيرفر، ثم أعد `/dm-test`." });
     }
+    if (delivery.quarantined) return interaction.editReply({ content: "⛔ Discord أوقف الرسائل الخاصة للبوت نفسه برمز 20026 (Anti-Spam). لا يمكن إرسال DM لأي عضو حتى يوافق Discord على الاستئناف عبر https://dis.gd/app-quarantine." });
+    return interaction.editReply({ content: "❌ Discord منع الرسالة الخاصة لهذا الحساب. من إعدادات Discord > Content & Social فعّل السماح بالرسائل الخاصة من أعضاء السيرفر، ثم أعد `/dm-test`." });
   }
 
   async function notifyScheduledMembers(room: LiveRoom) {
