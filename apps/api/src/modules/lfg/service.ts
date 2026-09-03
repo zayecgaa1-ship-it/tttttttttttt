@@ -779,9 +779,16 @@ export async function getNotificationCandidates(roomId: string) {
     try {
       const dedupeKey = `${roomId}:${candidate.userId}`;
       const previous = await db.notificationDelivery.findUnique({ where: { dedupeKey }, select: { status: true } });
-      if (previous?.status === "SENT" || previous?.status === "IGNORED") continue;
+      // RESERVED is owned by another delivery worker. Returning it here caused
+      // the direct room flow and the Redis event flow to send the same DM.
+      if (previous?.status === "RESERVED" || previous?.status === "SENT" || previous?.status === "IGNORED") continue;
       if (previous) {
-        await db.notificationDelivery.update({ where: { dedupeKey }, data: { status: "RESERVED", sentAt: null, ignoredAt: null } });
+        // Claim failed deliveries atomically so only one bot process can retry.
+        const claimed = await db.notificationDelivery.updateMany({
+          where: { dedupeKey, status: "FAILED" },
+          data: { status: "RESERVED", sentAt: null, ignoredAt: null },
+        });
+        if (claimed.count !== 1) continue;
       } else {
         await db.notificationDelivery.create({ data: { userId: candidate.userId, lfgGameId: room.lfgGameId, roomId, dedupeKey } });
       }
