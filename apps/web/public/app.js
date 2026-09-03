@@ -10,6 +10,7 @@ let reportPresenceTimer;
 let reportPresenceBound=false;
 let adminZarkContent=[];
 let adminBroadcastTimer;
+let activeTradeConversationId;
 const roomSearchAliases={
   minecraft:['minecraft','ماينكرافت','ماين كرافت','माइनक्राफ्ट','майнкрафт'],
   roblox:['roblox','روبلوكس','روب لوكس','रोब्लॉक्स'],
@@ -643,6 +644,7 @@ async function renderTrade(realtime=false){
   }
   await Promise.all([loadTradeMarket(),loadTradeInbox(),loadTradeNotifications()]);
   if(me)await loadMyTrades();
+  if(realtime&&activeTradeConversationId){showTradeTab('inbox');await openTradeConversation(activeTradeConversationId).catch(error=>{console.warn('trade_conversation_refresh_failed',error);activeTradeConversationId=undefined;});}
   const pathMatch=location.pathname.match(/^\/trade\/([^/]+)$/);const queryId=new URLSearchParams(location.search).get('id');const identifier=pathMatch?.[1]||queryId;if(identifier)await openTrade(identifier);
 }
 
@@ -651,6 +653,7 @@ function showTradeTab(tab){
   document.querySelectorAll('[data-trade-tab]').forEach(button=>button.classList.toggle('active',button.dataset.tradeTab===tab));
   document.querySelectorAll('[data-trade-panel]').forEach(panel=>panel.hidden=panel.dataset.tradePanel!==tab);
   $('trade-detail').hidden=true;
+  if(tab!=='inbox')activeTradeConversationId=undefined;
   if(tab==='notifications')loadTradeNotifications(true).catch(console.error);
 }
 
@@ -687,6 +690,7 @@ async function tradeButtonAction(button,path,body,done){if(!me){location.href='/
 async function loadTradeInbox(){if(!me)return;const conversations=await api('/api/me/trade-inbox');const unread=conversations.filter(item=>item.unread).length;$('trade-unread').hidden=!unread;$('trade-unread').textContent=unread;$('trade-inbox-list').innerHTML=conversations.length?conversations.map(item=>`<button class="trade-conversation-item ${item.unread?'unread':''}" data-inbox-id="${item.id}" type="button"><b>${escapeHtml(item.trade.code)} · ${escapeHtml(item.trade.itemName)}</b><span>${escapeHtml((item.messages[0]?.deletedAt?'رسالة محذوفة':item.messages[0]?.content)||'بدأت المحادثة')}</span><small>${new Date(item.lastMessageAt).toLocaleString('ar')}</small></button>`).join(''):empty('لا توجد محادثات بعد.');document.querySelectorAll('[data-inbox-id]').forEach(button=>button.onclick=()=>openTradeConversation(button.dataset.inboxId));}
 
 async function openTradeConversation(id){
+  activeTradeConversationId=id;
   const item=await api(`/api/me/trade-conversations/${id}`),panel=$('trade-conversation');panel.hidden=false;const other=item.ownerId===me.userId?item.interestedUser:item.owner;
   panel.innerHTML=`<header><div><span class="trade-code">${escapeHtml(item.trade.code)}</span><h2>${escapeHtml(item.trade.itemName)}</h2><small>محادثة خاصة مع ${escapeHtml(other.displayName)}${item.moderatorView?' · وضع إشراف للقراءة':''}</small></div><a class="button ghost small" href="/trade/${encodeURIComponent(item.trade.code)}">فتح العرض</a></header><div class="trade-chat-log">${item.messages.map(message=>tradeMessageHtml(message,me.userId)).join('')||empty('ابدأ المحادثة برسالة واضحة، ولا تشارك بيانات حسابك.')}</div>${item.moderatorView?'':`<form id="trade-message-form"><input id="trade-message-input" maxlength="1500" required placeholder="اكتب رسالتك..."><button class="button primary" type="submit">إرسال</button></form><div class="trade-conversation-actions">${item.trade.status==='PENDING'&&item.ownerId===me.userId?'<button class="button primary small" data-completion-request>طلب تأكيد الإكمال من هذا اللاعب</button>':''}${item.trade.status==='COMPLETION_PENDING'&&item.trade.completionConversationId===id&&item.interestedUserId===me.userId?'<button class="button primary small" data-completion-answer="CONFIRM">تأكيد نجاح الصفقة</button><button class="button danger small" data-completion-answer="DISPUTE">فتح نزاع</button>':''}${item.trade.status==='COMPLETED'?`<span class="trade-review-label">قيّم ${escapeHtml(other.displayName)}:</span>${[1,2,3,4,5].map(stars=>`<button class="button ghost small" data-trade-review="${stars}">${stars}⭐</button>`).join('')}`:''}<button class="button ghost small" data-conversation-report>⚑ بلاغ</button></div>`}`;
   panel.querySelector('#trade-message-form')?.addEventListener('submit',async event=>{event.preventDefault();const input=$('trade-message-input'),content=input.value;input.disabled=true;try{await api(`/api/me/trade-conversations/${id}/messages`,{method:'POST',body:{content}});input.value='';await openTradeConversation(id);await loadTradeInbox();}catch(error){alert(error.message);}finally{input.disabled=false;input.focus();}});
