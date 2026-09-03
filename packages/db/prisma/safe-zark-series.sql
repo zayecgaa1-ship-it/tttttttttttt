@@ -89,3 +89,13 @@ BEGIN
   END IF;
 END
 $zark_room_grace_migration$;
+-- Keeps onboarding completion with the Discord account across browsers/devices.
+DO $user_tutorial_migration$
+BEGIN
+  IF to_regclass('"User"') IS NOT NULL THEN
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tutorialCompleted" BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tutorialCompletedAt" TIMESTAMP(3);
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tutorialVersion" INTEGER NOT NULL DEFAULT 0;
+  END IF;
+END
+$user_tutorial_migration$;

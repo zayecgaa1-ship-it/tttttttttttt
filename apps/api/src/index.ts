@@ -94,6 +94,15 @@ app.get("/api/me", async (request) => {
   return { user: { userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, isAdmin, isOwner: isWebOwner(user) } };
 });
 app.get("/api/me/profile", async (request) => getUnifiedProfile((await requireWebUser(request)).userId, true));
+app.get("/api/me/tutorial", async (request) => {
+  const user = await requireWebUser(request);
+  return db.user.findUniqueOrThrow({ where: { id: user.userId }, select: { tutorialCompleted: true, tutorialCompletedAt: true, tutorialVersion: true } });
+});
+app.put("/api/me/tutorial", async (request) => {
+  const user = await requireWebUser(request);
+  const body = z.object({ completed: z.boolean(), version: z.number().int().min(1).max(100) }).parse(request.body);
+  return db.user.update({ where: { id: user.userId }, data: { tutorialCompleted: body.completed, tutorialVersion: body.version, tutorialCompletedAt: body.completed ? new Date() : null }, select: { tutorialCompleted: true, tutorialCompletedAt: true, tutorialVersion: true } });
+});
 app.get("/api/me/loyalty", async (request) => getLoyaltyProfile((await requireWebUser(request)).userId));
 app.post("/api/me/loyalty/buy-vip", async (request) => buyVip((await requireWebUser(request)).userId));
 const tradeStatusSchema = z.enum(["OPEN", "PENDING", "COMPLETION_PENDING", "COMPLETED", "CANCELLED", "EXPIRED", "DISPUTED", "REMOVED"]);

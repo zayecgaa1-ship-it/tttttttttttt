@@ -6,8 +6,8 @@
   <main class="shell page-main">
     <section id="profile-guest" class="auth-gate"><span>👤</span><h1>ملفك ينتظرك</h1><p>سجّل عبر Discord لعرض XP وتفاعل LFG ووقت اللعب وإعدادات الخصوصية.</p><a class="button primary" href="/auth/discord">تسجيل الدخول</a></section>
     <section id="profile-content" hidden>
-      <div id="profile-head" class="profile-head"><div class="avatar-wrap"><img id="profile-avatar" alt=""><span id="profile-level">LV 1</span></div><div><span class="eyebrow">ZARK PLAYER PROFILE</span><h1 id="profile-name">—</h1><p id="profile-rating">لا يوجد تقييم بعد</p><p id="profile-bio" class="profile-bio"></p></div></div>
-      <div id="profile-stats" class="stats profile-stats"></div>
+      <div id="profile-head" data-tour="profile-head" class="profile-head"><div class="avatar-wrap"><img id="profile-avatar" alt=""><span id="profile-level">LV 1</span></div><div><span class="eyebrow">ZARK PLAYER PROFILE</span><h1 id="profile-name">—</h1><p id="profile-rating">لا يوجد تقييم بعد</p><p id="profile-bio" class="profile-bio"></p></div></div>
+      <div id="profile-stats" data-tour="profile-stats" class="stats profile-stats"></div>
       <div class="profile-grid">
         <article class="surface"><h2>💎 نقاط الولاء</h2><div id="profile-loyalty"></div></article>
         <article class="surface"><h2>🎮 ألعاب Zark</h2><div id="profile-zark-games"></div></article>
@@ -23,8 +23,8 @@
         <form id="availability-form" class="surface wide availability-settings">
           <h2>🕐 وقت فراغي وحالتي</h2>
           <p class="section-copy">غيّر حالتك بضغطة واحدة. لن يرسل لك Zark فرص لعب عندما تكون مشغولًا.</p>
-          <div id="availability-current" class="availability-current">—</div>
-          <div class="availability-quick">
+          <div id="availability-current" data-tour="availability-status" class="availability-current">—</div>
+          <div data-tour="availability-quick" class="availability-quick">
             <button type="button" data-availability-quick="FREE:120">🟢 فاضي ساعتين</button><button type="button" data-availability-quick="PLAYING:120">🎮 ألعب الآن</button><button type="button" data-availability-quick="BUSY:60">⛔ مشغول ساعة</button><button type="button" data-availability-quick="SLEEPING:480">😴 نايم</button><button type="button" data-availability-quick="AWAY:0">🌙 غير متاح</button>
           </div>
           <details class="advanced-options availability-advanced"><summary>⚙️ تخصيص حالتي الحالية</summary>
@@ -35,7 +35,7 @@
             </div>
             <label>ملاحظة الحالة<input id="availability-note" maxlength="120" placeholder="مثال: جاهز لماينكرافت بعد التاسعة"></label>
           </details>
-          <div class="weekly-simple-head"><div><h3 class="availability-title">ساعات فراغي الأسبوعية</h3><p>فعّل اليوم وحدد: فاضي من أي ساعة وحتى أي ساعة.</p></div></div>
+          <div data-tour="availability-weekly" class="weekly-simple-head"><div><h3 class="availability-title">ساعات فراغي الأسبوعية</h3><p>فعّل اليوم وحدد: فاضي من أي ساعة وحتى أي ساعة.</p></div></div>
           <div id="weekly-availability" class="weekly-availability"></div>
           <button class="button primary" type="submit">حفظ الحالة والجدول</button>
           <p id="availability-result" class="form-result"></p>
