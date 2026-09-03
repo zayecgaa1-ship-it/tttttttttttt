@@ -61,6 +61,15 @@ export function hasEventCapacity() {
   return clients.size < maxEventClients;
 }
 
+/** Safe operational snapshot for the public status page and admin dashboard. */
+export function eventRuntimeStatus() {
+  return {
+    redisConfigured: Boolean(process.env.REDIS_URL),
+    redisOnline: Boolean(publisher?.isReady && subscriber?.isReady),
+    realtimeClients: clients.size,
+  };
+}
+
 export function publish(event: ZarkEvent) {
   const envelope = wrapEvent(event);
   broadcast(envelope);

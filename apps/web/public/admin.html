@@ -32,6 +32,7 @@
         <button type="button" data-admin-tab="rooms">🛰️ الغرف</button>
         <button type="button" data-admin-tab="lfg-content">🎮 ألعاب LFG</button>
         <button type="button" data-admin-tab="zark-content">🧠 ألعاب البوت</button>
+        <button type="button" data-admin-tab="operations">📜 سجل العمليات</button>
       </nav>
 
       <section class="section admin-dashboard" data-admin-panel="overview">
@@ -43,6 +44,11 @@
         <div id="admin-smart-rooms" class="admin-room-list"></div>
         <div class="section-heading compact"><div><span class="eyebrow">SMART HISTORY</span><h2>سجل التجمعات الذكية</h2></div></div>
         <div id="admin-smart-history" class="admin-room-list"></div>
+      </section>
+
+      <section class="admin-section" data-admin-panel="operations" hidden>
+        <div class="admin-section-title"><div><span>📜</span><div><h2>سجل عمليات الإدارة</h2><p>كل تعديل للغرف وTrade والإعدادات والبلاغات محفوظ هنا للمراجعة.</p></div></div></div>
+        <div id="admin-audit-log" class="admin-room-list surface"></div>
       </section>
 
       <section class="admin-section" data-admin-panel="settings" hidden>

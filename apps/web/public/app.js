@@ -49,6 +49,7 @@ function renderShell() {
   $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
   document.body.insertAdjacentHTML('beforeend','<button id="tutorial-help-fab" class="tutorial-help-fab" type="button" aria-label="فتح مركز الشرح">؟<span>الشرح</span></button>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a>');
+  document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="/status.html">حالة النظام</a>');
   $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
   $('open-onboarding').onclick = () => renderProductTour(true);
   $('tutorial-help-fab').onclick = () => renderProductTour(true);
@@ -138,6 +139,7 @@ async function renderPage(realtime = false) {
   if (page === 'leaderboard') await renderLeaderboard('game');
   if (page === 'reports') await renderReports();
   if (page === 'trade') await renderTrade(realtime);
+  if (page === 'status') await renderStatus();
   if (page === 'admin' && !realtime) await bindAdmin();
   if (page === 'security' && !realtime) await bindSecurity();
 }
@@ -158,6 +160,17 @@ async function bindSecurity(){
     $('security-settings-form').onsubmit=async event=>{event.preventDefault();const body={enabled:$('security-enabled').checked,maxBansPerHour:Number($('security-maxBansPerHour').value),maxTimeoutsPerHour:Number($('security-maxTimeoutsPerHour').value),maxKicksPerHour:Number($('security-maxKicksPerHour').value),maxRoleChangesPerHour:Number($('security-maxRoleChangesPerHour').value),maxChannelDeletesPerHour:Number($('security-maxChannelDeletesPerHour').value),maxWebhookChangesPerHour:Number($('security-maxWebhookChangesPerHour').value),ownerDmAlertsEnabled:$('security-ownerDmAlertsEnabled').checked,securityLogChannelId:$('security-securityLogChannelId').value.trim()||null,operationalExemptUserIds:$('security-operationalExemptUserIds').value.split(/[\s,،]+/).filter(Boolean)};try{await api('/api/security/settings',{method:'PUT',body});$('security-result').textContent='✅ تم حفظ إعدادات الحماية.';}catch(error){$('security-result').textContent=`❌ ${error.message}`;}};
     document.querySelectorAll('[data-security-restore]').forEach(button=>button.onclick=async()=>{if(!confirm('استرجاع الرتب الأصلية القابلة للإدارة فقط؟'))return;await api(`/api/security/suspensions/${button.dataset.securityRestore}/restore`,{method:'POST'});await bindSecurity();});
   }catch(error){gate.innerHTML=`<span>🔒</span><h1>الحماية للمالك فقط</h1><p>${escapeHtml(error.message)}</p>`;}
+}
+
+async function renderStatus(){
+  const target=$('public-status');
+  try{
+    const status=await api('/api/status');
+    const fresh=status.bot?.lastSeenAt?new Date(status.bot.lastSeenAt).toLocaleString('ar'):'لا توجد إشارة بعد';
+    const services=[['الموقع وAPI',status.api],['قاعدة البيانات',status.database],['بوت Discord',status.bot?.online],['Redis والتحديث المباشر',status.realtime?.redisOnline]];
+    target.innerHTML=`<div class="service-grid public-status-grid">${services.map(([name,online])=>`<article><span class="service-dot ${online?'online':'offline'}"></span><b>${escapeHtml(name)}</b><small>${online?'يعمل بشكل طبيعي':'يحتاج متابعة'}</small></article>`).join('')}</div><div class="status-details"><article><b>آخر اتصال للبوت</b><span>${escapeHtml(fresh)}</span></article><article><b>إشعارات آخر 24 ساعة</b><span>✅ ${status.notifications?.sent||0} وصلت · ⚠️ ${status.notifications?.failed||0} فشلت · ⏳ ${status.notifications?.pending||0} قيد الإرسال</span></article><article><b>التحديث المباشر</b><span>${status.realtime?.redisConfigured?'Redis مهيأ':'Redis غير مهيأ — الموقع يعمل لكن التحديث بين النسخ محدود'} · ${status.realtime?.realtimeClients||0} زائر متصل</span></article></div><small class="status-refresh">آخر فحص: ${new Date(status.checkedAt).toLocaleTimeString('ar')} · تتحدث الصفحة تلقائيًا كل 30 ثانية.</small>`;
+  }catch(error){target.innerHTML=empty(`تعذر جلب الحالة الآن: ${error.message}`);}
+  clearTimeout(window.zarkStatusTimer);window.zarkStatusTimer=setTimeout(()=>renderStatus().catch(()=>undefined),30000);
 }
 
 function renderHome() {
@@ -354,12 +367,13 @@ async function bindAdmin(){
   if(!me){gate.innerHTML='<span>🔐</span><h1>سجّل الدخول أولًا</h1><p>استخدم حساب Discord المرتبط بسيرفر Zark.</p><a class="button primary" href="/auth/discord">دخول Discord</a>';return;}
   if(!me.isAdmin){gate.innerHTML='<span>⛔</span><h1>لا تملك صلاحية الإدارة</h1><p>هذه اللوحة تظهر فقط لأعضاء رتب إدارة Zark المعتمدة.</p><a class="button ghost" href="/">العودة للرئيسية</a>';return;}
   try{
-    const [dashboard,smartRooms,smartHistory]=await Promise.all([api('/api/web-admin/dashboard'),api('/api/web-admin/smart-rooms'),api('/api/web-admin/smart-rooms/history')]);
+    const [dashboard,smartRooms,smartHistory,audit]=await Promise.all([api('/api/web-admin/dashboard'),api('/api/web-admin/smart-rooms'),api('/api/web-admin/smart-rooms/history'),api('/api/web-admin/audit')]);
     gate.hidden=true;content.hidden=false;
     const stats=dashboard.stats;
-    $('admin-stats').innerHTML=statCards([[stats.users,'مستخدم'],[stats.openRooms,'غرفة مفتوحة'],[stats.completedRooms,'جلسة مكتملة'],[stats.pendingReports+stats.openBugs,'بلاغ يحتاج مراجعة']]);
+    $('admin-stats').innerHTML=statCards([[stats.users,'مستخدم'],[stats.openRooms,'غرفة مفتوحة'],[stats.completedRooms,'جلسة مكتملة'],[stats.pendingReports+stats.openBugs,'بلاغ يحتاج مراجعة'],[stats.failedDeliveries||0,'DM فاشلة / 24س']]);
     $('admin-system-status').textContent=dashboard.system.botOnline?'● البوت Online':'● البوت Offline';$('admin-system-status').classList.toggle('offline',!dashboard.system.botOnline);
-    $('admin-service-grid').innerHTML=[['API',dashboard.system.apiOnline,'متصل'],['PostgreSQL',dashboard.system.databaseOnline,'متصل'],['Discord Bot',dashboard.system.botOnline,'متصل'],[dashboard.system.aiProvider||'AI مجاني',dashboard.system.aiConfigured,dashboard.system.aiConfigured?'تحويل تلقائي مفعّل':'أضف مفتاح Gemini أو Groq أو OpenRouter']].map(([name,online,label])=>`<article><span class="service-dot ${online?'online':'offline'}"></span><b>${name}</b><small>${online?label:label||'غير متصل'}</small></article>`).join('');
+    $('admin-service-grid').innerHTML=[['API',dashboard.system.apiOnline,'متصل'],['PostgreSQL',dashboard.system.databaseOnline,'متصل'],['Discord Bot',dashboard.system.botOnline,'متصل'],['Redis',dashboard.system.realtime?.redisOnline,dashboard.system.realtime?.redisOnline?'التحديث المباشر جاهز':'غير متصل أو غير مهيأ'],[dashboard.system.aiProvider||'AI مجاني',dashboard.system.aiConfigured,dashboard.system.aiConfigured?'تحويل تلقائي مفعّل':'أضف مفتاح Gemini أو Groq أو OpenRouter']].map(([name,online,label])=>`<article><span class="service-dot ${online?'online':'offline'}"></span><b>${name}</b><small>${online?label:label||'غير متصل'}</small></article>`).join('');
+    $('admin-audit-log').innerHTML=audit.length?audit.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.action)}</b><small>${escapeHtml(item.adminName)} · ${new Date(item.createdAt).toLocaleString('ar')}</small>${item.targetId?`<small>الهدف: ${escapeHtml(item.targetId)}</small>`:''}</div><span class="trade-code">${escapeHtml(item.id.slice(-6).toUpperCase())}</span></article>`).join(''):empty('لا توجد عمليات مسجلة بعد.');
     const days=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
     const recommendations=smartRooms.recommendations.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.gameIcon||'🎮')} ${escapeHtml(item.gameName)}</b><small>${item.availableNowCount} متفرغ الآن · ${item.interestedCount} مهتم · حد الإنشاء ${item.autoMinAvailable} · ${item.interestPercent}%</small></div><span class="live-chip ${item.availableNowCount>=item.autoMinAvailable?'':'offline'}">${item.availableNowCount>=item.autoMinAvailable?'جاهزة للتجمع':'بانتظار لاعبين'}</span></article>`).join('');
     const peaks=smartRooms.peakTimes.map(slot=>`<span class="chip">🕒 ${days[slot.dayOfWeek]} ${String(slot.hour).padStart(2,'0')}:00 · ${slot.players} متفرغ</span>`).join('');

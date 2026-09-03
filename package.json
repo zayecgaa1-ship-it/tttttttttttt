@@ -10,6 +10,7 @@
     "dev:bot": "tsx apps/bot/src/index.ts",
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test packages/**/*.test.ts",
+    "verify": "npm run build && npm test",
     "test:reports": "tsx scripts/report-ticket-smoke.ts",
     "test:ai-actions": "tsx scripts/ai-actions-smoke.ts",
     "test:admin-games": "tsx scripts/admin-game-content-smoke.ts",

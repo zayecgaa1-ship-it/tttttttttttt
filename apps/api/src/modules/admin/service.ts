@@ -180,7 +180,8 @@ export async function setAutoSmartRoomsEnabled(adminId: string, enabled: boolean
 }
 
 export async function getAdminDashboard() {
-  const [settings, users, openRooms, completedRooms, lfgGames, zarkGames, pendingReports, openBugs, botHeartbeat, activeRooms] = await Promise.all([
+  const since = new Date(Date.now() - 24 * 60 * 60_000);
+  const [settings, users, openRooms, completedRooms, lfgGames, zarkGames, pendingReports, openBugs, botHeartbeat, activeRooms, failedDeliveries] = await Promise.all([
     getGuildRuntimeSettings(),
     db.user.count(),
     db.lfgRoom.count({ where: { status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } } }),
@@ -196,6 +197,7 @@ export async function getAdminDashboard() {
       orderBy: { createdAt: "desc" },
       take: 30,
     }),
+    db.notificationDelivery.count({ where: { status: "FAILED", createdAt: { gte: since } } }),
   ]);
   const botOnline = Boolean(botHeartbeat && Date.now() - botHeartbeat.lastSeenAt.getTime() < 75_000);
   const aiProviders = [process.env.GEMINI_API_KEY?.trim() && "Gemini", process.env.GROQ_API_KEY?.trim() && "Groq", process.env.OPENROUTER_API_KEY?.trim() && "OpenRouter"].filter(Boolean);
@@ -203,7 +205,7 @@ export async function getAdminDashboard() {
   return {
     settings,
     system: { apiOnline: true, databaseOnline: true, botOnline, botLastSeenAt: botHeartbeat?.lastSeenAt.toISOString(), aiConfigured: Boolean(aiProvider), aiProvider },
-    stats: { users, openRooms, completedRooms, lfgGames, zarkGames, pendingReports, openBugs },
+    stats: { users, openRooms, completedRooms, lfgGames, zarkGames, pendingReports, openBugs, failedDeliveries },
     activeRooms: activeRooms.map((room) => ({
       id: room.id,
       gameName: room.lfgGame.name,
@@ -218,6 +220,22 @@ export async function getAdminDashboard() {
       members: room.members.map((member) => ({ id: member.userId, displayName: member.user.displayName, avatarUrl: member.user.avatarUrl })),
     })),
   };
+}
+
+export async function getAdminAuditLog() {
+  const rows = await db.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 60 });
+  const adminIds = [...new Set(rows.map((row) => row.adminId))];
+  const admins = adminIds.length ? await db.user.findMany({ where: { id: { in: adminIds } }, select: { id: true, displayName: true } }) : [];
+  const names = new Map(admins.map((admin) => [admin.id, admin.displayName]));
+  return rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    targetId: row.targetId,
+    adminId: row.adminId,
+    adminName: names.get(row.adminId) ?? row.adminId,
+    details: row.details,
+    createdAt: row.createdAt.toISOString(),
+  }));
 }
 
 export async function recordServiceHeartbeat(service: string, instanceId?: string, metadata?: Prisma.InputJsonValue) {

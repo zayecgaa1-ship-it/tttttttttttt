@@ -9,12 +9,12 @@ import cookie from "@fastify/cookie";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
-import { closeEvents, enforceRateLimit, hasEventCapacity, initEvents, subscribe } from "./events.js";
+import { closeEvents, enforceRateLimit, eventRuntimeStatus, hasEventCapacity, initEvents, subscribe } from "./events.js";
 import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
-import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminAuditLog, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
@@ -70,6 +70,16 @@ await registerDiscordAuth(app);
 app.get("/trade/:id", async (_request, reply) => reply.sendFile("trade.html"));
 
 app.get("/health", async () => ({ ok: true, service: "zark-api" }));
+app.get("/api/status", async () => {
+  const [database, botHeartbeat, deliveryGroups] = await Promise.all([
+    db.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
+    db.serviceHeartbeat.findUnique({ where: { service: "discord-bot" } }).catch(() => null),
+    db.notificationDelivery.groupBy({ by: ["status"], where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) } }, _count: { _all: true } }).catch(() => []),
+  ]);
+  const botOnline = Boolean(botHeartbeat && Date.now() - botHeartbeat.lastSeenAt.getTime() < 75_000);
+  const deliveries = Object.fromEntries(deliveryGroups.map((row) => [row.status, row._count._all]));
+  return { checkedAt: new Date().toISOString(), api: true, database, bot: { online: botOnline, lastSeenAt: botHeartbeat?.lastSeenAt.toISOString() }, realtime: eventRuntimeStatus(), notifications: { sent: deliveries.SENT ?? 0, failed: deliveries.FAILED ?? 0, pending: deliveries.RESERVED ?? 0 } };
+});
 app.get("/assets/fonts/zark-arabic.ttf", async (_request, reply) => {
   if (!arabicFont) return reply.code(404).send({ error: "Arabic font asset is unavailable" });
   return reply
@@ -289,7 +299,8 @@ app.post("/api/me/support/chat", async (request) => {
 });
 app.get("/api/web-admin/dashboard", async (request) => {
   await requireWebAdmin(request);
-  return getAdminDashboard();
+  const dashboard = await getAdminDashboard();
+  return { ...dashboard, system: { ...dashboard.system, realtime: eventRuntimeStatus() } };
 });
 app.get("/api/web-admin/broadcasts", async (request) => {
   await requireWebAdmin(request);
@@ -365,6 +376,10 @@ app.put("/api/bot/broadcasts/:id/progress", { preHandler: requireServiceKey }, a
 app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);
   return diagnoseSupportAi(admin.userId);
+});
+app.get("/api/web-admin/audit", async (request) => {
+  await requireWebAdmin(request);
+  return getAdminAuditLog();
 });
 app.get("/api/security/dashboard", async (request) => {
   await requireWebOwner(request);
