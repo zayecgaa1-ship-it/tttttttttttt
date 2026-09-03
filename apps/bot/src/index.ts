@@ -8,7 +8,6 @@ import path from "node:path";
 import fs from "node:fs";
 import sharp from "sharp";
 import { apiGet, apiSend } from "./api/client.js";
-import { ratingRoomIdFromCustomId } from "../../../packages/shared/src/rating.js";
 
 const token = process.env.DISCORD_TOKEN;
 const guildId = process.env.DISCORD_GUILD_ID;
@@ -149,14 +148,13 @@ if (!token) {
     if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: blocking user image uploads in every channel until DISCORD_MEDIA_ALLOWED_CHANNEL_IDS is set.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
     await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
-    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), recoverGameSessions(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel(), processPendingBroadcast()]);
+    const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel(), processPendingBroadcast()]);
     for (const result of startupTasks) if (result.status === "rejected") console.error("Bot startup reconciliation failed", result.reason);
     const heartbeatTimer = setInterval(() => void sendHeartbeat(), 25_000);
     const cleanupTimer = setInterval(() => void cleanupFinishedRoomSpaces().catch((error) => console.error("LFG cleanup cycle failed", error)), 30_000);
     const bumpTimer = setInterval(() => void runBumpReminderCycle().catch((error) => console.error("Bump reminder failed", error)), 60_000);
     const loyaltyTimer = setInterval(() => void syncLoyaltyRoleMembers().catch((error) => console.error("Loyalty role sync failed", error)), 5 * 60_000);
     const roomInviteTimer = setInterval(() => void deliverOpenRoomInvites().catch((error) => console.error("Room invitation recovery failed", error)), 60_000);
-    const ratingDeliveryTimer = setInterval(() => void deliverPendingRatingRequests().catch((error) => console.error("Rating delivery recovery failed", error)), 2 * 60_000);
     const securityRestoreTimer = setInterval(() => void restoreApprovedAdmins().catch((error) => console.error("Security restore cycle failed", error)), 30_000);
     const securityAuditTimer = setInterval(() => void reconcileSecurityAuditLogs().catch((error) => console.error("Security audit reconciliation failed", error)), 30_000);
     const broadcastTimer = setInterval(() => void processPendingBroadcast().catch((error) => console.error("Broadcast recovery cycle failed", error)), 60_000);
@@ -165,7 +163,6 @@ if (!token) {
     bumpTimer.unref();
     loyaltyTimer.unref();
     roomInviteTimer.unref();
-    ratingDeliveryTimer.unref();
     securityRestoreTimer.unref();
     securityAuditTimer.unref();
     broadcastTimer.unref();
@@ -329,8 +326,7 @@ if (!token) {
     }
     if (interaction.customId.startsWith("lfg:rating-player:")) {
       await interaction.deferUpdate();
-      const roomId = ratingRoomIdFromCustomId(interaction.customId);
-      if (!roomId) return interaction.editReply({ content: "تعذر قراءة الغرفة من زر التقييم.", embeds: [], components: [] });
+      const roomId = interaction.customId.split(":")[3];
       const ratedId = interaction.values[0];
       const room = await apiGet<LiveRoom>(`/api/lfg/${roomId}`);
       const player = room.members.find((member) => member.id === ratedId);
@@ -397,7 +393,6 @@ if (!token) {
       await syncLoyaltyRoles(interaction.user.id);
       return interaction.editReply({ content: `✅ تم شراء **Zark VIP**. رصيدك الآن: **${data.points}** نقطة.` });
     }
-    if (parts[0] === "zgs") return handleGameSessionButton(interaction, parts[1], parts[2]);
     if (parts[0] === "lfg" && parts[1] === "rating-open") {
       await interaction.deferUpdate();
       const room = await apiGet<LiveRoom>(`/api/lfg/${parts[2]}`);
@@ -515,68 +510,10 @@ if (!token) {
     if (gameSlug === "help") return playHelp(interaction);
     if (activeDailyChannels.has(interaction.channelId)) throw new Error("تحدي اليوم شغال في هذه القناة. انتظر حتى ينتهي قبل بدء لعبة أخرى.");
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
-    const session = await apiSend<ZarkGameSession>("/api/play/sessions", "POST", { gameSlug, guildId: interaction.guildId, channelId: interaction.channelId, hostId: interaction.user.id, displayName: displayName(interaction), rounds, seconds });
-    if (!session.currentMatch) {
-      await interaction.editReply(gameLobbyPayload(session));
-      const lobbyMessage = await interaction.fetchReply();
-      await apiSend(`/api/play/sessions/${session.id}/message`, "PUT", { messageId: lobbyMessage.id });
-      return;
-    }
-    const match = session.currentMatch;
-    await interaction.editReply(await gameMessagePayload(match, false, session));
+    const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: interaction.channelId, rounds, seconds });
+    await interaction.editReply(await gameMessagePayload(match));
     const sent = await interaction.fetchReply();
-    await apiSend(`/api/play/sessions/${session.id}/message`, "PUT", { messageId: sent.id });
     activateRace(interaction.channelId, match, sent.id, interaction.channel);
-  }
-
-  function gameLobbyPayload(session: ZarkGameSession) {
-    const members = session.members.filter((member) => member.status !== "LEFT").map((member) => `${member.status === "READY" ? "✅" : member.status === "WAITING_NEXT" ? "⏭️" : "▫️"} **${member.displayName}**`).join("\n") || "لا يوجد لاعبون";
-    return {
-      embeds: [baseEmbed().setTitle(`🎮 لوبي ${session.gameName}`).setDescription(`اللاعبون **${session.playerCount}/${session.maxPlayers}** · الحد الأدنى **${session.minPlayers}**\nالجاهزون **${session.readyCount}/${session.playerCount}**\n\n${members}`).setFooter({ text: "لن يستطيع غير المنضمين الإجابة أو التصويت" })],
-      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`zgs:join:${session.id}`).setLabel("انضمام").setEmoji("🎮").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`zgs:ready:${session.id}`).setLabel("جاهز").setEmoji("✅").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`zgs:start:${session.id}`).setLabel("ابدأ").setEmoji("⚡").setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId(`zgs:leave:${session.id}`).setLabel("خروج").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`zgs:cancel:${session.id}`).setLabel("إلغاء").setStyle(ButtonStyle.Secondary),
-      )],
-    };
-  }
-
-  async function handleGameSessionButton(interaction: any, action: string, sessionId: string) {
-    if (action === "dismiss") return interaction.reply({ content: "🚪 خرجت من شاشة اللعبة. يمكنك بدء لعبة أخرى متى أردت.", flags: MessageFlags.Ephemeral });
-    if (action === "skip") {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const result = await apiSend<ZarkGameSession & { skipped: boolean; votes: number; requiredVotes: number }>(`/api/play/sessions/${sessionId}/skip`, "POST", { userId: interaction.user.id });
-      await interaction.editReply({ content: result.skipped ? "⏭️ اكتملت أصوات التخطي، ستبدأ الجولة التالية." : `🗳️ تم تسجيل صوتك (${result.votes}/${result.requiredVotes}).` });
-      if (result.skipped && result.currentMatch) {
-        const active = activeRaceChannels.get(interaction.channelId);
-        if (active) { clearTimeout(active.timeout); active.endsAtMs = Date.now(); await expireActiveRace(interaction.channelId, active.matchId, interaction.channel); }
-      }
-      return;
-    }
-    if (action === "replay") {
-      await interaction.deferUpdate();
-      const replay = await apiSend<ZarkGameSession>(`/api/play/sessions/${sessionId}/replay`, "POST", { userId: interaction.user.id, displayName: displayName(interaction) });
-      await interaction.editReply(replay.currentMatch ? await gameMessagePayload(replay.currentMatch, false, replay) : gameLobbyPayload(replay));
-      await apiSend(`/api/play/sessions/${replay.id}/message`, "PUT", { messageId: interaction.message.id });
-      if (replay.currentMatch) activateRace(interaction.channelId, replay.currentMatch, interaction.message.id, interaction.channel);
-      return;
-    }
-    await interaction.deferUpdate();
-    let session: ZarkGameSession;
-    if (action === "join") session = await apiSend(`/api/play/sessions/${sessionId}/join`, "POST", { userId: interaction.user.id, displayName: displayName(interaction) });
-    else if (action === "ready") session = await apiSend(`/api/play/sessions/${sessionId}/ready`, "POST", { userId: interaction.user.id, ready: true });
-    else if (action === "leave") session = await apiSend(`/api/play/sessions/${sessionId}/leave`, "POST", { userId: interaction.user.id });
-    else if (action === "cancel") session = await apiSend(`/api/play/sessions/${sessionId}/cancel`, "POST", { userId: interaction.user.id });
-    else if (action === "start") session = await apiSend(`/api/play/sessions/${sessionId}/start`, "POST", { userId: interaction.user.id });
-    else return;
-    if (session.currentMatch && session.status === "RUNNING") {
-      await interaction.editReply(await gameMessagePayload(session.currentMatch, false, session));
-      await apiSend(`/api/play/sessions/${session.id}/message`, "PUT", { messageId: interaction.message.id });
-      activateRace(interaction.channelId, session.currentMatch, interaction.message.id, interaction.channel);
-    } else if (session.status === "CANCELLED") await interaction.editReply({ embeds: [baseEmbed().setTitle("تم إلغاء جلسة اللعبة")], components: [] });
-    else await interaction.editReply(gameLobbyPayload(session));
   }
 
   async function completePlayAutocomplete(interaction: any) {
@@ -584,20 +521,15 @@ if (!token) {
     const focused = interaction.options.getFocused(true);
     if (focused.name !== "game") return interaction.respond([]);
     const query = String(focused.value ?? "").trim().toLocaleLowerCase("ar");
-    const liveGames = await apiGet<Array<{ slug: string; name: string; icon?: string }>>("/api/zark-games").catch(() => []);
-    const choices: ReadonlyArray<readonly [string, string]> = liveGames.length
-      ? liveGames.map((game) => [`${game.icon ?? gameEmoji(game.slug)} ${game.name}`, game.slug] as const)
-      : playChoices;
-    const filtered = choices.filter(([label, value]) => !query || label.toLocaleLowerCase("ar").includes(query) || value.includes(query)).slice(0, 25);
-    return interaction.respond(filtered.map(([name, value]) => ({ name, value })));
+    const choices = playChoices.filter(([label, value]) => !query || label.toLocaleLowerCase("ar").includes(query) || value.includes(query)).slice(0, 25);
+    return interaction.respond(choices.map(([name, value]) => ({ name, value })));
   }
 
   async function startRaceForMessage(message: any, gameSlug: string) {
     if (activeDailyChannels.has(message.channelId)) throw new Error("توجد لعبة شغالة في هذه القناة. انتظر حتى تنتهي.");
-    const session = await apiSend<ZarkGameSession>("/api/play/sessions", "POST", { gameSlug, guildId: message.guildId, channelId: message.channelId, hostId: message.author.id, displayName: message.member?.displayName ?? message.author.username, rounds: 1 });
-    const sent = await message.channel.send(session.currentMatch ? await gameMessagePayload(session.currentMatch, false, session) : gameLobbyPayload(session));
-    await apiSend(`/api/play/sessions/${session.id}/message`, "PUT", { messageId: sent.id });
-    if (session.currentMatch) activateRace(message.channelId, session.currentMatch, sent.id, message.channel);
+    const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: message.channelId, rounds: 1 });
+    const sent = await message.channel.send(await gameMessagePayload(match));
+    activateRace(message.channelId, match, sent.id, message.channel);
   }
 
   function playHelpEmbed() {
@@ -1386,16 +1318,14 @@ if (!token) {
           new ButtonBuilder().setCustomId(`lfg:rating-open:${room.id}`).setLabel("بدء التقييم").setEmoji("⭐").setStyle(ButtonStyle.Primary),
           new ButtonBuilder().setCustomId(`lfg:rating-skip:${room.id}`).setLabel("ليس الآن").setEmoji("✖️").setStyle(ButtonStyle.Secondary),
         );
-        const deliveredUserIds: string[] = [];
-        await Promise.all(room.members.filter((member) => !member.ratingRequestedAt).map(async (member) => {
+        await Promise.all(room.members.map(async (member) => {
           const user = await client.users.fetch(member.id).catch(() => null);
           if (!user) return;
           const hostHint = member.id === room.hostId ? `\n\n👑 **اقتراح للمضيف:** قيّم الالتزام والحضور والتعاون. اللاعبون الذين قضوا وقتاً أطول في Voice يستحقون تقييماً أعلى.` : "";
-          const result = await sendDirectMessage(user, { embeds: [baseEmbed().setTitle(`⭐ قيّم جلسة ${room.gameName}`).setDescription(`انتهت الجلسة بنجاح. يمكنك تقييم الغرفة وكل لاعب شارك معك، أو إلغاء التقييم بالكامل.\n\nالتقييم خاص وآمن، ولا يمكن تقييم نفسك.${hostHint}`)], components: [row] }, `rating:${room.id}:${member.id}`);
-          if (result.sent) deliveredUserIds.push(member.id);
+          await user.send({ embeds: [baseEmbed().setTitle(`⭐ قيّم جلسة ${room.gameName}`).setDescription(`انتهت الجلسة بنجاح. يمكنك تقييم الغرفة وكل لاعب شارك معك، أو إلغاء التقييم بالكامل.\n\nالتقييم خاص وآمن، ولا يمكن تقييم نفسك.${hostHint}`)], components: [row] }).catch(() => undefined);
         }));
-        if (deliveredUserIds.length) await apiSend(`/api/lfg/${room.id}/rating-requests/delivered`, "POST", { userIds: deliveredUserIds });
       }
+      await apiSend(`/api/lfg/${room.id}/rating-requests/delivered`, "POST", {});
     } finally {
       ratingRequestsInFlight.delete(room.id);
     }
@@ -1648,23 +1578,7 @@ if (!token) {
     const endsAtMs = new Date(match.endsAt).getTime();
     const timeout = setTimeout(() => void expireActiveRace(channelId, match.id, channel).catch((error) => console.error("Race expiration failed", error)), Math.max(50, endsAtMs - Date.now() + 50));
     timeout.unref();
-    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs, sessionId: match.sessionId });
-  }
-
-  async function recoverGameSessions() {
-    const sessions = await apiGet<ZarkGameSession[]>("/api/play/sessions/recover", true);
-    for (const session of sessions) {
-      const channel = await client.channels.fetch(session.channelId).catch(() => null) as any;
-      if (!channel?.isTextBased?.()) { await apiSend(`/api/play/sessions/${session.id}/cancel`, "POST", { userId: session.hostId }).catch(() => undefined); continue; }
-      let message = session.messageId ? await channel.messages?.fetch(session.messageId).catch(() => null) : null;
-      if (session.currentMatch && new Date(session.currentMatch.endsAt).getTime() > Date.now()) {
-        if (!message) message = await channel.send(await gameMessagePayload(session.currentMatch, false, session));
-        activateRace(session.channelId, session.currentMatch, message.id, channel);
-      } else if (!message && (session.status === "WAITING" || session.status === "READY")) {
-        message = await channel.send(gameLobbyPayload(session));
-      }
-      if (message && message.id !== session.messageId) await apiSend(`/api/play/sessions/${session.id}/message`, "PUT", { messageId: message.id });
-    }
+    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs });
   }
 
   function clearActiveRace(channelId: string, matchId: string) {
@@ -1704,39 +1618,32 @@ if (!token) {
   }
 
   async function advanceRaceSeries(channel: any, race: ActiveRace) {
-    if (race.sessionId) {
-      const currentSession = await apiGet<ZarkGameSession>(`/api/play/sessions/${race.sessionId}`, true);
-      if (currentSession.questionCooldownMs > 0) await new Promise((resolve) => setTimeout(resolve, currentSession.questionCooldownMs));
-    }
     const progress = await apiSend<RaceProgress>(`/api/play/${race.matchId}/next`, "POST", {});
     if (progress.completed) {
       const ranking = progress.standings.length
         ? progress.standings.slice(0, 10).map((row, index) => `${medal(index)} **${row.displayName}** — ${row.wins} فوز · ${row.points} XP`).join("\n")
         : "انتهت المباراة دون فائز.";
-      const replayButton = race.sessionId ? new ButtonBuilder().setCustomId(`zgs:replay:${race.sessionId}`).setLabel("إعادة اللعب").setEmoji("🔁").setStyle(ButtonStyle.Success) : new ButtonBuilder().setCustomId("zark_play_now").setLabel("لعبة جديدة").setStyle(ButtonStyle.Success);
-      await channel.send({ embeds: [baseEmbed().setTitle("🏆 انتهت مباراة Zark").setDescription(`اكتملت **${progress.totalRounds}** جولة${progress.durationSeconds !== undefined ? ` خلال **${progress.durationSeconds} ثانية**` : ""}.\n\n${ranking}`)], components: [new ActionRowBuilder<ButtonBuilder>().addComponents(replayButton, new ButtonBuilder().setCustomId("zark_play_now").setLabel("لعبة أخرى").setEmoji("🎮").setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId(`zgs:dismiss:${race.sessionId ?? "none"}`).setLabel("خروج").setEmoji("🚪").setStyle(ButtonStyle.Secondary))] });
+      await channel.send({ embeds: [baseEmbed().setTitle("🏆 انتهت مباراة Zark").setDescription(`اكتملت **${progress.totalRounds}** جولة.\n\n${ranking}`)] });
       return;
     }
     const next = progress.nextMatch;
     await channel.send({ content: `⚡ الجولة **${next.roundNumber}/${next.totalRounds}** تبدأ الآن!` });
-    const session = next.sessionId ? await apiGet<ZarkGameSession>(`/api/play/sessions/${next.sessionId}`, true) : undefined;
-    const sent = await channel.send(await gameMessagePayload(next, false, session));
+    const sent = await channel.send(await gameMessagePayload(next));
     activateRace(channel.id, next, sent.id, channel);
   }
 
-  async function gameMessagePayload(match: ZarkMatch, daily = false, session?: ZarkGameSession) {
+  async function gameMessagePayload(match: ZarkMatch, daily = false) {
     const filename = `zark-game-${match.id}.png`;
     const image = await renderGameVisual(match, daily);
     return {
       embeds: [baseEmbed().setTitle(`${daily ? "⚡" : "🎮"} ${match.gameName}${!daily && match.totalRounds ? ` · الجولة ${match.roundNumber}/${match.totalRounds}` : ""}`).setDescription(`أول إجابة صحيحة تحسم الجولة · النقاط حسب السرعة والدقة\nتنتهي <t:${Math.floor(new Date(match.endsAt).getTime() / 1000)}:R>`).setImage(`attachment://${filename}`)],
       files: [new AttachmentBuilder(image, { name: filename })],
-      components: !daily && session?.skipEnabled ? [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`zgs:skip:${session.id}`).setLabel(`تخطي ${session.skipVotes}/${session.requiredSkipVotes}`).setEmoji("⏭️").setStyle(ButtonStyle.Secondary))] : [],
     };
   }
 
   async function renderGameVisual(match: ZarkMatch, daily = false) {
     const flagCode = match.gameSlug === "flags" ? countryCodeFromFlag(match.prompt) : undefined;
-    const media = match.mediaUrl ? await remoteImage(match.mediaUrl) : flagCode ? await remoteImage(`https://flagcdn.com/w640/${flagCode.toLowerCase()}.png`) : match.gameImageData ? await remoteImage(match.gameImageData) : undefined;
+    const media = match.mediaUrl ? await remoteImage(match.mediaUrl) : flagCode ? await remoteImage(`https://flagcdn.com/w640/${flagCode.toLowerCase()}.png`) : undefined;
     const cleanedPrompt = cleanPrompt(match.prompt, match.gameSlug === "flags");
     const visualLabel = match.gameSlug === "flags" ? "علم أي دولة؟" : match.gameName;
     const lines = wrapText(cleanedPrompt, media ? 40 : 34).slice(0, media ? 2 : 3);
@@ -2183,16 +2090,15 @@ function availabilityCommand(name: string) {
 }
 
 type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number };
-type ZarkMatch = { id: string; seriesId: string; sessionId?: string; gameSlug: string; gameName: string; gameImageData?: string; roundNumber: number; totalRounds: number; prompt: string; mediaUrl?: string; endsAt: string };
-type ZarkGameSession = { id: string; gameSlug: string; gameName: string; guildId: string; channelId: string; hostId: string; status: "WAITING" | "READY" | "RUNNING" | "PAUSED" | "FINISHED" | "CANCELLED"; currentRound: number; totalRounds: number; minPlayers: number; maxPlayers: number; readyCheckEnabled: boolean; allowLateJoin: boolean; skipEnabled: boolean; skipVotePercent: number; hostSkipOverride: boolean; allowReplay: boolean; messageId?: string; questionCooldownMs: number; expiresAt: string; playerCount: number; readyCount: number; skipVotes: number; requiredSkipVotes: number; members: Array<{ userId: string; displayName: string; status: "JOINED" | "READY" | "WAITING_NEXT" | "LEFT"; role: "PLAYER" | "SPECTATOR" }>; currentMatch?: ZarkMatch };
-type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; sessionId?: string };
+type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; prompt: string; mediaUrl?: string; endsAt: string };
+type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number };
 type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
-type RaceProgress = { completed: true; seriesId: string; totalRounds: number; durationSeconds?: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
+type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
-type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number; ratingRequestedAt?: string }> };
+type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type TradeView = { id: string; code: string; publicId: number; itemName: string; imageData: string; haveText: string; wantText: string; description?: string; status: string; discordChannelId?: string; discordMessageId?: string; owner: { id: string; displayName: string; avatarUrl?: string }; game: { name: string; icon?: string }; _count?: { interests: number; conversations: number } };

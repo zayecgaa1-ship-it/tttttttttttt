@@ -1,10 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "../../../packages/db/src/client.js";
 import { calculateWinnerPoints, evaluateAnswer, raceGames, seededRandom } from "../../../packages/games/src/index.js";
 import type { RaceGame } from "../../../packages/games/src/index.js";
 import type { DailyChallenge, LeaderboardRow, ZarkGameSummary } from "../../../packages/shared/src/index.js";
-import { memberCanControlGame, normalizeQuestionKey } from "../../../packages/shared/src/game-session.js";
 import { enforceRateLimit, publish } from "./events.js";
 import { serializable } from "./db-transaction.js";
 import { awardLoyaltyPoints } from "./modules/loyalty/service.js";
@@ -15,57 +14,22 @@ const allowedRoundCounts = new Set([1, 2, 3, 4, 5, 10]);
 let systemDataPromise: Promise<void> | undefined;
 
 export async function ensureSystemData() {
-  if (!systemDataPromise) systemDataPromise = (async () => {
-    const categoryNames = [...new Set(Array.from(raceGames.values()).map((game) => game.category ?? "RACE"))];
-    const categories = await Promise.all(categoryNames.map((name, sortOrder) => db.zarkGameCategory.upsert({
-      where: { slug: name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `category-${sortOrder}` },
-      update: {},
-      create: { slug: name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `category-${sortOrder}`, name, sortOrder },
-    })));
-    const categoryByName = new Map(categories.map((category) => [category.name, category.id]));
-    const storedGames = await Promise.all(Array.from(raceGames.values()).map((game) => db.zarkGame.upsert({
+  if (!systemDataPromise) systemDataPromise = Promise.all(
+    Array.from(raceGames.values()).map((game) => db.zarkGame.upsert({
       where: { slug: game.slug },
-      // Admin-edited presentation and gameplay settings must survive every restart.
-      update: { kind: "RACE", basePoints: game.basePoints, aliases: [...(game.aliases ?? [])] },
-      create: { slug: game.slug, name: game.name, description: game.description, kind: "RACE", basePoints: game.basePoints, category: game.category ?? "RACE", categoryId: categoryByName.get(game.category ?? "RACE"), aliases: [...(game.aliases ?? [])], roundDurationSeconds: Math.max(10, Math.min(60, Math.round(game.durationMs / 1_000))) },
-    })));
-    const storedGameBySlug = new Map(storedGames.map((game) => [game.slug, game.id]));
-    for (const game of raceGames.values()) {
-      const gameId = storedGameBySlug.get(game.slug);
-      const questions = game.questions ?? [];
-      if (!gameId || !questions.length) continue;
-      const existing = await db.gameQuestion.findMany({ where: { gameId }, select: { id: true, prompt: true, sourceKey: true } });
-      const existingKeys = new Set(existing.flatMap((question) => question.sourceKey ? [question.sourceKey] : []));
-      const existingByPrompt = new Map(existing.map((question) => [normalizeQuestionKey(question.prompt), question]));
-      const createRows = [];
-      const migrateRows: Array<{ id: string; sourceKey: string }> = [];
-      for (const [index, question] of questions.entries()) {
-        const sourceKey = `${game.slug}:${index}`;
-        if (existingKeys.has(sourceKey)) continue;
-        const legacy = existingByPrompt.get(normalizeQuestionKey(question.prompt));
-        if (legacy && !legacy.sourceKey) { migrateRows.push({ id: legacy.id, sourceKey }); existingKeys.add(sourceKey); continue; }
-        createRows.push({ gameId, origin: "BUILT_IN" as const, sourceKey, prompt: question.prompt, acceptedAnswers: [...question.answers], mediaType: question.mediaUrl ? "IMAGE" as const : "TEXT" as const, mediaUrl: question.mediaUrl, difficulty: 1, enabled: true });
-      }
-      for (let offset = 0; offset < migrateRows.length; offset += 100) {
-        await db.$transaction(migrateRows.slice(offset, offset + 100).map((question) => db.gameQuestion.update({ where: { id: question.id }, data: { origin: "BUILT_IN", sourceKey: question.sourceKey } })));
-      }
-      for (let offset = 0; offset < createRows.length; offset += 250) {
-        const chunk = createRows.slice(offset, offset + 250);
-        await db.gameQuestion.createMany({
-          data: chunk,
-          skipDuplicates: true,
-        });
-      }
-    }
+      update: { name: game.name, description: game.description, kind: "RACE", basePoints: game.basePoints, category: game.category ?? "RACE", aliases: [...(game.aliases ?? [])] },
+      create: { slug: game.slug, name: game.name, description: game.description, kind: "RACE", basePoints: game.basePoints, category: game.category ?? "RACE", aliases: [...(game.aliases ?? [])] },
+    })),
+  ).then(async () => {
     const legacyMatches = await db.zarkMatch.findMany({ where: { seriesId: null }, select: { id: true } });
     if (legacyMatches.length) await db.$transaction(legacyMatches.map((match) => db.zarkMatch.update({ where: { id: match.id }, data: { seriesId: match.id } })));
-  })().catch((error) => { systemDataPromise = undefined; throw error; });
+  }).catch((error) => { systemDataPromise = undefined; throw error; });
   return systemDataPromise;
 }
 
 export async function listZarkGames(): Promise<ZarkGameSummary[]> {
   await ensureSystemData();
-  const games = await db.zarkGame.findMany({ where: { enabled: true }, select: { slug: true, name: true, description: true, kind: true, enabled: true, icon: true, category: true, aliases: true, minPlayers: true, maxPlayers: true, roundDurationSeconds: true, lobbyEnabled: true, autoStart: true, readyCheckEnabled: true, allowLateJoin: true, skipEnabled: true, skipVotePercent: true, hostSkipOverride: true, allowReplay: true }, orderBy: { name: "asc" } });
+  const games = await db.zarkGame.findMany({ where: { enabled: true }, select: { slug: true, name: true, description: true, kind: true, enabled: true, icon: true, category: true, aliases: true }, orderBy: { name: "asc" } });
   return games.map((game) => ({ ...game, description: game.description ?? undefined, icon: game.icon ?? undefined, questionCount: raceGames.get(game.slug)?.questionCount ?? 0 }));
 }
 
@@ -141,7 +105,7 @@ export async function answerDaily(input: { userId: string; displayName: string; 
   return { correct: true as const, ...result };
 }
 
-export async function startZarkRace(gameSlug?: string, options: { channelId?: string; totalRounds?: number; durationSeconds?: number; sessionId?: string; seriesId?: string; recentQuestionKeys?: string[]; historySize?: number } = {}) {
+export async function startZarkRace(gameSlug?: string, options: { channelId?: string; totalRounds?: number; durationSeconds?: number } = {}) {
   await ensureSystemData();
   const modules = Array.from(raceGames.values());
   const module = gameSlug ? raceGames.get(gameSlug) : modules[Math.floor(Math.random() * modules.length)];
@@ -152,12 +116,11 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
   if (!allowedRoundCounts.has(totalRounds)) throw new Error("عدد الجولات يجب أن يكون 1 أو 2 أو 3 أو 4 أو 5 أو 10");
   const durationSeconds = options.durationSeconds;
   if (durationSeconds !== undefined && (!Number.isInteger(durationSeconds) || durationSeconds < 10 || durationSeconds > 60)) throw new Error("وقت الإجابة يجب أن يكون من 10 إلى 60 ثانية");
-  const durationMs = durationSeconds === undefined ? game.roundDurationSeconds * 1_000 : durationSeconds * 1_000;
-  const generated = await generateRacePrompt(module, game.id, options.channelId, options.recentQuestionKeys, options.historySize ?? game.recentQuestionHistorySize);
-  const questionKey = createHash("sha256").update(normalizeQuestionKey(generated.prompt)).digest("hex").slice(0, 24);
+  const durationMs = durationSeconds === undefined ? module.durationMs : durationSeconds * 1_000;
+  const generated = await generateRacePrompt(module, game.id, options.channelId);
   const startedAt = new Date();
   const endsAt = new Date(startedAt.getTime() + durationMs);
-  const seriesId = options.seriesId ?? randomUUID();
+  const seriesId = randomUUID();
   let match;
   try {
     match = await serializable(async (tx) => {
@@ -165,17 +128,12 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
         await tx.zarkMatch.updateMany({ where: { activeChannelKey: options.channelId, lockExpiresAt: { lte: startedAt }, status: "OPEN" }, data: { activeChannelKey: null, status: "EXPIRED" } });
         await tx.zarkMatch.updateMany({ where: { activeChannelKey: options.channelId, lockExpiresAt: { lte: startedAt } }, data: { activeChannelKey: null } });
         const active = await tx.zarkMatch.findUnique({ where: { activeChannelKey: options.channelId }, select: { game: { select: { name: true } }, roundNumber: true, totalRounds: true } });
-        if (active) {
-          console.warn(`[zark-session] duplicate start blocked channel=${options.channelId} activeGame=${active.game.name} round=${active.roundNumber}/${active.totalRounds}`);
-          throw gameChannelBusy(active.game.name, active.roundNumber, active.totalRounds);
-        }
+        if (active) throw gameChannelBusy(active.game.name, active.roundNumber, active.totalRounds);
       }
       return tx.zarkMatch.create({
         data: {
           gameId: game.id,
           seriesId,
-          sessionId: options.sessionId,
-          questionKey,
           channelId: options.channelId,
           activeChannelKey: options.channelId,
           roundNumber: 1,
@@ -191,10 +149,7 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
       });
     });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && options.channelId) {
-      console.warn(`[zark-session] concurrent duplicate start blocked channel=${options.channelId}`);
-      throw gameChannelBusy();
-    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && options.channelId) throw gameChannelBusy();
     throw error;
   }
   publish({ type: "zark.match_started", matchId: match.id, seriesId, gameSlug: game.slug, channelId: options.channelId, roundNumber: 1, totalRounds });
@@ -208,20 +163,15 @@ export async function advanceZarkRace(matchId: string) {
   if (!current.seriesId) await db.zarkMatch.update({ where: { id: current.id }, data: { seriesId } });
   if (current.status === "OPEN") throw new Error("الجولة الحالية ما زالت مفتوحة");
   if (current.roundNumber >= current.totalRounds) {
-    const completedAt = new Date();
     await db.zarkMatch.updateMany({ where: { id: current.id, activeChannelKey: current.activeChannelKey }, data: { activeChannelKey: null, lockExpiresAt: null } });
-    if (current.sessionId) await db.zarkGameSession.updateMany({ where: { id: current.sessionId, status: { in: ["RUNNING", "PAUSED"] } }, data: { status: "FINISHED", activeChannelKey: null, currentMatchId: null, endedAt: completedAt } });
-    const finishedSession = current.sessionId ? await db.zarkGameSession.findUnique({ where: { id: current.sessionId }, select: { startedAt: true } }) : null;
     publish({ type: "zark.series_completed", seriesId, channelId: current.channelId ?? undefined, totalRounds: current.totalRounds });
-    return { completed: true as const, seriesId, totalRounds: current.totalRounds, durationSeconds: finishedSession?.startedAt ? Math.max(0, Math.round((completedAt.getTime() - finishedSession.startedAt.getTime()) / 1_000)) : undefined, standings: await zarkSeriesStandings(seriesId) };
+    return { completed: true as const, seriesId, totalRounds: current.totalRounds, standings: await zarkSeriesStandings(seriesId) };
   }
   const existingNext = await db.zarkMatch.findFirst({ where: { seriesId, roundNumber: current.roundNumber + 1 }, include: { game: true } });
   if (existingNext) return { completed: false as const, nextMatch: publicZarkMatch(existingNext, existingNext.game), standings: await zarkSeriesStandings(seriesId) };
   const module = raceGames.get(current.game.slug);
   if (!module) throw new Error("تعذر تحميل اللعبة للجولة التالية");
-  const session = current.sessionId ? await db.zarkGameSession.findUnique({ where: { id: current.sessionId }, select: { recentQuestionKeys: true, historySize: true } }) : null;
-  const generated = await generateRacePrompt(module, current.gameId, current.channelId ?? undefined, session?.recentQuestionKeys, session?.historySize);
-  const questionKey = createHash("sha256").update(normalizeQuestionKey(generated.prompt)).digest("hex").slice(0, 24);
+  const generated = await generateRacePrompt(module, current.gameId, current.channelId ?? undefined);
   const startedAt = new Date();
   // Every round in one match series keeps the time chosen by its starter.
   const endsAt = new Date(startedAt.getTime() + current.durationMs);
@@ -239,8 +189,6 @@ export async function advanceZarkRace(matchId: string) {
         data: {
           gameId: locked.gameId,
           seriesId: lockedSeriesId,
-          sessionId: locked.sessionId,
-          questionKey,
           channelId: locked.channelId,
           activeChannelKey: locked.channelId,
           roundNumber: locked.roundNumber + 1,
@@ -260,10 +208,6 @@ export async function advanceZarkRace(matchId: string) {
     next = await db.zarkMatch.findFirstOrThrow({ where: { seriesId, roundNumber: current.roundNumber + 1 } });
   }
   publish({ type: "zark.match_started", matchId: next.id, seriesId, gameSlug: current.game.slug, channelId: current.channelId ?? undefined, roundNumber: next.roundNumber, totalRounds: next.totalRounds });
-  if (current.sessionId) {
-    const keys = await db.zarkMatch.findMany({ where: { sessionId: current.sessionId, questionKey: { not: null } }, orderBy: { roundNumber: "desc" }, take: session?.historySize ?? 30, select: { questionKey: true } });
-    await db.zarkGameSession.update({ where: { id: current.sessionId }, data: { status: "RUNNING", currentRound: next.roundNumber, currentMatchId: next.id, recentQuestionKeys: keys.flatMap((item) => item.questionKey ? [item.questionKey] : []), expiresAt: new Date(next.endsAt.getTime() + 120_000), members: { updateMany: { where: { status: "WAITING_NEXT" }, data: { status: "JOINED" } } } } });
-  }
   return { completed: false as const, nextMatch: publicZarkMatch(next, current.game), standings: await zarkSeriesStandings(seriesId) };
 }
 
@@ -272,10 +216,6 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
   const match = await db.zarkMatch.findUnique({ where: { id: matchId }, include: { game: true } });
   if (!match || new Date() > match.endsAt) return { correct: false as const, expired: true as const, points: 0 };
   if (match.status !== "OPEN") return { correct: false as const, capped: true as const, points: 0 };
-  if (match.sessionId) {
-    const member = await db.zarkGameSessionMember.findUnique({ where: { sessionId_userId: { sessionId: match.sessionId, userId: input.userId } } });
-    if (!member || !memberCanControlGame(member.status, member.role)) return { correct: false as const, notParticipant: true as const, points: 0 };
-  }
   const evaluation = evaluateAnswer(input.answer, splitAnswers(match.answer));
   if (!evaluation.correct) return { correct: false as const, points: 0 };
   const now = new Date();
@@ -342,21 +282,18 @@ export async function leaderboard(period: "daily" | "weekly" | "monthly" | "all"
   });
 }
 
-async function generateRacePrompt(module: RaceGame, gameId: string, channelId?: string, recentQuestionKeys: string[] = [], historySize = 30) {
+async function generateRacePrompt(module: RaceGame, gameId: string, channelId?: string) {
   // لا نعيد السؤال نفسه في الجولات القريبة في القناة نفسها. نحتفظ بآخر 30
   // سؤالاً، وهي أكثر من الحد الأقصى للجولات المتاحة، مع رجوع آمن إن صغر البنك.
   const recent = channelId ? await db.zarkMatch.findMany({
-    where: { gameId, channelId }, orderBy: { startedAt: "desc" }, take: Math.max(1, Math.min(400, historySize)), select: { prompt: true },
+    where: { gameId, channelId }, orderBy: { startedAt: "desc" }, take: 30, select: { prompt: true },
   }) : [];
   const recentPrompts = recent.map((match) => match.prompt);
-  const isRecent = (prompt: string) => recentPrompts.includes(prompt) || recentQuestionKeys.includes(createHash("sha256").update(normalizeQuestionKey(prompt)).digest("hex").slice(0, 24));
   const questionWhere = { gameId, enabled: true, ...(recentPrompts.length ? { prompt: { notIn: recentPrompts } } : {}) };
   const count = await db.gameQuestion.count({ where: questionWhere });
   // أسئلة الإدارة (خصوصاً الصور) تُضاف إلى البنك ولا تحجبه؛ هذا يبقي حد
   // 400 سؤال لكل لعبة متاحاً حتى لو أضافت الإدارة سؤالاً واحداً فقط.
-  // بعد مزامنة بنك اللعبة إلى PostgreSQL يصبح هو المصدر الوحيد، حتى تنعكس
-  // تعديلات وتعطيلات الإدارة على الأسئلة الأصلية فورًا.
-  if (count) {
+  if (count && Math.random() < 0.45) {
     const question = await db.gameQuestion.findFirstOrThrow({ where: questionWhere, skip: Math.floor(Math.random() * count) });
     return { prompt: question.prompt, answers: question.acceptedAnswers, mediaUrl: question.mediaUrl ?? undefined };
   }
@@ -364,26 +301,20 @@ async function generateRacePrompt(module: RaceGame, gameId: string, channelId?: 
   // عدة مرات قبل السماح بالعودة إلى سؤال قديم.
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const prompt = module.generate(Math.random);
-    if (!isRecent(prompt.prompt)) {
-      if (attempt > 0) console.info(`[zark-question] avoided ${attempt} recent duplicate candidate(s) game=${module.slug} channel=${channelId ?? "none"}`);
-      return prompt;
-    }
+    if (!recentPrompts.includes(prompt.prompt)) return prompt;
   }
-  console.warn(`[zark-question] exhausted random de-duplication attempts game=${module.slug} channel=${channelId ?? "none"}`);
   const fallbackCount = await db.gameQuestion.count({ where: { gameId, enabled: true } });
   if (!fallbackCount) return module.generate(Math.random);
   const question = await db.gameQuestion.findFirstOrThrow({ where: { gameId, enabled: true }, skip: Math.floor(Math.random() * fallbackCount) });
   return { prompt: question.prompt, answers: question.acceptedAnswers, mediaUrl: question.mediaUrl ?? undefined };
 }
 
-function publicZarkMatch(match: { id: string; seriesId: string | null; sessionId?: string | null; roundNumber: number; totalRounds: number; prompt: string; mediaUrl: string | null; startedAt: Date; endsAt: Date }, game: { slug: string; name: string; imageData?: string | null }) {
+function publicZarkMatch(match: { id: string; seriesId: string | null; roundNumber: number; totalRounds: number; prompt: string; mediaUrl: string | null; startedAt: Date; endsAt: Date }, game: { slug: string; name: string }) {
   return {
     id: match.id,
     seriesId: match.seriesId ?? match.id,
-    sessionId: match.sessionId ?? undefined,
     gameSlug: game.slug,
     gameName: game.name,
-    gameImageData: game.imageData ?? undefined,
     roundNumber: match.roundNumber,
     totalRounds: match.totalRounds,
     prompt: match.prompt,

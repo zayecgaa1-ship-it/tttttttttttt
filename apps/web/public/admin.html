@@ -163,14 +163,13 @@
             <h2>➕ لعبة LFG</h2>
             <label>Slug<input id="admin-game-slug" required pattern="[a-z0-9-]+"></label>
             <label>الاسم<input id="admin-game-name" required></label>
-            <div class="form-row"><label>الأيقونة<input id="admin-game-icon"></label><label>التصنيف<select id="admin-game-category" required></select></label></div>
+            <div class="form-row"><label>الأيقونة<input id="admin-game-icon"></label><label>التصنيف<input id="admin-game-category" placeholder="sandbox"></label></div>
             <div class="form-row"><label>أقل عدد<input id="admin-game-min" type="number" min="2" value="2"></label><label>أعلى عدد<input id="admin-game-max" type="number" min="2" value="10"></label></div>
             <label>حد التجمع التلقائي<input id="admin-game-auto-min" type="number" min="2" placeholder="استخدم الحد الأدنى للعبة"><small>لن ينشئ Zark تجمعًا لهذه اللعبة إلا عند توفر هذا العدد من المهتمين الفاضيين.</small></label>
             <label>الوصف<textarea id="admin-game-description"></textarea></label>
             <button class="button primary" type="submit">حفظ اللعبة</button>
             <p id="admin-game-result" class="form-result"></p>
           </form>
-          <form id="admin-lfg-category-form" class="surface mini-form"><h2>➕ تصنيف LFG رسمي</h2><div class="form-row"><label>المعرّف<input id="admin-lfg-category-slug" pattern="[a-z0-9-]+" required></label><label>الاسم<input id="admin-lfg-category-name" required></label><label>الأيقونة<input id="admin-lfg-category-icon" maxlength="10"></label></div><button class="button ghost" type="submit">إضافة التصنيف</button><p id="admin-lfg-category-result" class="form-result"></p></form>
         </div>
       </section>
 
@@ -180,35 +179,8 @@
           <aside class="surface zark-game-sidebar">
             <label>اختر لعبة البوت<select id="admin-zark-game-filter"></select></label>
             <div id="admin-zark-game-summary" class="content-summary"></div>
-            <form id="admin-zark-category-form" class="mini-form">
-              <h3>➕ تصنيف جديد</h3>
-              <label>الاسم<input id="admin-zark-category-name" maxlength="80" required></label>
-              <label>المعرّف الإنجليزي<input id="admin-zark-category-slug" pattern="[a-z0-9-]+" placeholder="knowledge" required></label>
-              <label>الأيقونة<input id="admin-zark-category-icon" maxlength="10" placeholder="🧠"></label>
-              <button class="button ghost small" type="submit">إضافة التصنيف</button><p id="admin-zark-category-result" class="form-result"></p>
-            </form>
-            <div id="admin-zark-category-list" class="room-players"></div>
           </aside>
           <div class="zark-question-workspace">
-            <form id="admin-zark-settings-form" class="surface">
-              <div class="section-heading compact"><div><span class="eyebrow">GAME SETTINGS</span><h2>⚙️ إعدادات اللعبة والجلسة</h2></div></div>
-              <div class="form-row"><label>اسم اللعبة<input id="admin-zark-name" required maxlength="100"></label><label>الأيقونة<input id="admin-zark-icon" maxlength="10"></label></div>
-              <label>الوصف<textarea id="admin-zark-description" maxlength="500"></textarea></label>
-              <div class="form-row"><label>التصنيف<select id="admin-zark-category" required></select></label><label>ارفع صورة اللعبة<input id="admin-zark-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif"><small>حتى 1.5MB، وتُحفظ في قاعدة البيانات.</small></label></div>
-              <div class="form-row"><label>أقل عدد<input id="admin-zark-min" type="number" min="1" max="100" required></label><label>أعلى عدد<input id="admin-zark-max" type="number" min="1" max="100" required></label><label>وقت الجولة (10–60 ثانية)<input id="admin-zark-duration" type="number" min="10" max="60" required></label></div>
-              <div class="form-row"><label>نسبة التخطي %<input id="admin-zark-skip-percent" type="number" min="1" max="100" required></label><label>مهلة السؤال بالثواني<input id="admin-zark-cooldown" type="number" min="0" max="60" required></label><label>سجل منع التكرار<input id="admin-zark-history" type="number" min="1" max="400" required></label></div>
-              <div class="settings-grid">
-                <label class="toggle-card compact"><input id="admin-zark-enabled" type="checkbox"><span><b>اللعبة مفعّلة</b></span></label>
-                <label class="toggle-card compact"><input id="admin-zark-lobby" type="checkbox"><span><b>لوبي قبل اللعب</b></span></label>
-                <label class="toggle-card compact"><input id="admin-zark-auto-start" type="checkbox"><span><b>بدء تلقائي</b></span></label>
-                <label class="toggle-card compact"><input id="admin-zark-ready" type="checkbox"><span><b>فحص الجاهزية</b></span></label>
-                <label class="toggle-card compact"><input id="admin-zark-late-join" type="checkbox"><span><b>دخول متأخر</b></span></label>
-                <label class="toggle-card compact"><input id="admin-zark-skip" type="checkbox"><span><b>تصويت التخطي</b></span></label>
-                <label class="toggle-card compact"><input id="admin-zark-host-skip" type="checkbox"><span><b>صاحب اللعبة يتخطى مباشرة</b></span></label>
-                <label class="toggle-card compact"><input id="admin-zark-replay" type="checkbox"><span><b>إعادة اللعب</b></span></label>
-              </div>
-              <button class="button primary" type="submit">حفظ وتطبيق فورًا</button><p id="admin-zark-settings-result" class="form-result"></p>
-            </form>
             <form id="admin-question-form" class="surface">
             <h2 id="admin-question-form-title">➕ إضافة سؤال</h2>
             <input id="admin-question-id" type="hidden">
@@ -220,13 +192,13 @@
             <div class="room-manager-actions"><button id="admin-question-submit" class="button primary" type="submit">إضافة السؤال</button><button id="admin-question-cancel" class="button ghost" type="button" hidden>إلغاء التعديل</button></div>
             <p id="admin-question-result" class="form-result"></p>
             </form>
-            <div class="surface question-library"><div class="section-heading compact"><div><span class="eyebrow">QUESTION BANK</span><h2>بنك الأسئلة الكامل</h2></div><span id="admin-question-count" class="subtle"></span></div><div class="form-row"><label>بحث في الـ400+ سؤال<input id="admin-question-search" placeholder="اكتب جزءًا من السؤال..."></label><button id="admin-question-search-button" class="button ghost" type="button">بحث</button></div><div id="admin-question-list" class="question-list"></div><div class="room-manager-actions"><button id="admin-question-prev" class="button ghost small" type="button">السابق</button><span id="admin-question-page" class="subtle"></span><button id="admin-question-next" class="button ghost small" type="button">التالي</button></div></div>
+            <div class="surface question-library"><div class="section-heading compact"><div><span class="eyebrow">QUESTION BANK</span><h2>بنك الأسئلة</h2></div><span id="admin-question-count" class="subtle"></span></div><div id="admin-question-list" class="question-list"></div></div>
           </div>
         </div>
       </section>
     </div>
   </main>
   <footer id="site-footer"></footer>
-  <script src="/app.js?v=2745011"></script>
+  <script src="/app.js?v=2745004"></script>
 </body>
 </html>

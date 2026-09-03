@@ -15,8 +15,6 @@ export interface RaceGame {
   readonly questionSource?: "MODULE" | "DATABASE";
   /** حجم بنك الأسئلة الجاهز لهذه اللعبة، قبل أسئلة الإدارة الإضافية. */
   readonly questionCount?: number;
-  /** بنك الأسئلة النهائي القابل للمزامنة مع لوحة الإدارة. */
-  readonly questions?: readonly RacePrompt[];
   generate(random: () => number): RacePrompt;
 }
 
@@ -304,7 +302,7 @@ function withImportedQuestions(game: RaceGame): RaceGame {
   const generated = imported.length ? [] : sampleModuleQuestions(game);
   const uniqueQuestions = [...imported, ...generated].filter((question, index, all) => all.findIndex((item) => item.prompt === question.prompt) === index);
   const questions = expandQuestionPool(uniqueQuestions, game.slug);
-  return { ...game, questionCount: questions.length, questions, generate: (random) => { const selected = pick(questions, random); return { ...selected, answers: [...selected.answers] }; } };
+  return { ...game, questionCount: questions.length, generate: (random) => { const selected = pick(questions, random); return { ...selected, answers: [...selected.answers] }; } };
 }
 
 // كل لعبة تمتلك 400 صيغة قابلة للسحب على الأقل. نستخدم صيغ عرض مختلفة

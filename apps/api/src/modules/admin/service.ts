@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../../../../../packages/db/src/client.js";
+import { raceGames } from "../../../../../packages/games/src/index.js";
 import type { GuildRuntimeSettings } from "../../../../../packages/shared/src/index.js";
 import { publish } from "../../events.js";
 import { serializable } from "../../db-transaction.js";
@@ -278,9 +279,6 @@ export async function upsertLfgGame(input: { slug: string; name: string; descrip
 
 export async function addGameQuestion(input: { gameSlug: string; prompt: string; acceptedAnswers: string[]; mediaUrl?: string; difficulty?: number; enabled?: boolean; adminId?: string }) {
   const game = await db.zarkGame.findUniqueOrThrow({ where: { slug: input.gameSlug } });
-  const normalizedPrompt = input.prompt.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ");
-  const existingPrompts = await db.gameQuestion.findMany({ where: { gameId: game.id }, select: { prompt: true } });
-  if (existingPrompts.some((item) => item.prompt.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ") === normalizedPrompt)) throw new Error("هذا السؤال موجود مسبقًا في اللعبة");
   if (!input.acceptedAnswers.length) throw new Error("يجب إضافة إجابة صحيحة واحدة على الأقل");
   const question = await db.gameQuestion.create({ data: { gameId: game.id, prompt: input.prompt, acceptedAnswers: input.acceptedAnswers, mediaType: input.mediaUrl ? "IMAGE" : "TEXT", mediaUrl: input.mediaUrl, difficulty: Math.min(5, Math.max(1, input.difficulty ?? 1)), enabled: input.enabled ?? true } });
   if (input.adminId) await db.auditLog.create({ data: { adminId: input.adminId, action: "zark.question_created", targetId: question.id, details: { gameSlug: input.gameSlug } } });
@@ -288,105 +286,40 @@ export async function addGameQuestion(input: { gameSlug: string; prompt: string;
 }
 
 export async function getZarkGameContent() {
-  const [games, questionCounts] = await Promise.all([
-    db.zarkGame.findMany({ include: { categoryRef: true, _count: { select: { sessions: true, questions: true } } }, orderBy: [{ category: "asc" }, { name: "asc" }] }),
-    db.gameQuestion.groupBy({ by: ["gameId", "origin", "enabled"], _count: { _all: true } }),
-  ]);
-  const countFor = (gameId: string, origin?: "BUILT_IN" | "ADMIN", enabled?: boolean) => questionCounts.filter((row) => row.gameId === gameId && (origin === undefined || row.origin === origin) && (enabled === undefined || row.enabled === enabled)).reduce((sum, row) => sum + row._count._all, 0);
+  const games = await db.zarkGame.findMany({
+    include: { questions: { orderBy: [{ enabled: "desc" }, { updatedAt: "desc" }] } },
+    orderBy: [{ category: "asc" }, { name: "asc" }],
+  });
   return games.map((game) => ({
     id: game.id,
     slug: game.slug,
     name: game.name,
     description: game.description,
     icon: game.icon,
-    hasImage: Boolean(game.imageData),
     category: game.category,
-    categoryId: game.categoryId,
     enabled: game.enabled,
-    minPlayers: game.minPlayers,
-    maxPlayers: game.maxPlayers,
-    roundDurationSeconds: game.roundDurationSeconds,
-    lobbyEnabled: game.lobbyEnabled,
-    autoStart: game.autoStart,
-    readyCheckEnabled: game.readyCheckEnabled,
-    allowLateJoin: game.allowLateJoin,
-    skipEnabled: game.skipEnabled,
-    skipVotePercent: game.skipVotePercent,
-    hostSkipOverride: game.hostSkipOverride,
-    allowReplay: game.allowReplay,
-    questionCooldownSeconds: game.questionCooldownSeconds,
-    recentQuestionHistorySize: game.recentQuestionHistorySize,
-    sessionCount: game._count.sessions,
-    builtInQuestionCount: countFor(game.id, "BUILT_IN"),
-    customQuestionCount: countFor(game.id, "ADMIN"),
-    enabledCustomQuestionCount: countFor(game.id, "ADMIN", true),
-    questionCount: game._count.questions,
-    enabledQuestionCount: countFor(game.id, undefined, true),
-    questions: [],
+    // الأسئلة المضافة من لوحة التحكم تبقى منفصلة عن بنك اللعبة الداخلي، حتى
+    // لا يظهر للإدارة رقم مضلل مثل 0 رغم وجود 400+ سؤال جاهز للعبة.
+    builtInQuestionCount: raceGames.get(game.slug)?.questionCount ?? 0,
+    customQuestionCount: game.questions.length,
+    enabledCustomQuestionCount: game.questions.filter((question) => question.enabled).length,
+    questionCount: (raceGames.get(game.slug)?.questionCount ?? 0) + game.questions.length,
+    enabledQuestionCount: (raceGames.get(game.slug)?.questionCount ?? 0) + game.questions.filter((question) => question.enabled).length,
+    questions: game.questions.map((question) => ({ ...question, createdAt: question.createdAt.toISOString(), updatedAt: question.updatedAt.toISOString() })),
   }));
-}
-
-export async function getZarkGameQuestions(gameSlug: string, input: { page: number; pageSize: number; search?: string }) {
-  const game = await db.zarkGame.findUniqueOrThrow({ where: { slug: gameSlug }, select: { id: true } });
-  const where = { gameId: game.id, ...(input.search?.trim() ? { prompt: { contains: input.search.trim(), mode: "insensitive" as const } } : {}) };
-  const total = await db.gameQuestion.count({ where });
-  const pages = Math.max(1, Math.ceil(total / input.pageSize));
-  const page = Math.min(Math.max(1, input.page), pages);
-  const questions = await db.gameQuestion.findMany({ where, orderBy: [{ origin: "asc" }, { sourceKey: "asc" }, { updatedAt: "desc" }], skip: (page - 1) * input.pageSize, take: input.pageSize });
-  return { total, page, pageSize: input.pageSize, pages, questions: questions.map((question) => ({ ...question, createdAt: question.createdAt.toISOString(), updatedAt: question.updatedAt.toISOString() })) };
-}
-
-export async function listZarkGameCategories() {
-  return db.zarkGameCategory.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
-}
-
-export async function createZarkGameCategory(adminId: string, input: { slug: string; name: string; icon?: string; sortOrder?: number; enabled?: boolean }) {
-  const category = await db.zarkGameCategory.create({ data: { ...input, sortOrder: input.sortOrder ?? 0, enabled: input.enabled ?? true } });
-  await db.auditLog.create({ data: { adminId, action: "zark.category_created", targetId: category.id, details: { slug: category.slug } } });
-  return category;
-}
-
-export async function updateZarkGameCategory(adminId: string, categoryId: string, input: { name: string; icon?: string | null; sortOrder?: number; enabled?: boolean }) {
-  const category = await db.$transaction(async (tx) => {
-    const updated = await tx.zarkGameCategory.update({ where: { id: categoryId }, data: input });
-    await tx.zarkGame.updateMany({ where: { categoryId }, data: { category: updated.name } });
-    return updated;
-  });
-  await db.auditLog.create({ data: { adminId, action: "zark.category_updated", targetId: categoryId, details: { name: category.name } } });
-  return category;
-}
-
-export async function deleteZarkGameCategory(adminId: string, categoryId: string) {
-  const category = await db.zarkGameCategory.findUniqueOrThrow({ where: { id: categoryId }, include: { _count: { select: { games: true } } } });
-  if (category._count.games) throw new Error("انقل الألعاب إلى تصنيف آخر قبل حذف هذا التصنيف");
-  await db.zarkGameCategory.delete({ where: { id: categoryId } });
-  await db.auditLog.create({ data: { adminId, action: "zark.category_deleted", targetId: categoryId, details: { name: category.name } } });
-  return { deleted: true, id: categoryId };
-}
-
-export async function updateZarkGameSettings(adminId: string, gameSlug: string, input: { name: string; description?: string | null; icon?: string | null; imageData?: string | null; categoryId: string; enabled: boolean; minPlayers: number; maxPlayers: number; roundDurationSeconds: number; lobbyEnabled: boolean; autoStart: boolean; readyCheckEnabled: boolean; allowLateJoin: boolean; skipEnabled: boolean; skipVotePercent: number; hostSkipOverride: boolean; allowReplay: boolean; questionCooldownSeconds: number; recentQuestionHistorySize: number }) {
-  if (input.maxPlayers < input.minPlayers) throw new Error("الحد الأعلى للاعبين يجب ألا يقل عن الحد الأدنى");
-  const category = await db.zarkGameCategory.findUnique({ where: { id: input.categoryId } });
-  if (!category) throw new Error("اختر تصنيفًا موجودًا من القائمة");
-  const game = await db.zarkGame.update({ where: { slug: gameSlug }, data: { ...input, category: category.name } });
-  await db.auditLog.create({ data: { adminId, action: "zark.game_settings_updated", targetId: game.id, details: { gameSlug, enabled: game.enabled } } });
-  publish({ type: "zark.game_settings_updated", gameSlug });
-  return game;
 }
 
 export async function updateGameQuestion(adminId: string, gameSlug: string, questionId: string, input: { prompt: string; acceptedAnswers: string[]; mediaUrl?: string | null; difficulty: number; enabled: boolean }) {
   if (!input.acceptedAnswers.length) throw new Error("يجب إضافة إجابة صحيحة واحدة على الأقل");
   const owned = await db.gameQuestion.findFirst({ where: { id: questionId, game: { slug: gameSlug } }, select: { id: true } });
   if (!owned) throw new Error("السؤال لا يتبع اللعبة المحددة");
-  const normalizedPrompt = input.prompt.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ");
-  const siblingPrompts = await db.gameQuestion.findMany({ where: { game: { slug: gameSlug }, id: { not: questionId } }, select: { prompt: true } });
-  if (siblingPrompts.some((item) => item.prompt.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ") === normalizedPrompt)) throw new Error("هذا السؤال موجود مسبقًا في اللعبة");
   const question = await db.gameQuestion.update({
     where: { id: questionId },
     data: {
       prompt: input.prompt.trim(),
       acceptedAnswers: input.acceptedAnswers.map((answer) => answer.trim()).filter(Boolean),
-      ...(input.mediaUrl !== undefined ? { mediaUrl: input.mediaUrl?.trim() || null, mediaType: input.mediaUrl?.trim() ? "IMAGE" as const : "TEXT" as const } : {}),
+      mediaUrl: input.mediaUrl?.trim() || null,
+      mediaType: input.mediaUrl?.trim() ? "IMAGE" : "TEXT",
       difficulty: Math.min(5, Math.max(1, input.difficulty)),
       enabled: input.enabled,
     },
@@ -397,13 +330,8 @@ export async function updateGameQuestion(adminId: string, gameSlug: string, ques
 }
 
 export async function deleteGameQuestion(adminId: string, gameSlug: string, questionId: string) {
-  const owned = await db.gameQuestion.findFirst({ where: { id: questionId, game: { slug: gameSlug } }, select: { id: true, origin: true, prompt: true } });
+  const owned = await db.gameQuestion.findFirst({ where: { id: questionId, game: { slug: gameSlug } }, select: { id: true } });
   if (!owned) throw new Error("السؤال لا يتبع اللعبة المحددة");
-  if (owned.origin === "BUILT_IN") {
-    await db.gameQuestion.update({ where: { id: questionId }, data: { enabled: false } });
-    await db.auditLog.create({ data: { adminId, action: "zark.built_in_question_disabled", targetId: questionId, details: { gameSlug, prompt: owned.prompt } } });
-    return { deleted: false, disabled: true, id: questionId, gameSlug };
-  }
   const question = await db.gameQuestion.delete({ where: { id: questionId }, include: { game: { select: { slug: true } } } });
   await db.auditLog.create({ data: { adminId, action: "zark.question_deleted", targetId: questionId, details: { gameSlug: question.game.slug, prompt: question.prompt } } });
   return { deleted: true, id: question.id, gameSlug: question.game.slug };

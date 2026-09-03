@@ -44,7 +44,7 @@ export type LiveRoom = {
   controlMessageId?: string;
   listingChannelId?: string;
   listingMessageId?: string;
-  members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number; ratingRequestedAt?: string }>;
+  members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }>;
 };
 
 export type DailyChallenge = {
@@ -67,60 +67,6 @@ export type ZarkGameSummary = {
   category: string;
   aliases: string[];
   questionCount: number;
-  imageData?: string;
-  minPlayers: number;
-  maxPlayers: number;
-  roundDurationSeconds: number;
-  lobbyEnabled: boolean;
-  autoStart: boolean;
-  readyCheckEnabled: boolean;
-  allowLateJoin: boolean;
-  skipEnabled: boolean;
-  skipVotePercent: number;
-  hostSkipOverride: boolean;
-  allowReplay: boolean;
-};
-
-export type ZarkGameSessionView = {
-  id: string;
-  gameSlug: string;
-  gameName: string;
-  gameIcon?: string;
-  guildId: string;
-  channelId: string;
-  hostId: string;
-  status: "WAITING" | "READY" | "RUNNING" | "PAUSED" | "FINISHED" | "CANCELLED";
-  currentRound: number;
-  totalRounds: number;
-  minPlayers: number;
-  maxPlayers: number;
-  readyCheckEnabled: boolean;
-  allowLateJoin: boolean;
-  skipEnabled: boolean;
-  skipVotePercent: number;
-  hostSkipOverride: boolean;
-  allowReplay: boolean;
-  messageId?: string;
-  questionCooldownMs: number;
-  expiresAt: string;
-  playerCount: number;
-  readyCount: number;
-  skipVotes: number;
-  requiredSkipVotes: number;
-  members: Array<{ userId: string; displayName: string; status: "JOINED" | "READY" | "WAITING_NEXT" | "LEFT"; role: "PLAYER" | "SPECTATOR" }>;
-  currentMatch?: {
-    id: string;
-    seriesId: string;
-    gameSlug: string;
-    gameName: string;
-    gameImageData?: string;
-    roundNumber: number;
-    totalRounds: number;
-    prompt: string;
-    mediaUrl?: string;
-    startedAt: string;
-    endsAt: string;
-  };
 };
 
 export type LfgGameSummary = {
@@ -181,7 +127,6 @@ export type LeaderboardRow = {
 };
 
 export type ZarkEvent =
-  | { type: "zark.game_settings_updated"; gameSlug: string }
   | { type: "zark.match_started"; matchId: string; seriesId: string; gameSlug: string; channelId?: string; roundNumber: number; totalRounds: number }
   | { type: "zark.match_answered"; matchId: string; userId: string; displayName: string; points: number; rank: number }
   | { type: "zark.series_completed"; seriesId: string; channelId?: string; totalRounds: number }
