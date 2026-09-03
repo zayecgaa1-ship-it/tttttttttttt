@@ -238,6 +238,20 @@ export async function getAdminAuditLog() {
   }));
 }
 
+// Operational history is useful for a short investigation window, not forever.
+// Suspensions themselves are retained; only high-volume event/audit rows expire.
+export async function cleanupOperationalLogs(retentionDays = 3) {
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60_000);
+  const [audit, tradeAudit, securityActions, securityAlerts, deliveries] = await db.$transaction([
+    db.auditLog.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+    db.tradeAuditLog.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+    db.securityAction.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+    db.securityAlert.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+    db.notificationDelivery.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+  ]);
+  return { cutoff: cutoff.toISOString(), audit: audit.count, tradeAudit: tradeAudit.count, securityActions: securityActions.count, securityAlerts: securityAlerts.count, deliveries: deliveries.count };
+}
+
 export async function recordServiceHeartbeat(service: string, instanceId?: string, metadata?: Prisma.InputJsonValue) {
   return db.serviceHeartbeat.upsert({
     where: { service },

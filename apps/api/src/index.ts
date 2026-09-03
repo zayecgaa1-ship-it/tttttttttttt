@@ -14,7 +14,7 @@ import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCrea
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
-import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminAuditLog, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, cleanupOperationalLogs, createLfgCategory, deleteGameQuestion, getAdminAuditLog, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
@@ -814,14 +814,17 @@ void processDueLfgRooms().catch((error) => app.log.error(error));
 void processAutoSmartRooms().catch((error) => app.log.error(error));
 void expireDueTrades().catch((error) => app.log.error(error));
 void backfillTradeThumbnails().catch((error) => app.log.error(error));
+void cleanupOperationalLogs().catch((error) => app.log.error(error));
 const roomLifecycleTimer = setInterval(() => void processDueLfgRooms().catch((error) => app.log.error(error)), 30_000);
 const autoSmartRoomTimer = setInterval(() => void processAutoSmartRooms().catch((error) => app.log.error(error)), 5 * 60_000);
 const tradeExpiryTimer = setInterval(() => void expireDueTrades().catch((error) => app.log.error(error)), 5 * 60_000);
 const tradeThumbnailTimer = setInterval(() => void backfillTradeThumbnails().catch((error) => app.log.error(error)), 5 * 60_000);
+const operationalLogCleanupTimer = setInterval(() => void cleanupOperationalLogs().catch((error) => app.log.error(error)), 12 * 60 * 60_000);
 roomLifecycleTimer.unref();
 autoSmartRoomTimer.unref();
 tradeExpiryTimer.unref();
 tradeThumbnailTimer.unref();
+operationalLogCleanupTimer.unref();
 let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;

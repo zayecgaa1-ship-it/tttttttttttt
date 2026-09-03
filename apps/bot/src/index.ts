@@ -1969,7 +1969,11 @@ if (!token) {
         { name: "الصلاحيات الناقصة", value: missingPermissions.join("، ") || "لا يوجد", inline: false },
         { name: "رتب لا يستطيع البوت إزالتها", value: blockedRoles.map((role) => `${role.name} (${role.id})`).join("\n").slice(0, 1024) || "لا يوجد", inline: false },
       ).setFooter({ text: "ارفع رتبة Zark فوق رتب الإدارة الخطرة وامنحه View Audit Log + Manage Roles" }).setTimestamp();
-    await client.users.send(ownerUserId, { embeds: [embed] }).catch((error) => console.error("Security readiness owner DM failed", error));
+    // Readiness is an operator warning, not a private-message notification.
+    // Send it only to the configured security channel; the dashboard always shows it.
+    const channelId = process.env.DISCORD_SECURITY_LOG_CHANNEL_ID;
+    const channel = channelId ? await guild.channels.fetch(channelId).catch(() => undefined) : undefined;
+    if (channel?.isTextBased()) await channel.send({ embeds: [embed] }).catch((error) => console.error("Security readiness channel alert failed", error));
   }
 
   async function reconcileSecurityAuditLogs() {
