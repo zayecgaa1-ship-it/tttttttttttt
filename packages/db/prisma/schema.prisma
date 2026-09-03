@@ -36,6 +36,27 @@ enum MatchStatus {
   CANCELLED
 }
 
+enum GameSessionStatus {
+  WAITING
+  READY
+  RUNNING
+  PAUSED
+  FINISHED
+  CANCELLED
+}
+
+enum GameSessionMemberRole {
+  PLAYER
+  SPECTATOR
+}
+
+enum GameSessionMemberStatus {
+  JOINED
+  READY
+  WAITING_NEXT
+  LEFT
+}
+
 enum ReportStatus {
   PENDING
   REVIEWED
@@ -72,6 +93,11 @@ enum BugReportStatus {
 enum QuestionMediaType {
   TEXT
   IMAGE
+}
+
+enum GameQuestionOrigin {
+  BUILT_IN
+  ADMIN
 }
 
 enum NotificationDeliveryStatus {
@@ -320,6 +346,18 @@ model TrustScore {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model ZarkGameCategory {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  name      String
+  icon      String?
+  sortOrder Int        @default(0)
+  enabled   Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  games     ZarkGame[]
+}
+
 model ZarkGame {
   id          String           @id @default(cuid())
   slug        String           @unique
@@ -329,11 +367,30 @@ model ZarkGame {
   enabled     Boolean          @default(true)
   basePoints  Int              @default(100)
   icon        String?
+  imageData   String?
   category    String           @default("RACE")
+  categoryId  String?
   aliases     String[]         @default([])
+  minPlayers                  Int     @default(1)
+  maxPlayers                  Int     @default(25)
+  roundDurationSeconds        Int     @default(15)
+  lobbyEnabled                Boolean @default(false)
+  autoStart                   Boolean @default(true)
+  readyCheckEnabled           Boolean @default(false)
+  allowLateJoin               Boolean @default(true)
+  skipEnabled                 Boolean @default(true)
+  skipVotePercent             Int     @default(51)
+  hostSkipOverride            Boolean @default(true)
+  allowReplay                 Boolean @default(true)
+  questionCooldownSeconds     Int     @default(1)
+  recentQuestionHistorySize   Int     @default(30)
+  settings                    Json?
   createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  categoryRef ZarkGameCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   profiles    GameProfile[]
   matches     ZarkMatch[]
+  sessions    ZarkGameSession[]
   challenges  DailyChallenge[]
   questions   GameQuestion[]
 }
@@ -347,11 +404,14 @@ model GameQuestion {
   mediaUrl        String?
   difficulty      Int               @default(1)
   enabled         Boolean           @default(true)
+  origin          GameQuestionOrigin @default(ADMIN)
+  sourceKey       String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   game            ZarkGame          @relation(fields: [gameId], references: [id], onDelete: Cascade)
 
   @@index([gameId, enabled, difficulty])
+  @@unique([gameId, sourceKey])
 }
 
 model GameProfile {
@@ -385,12 +445,85 @@ model ZarkMatch {
   startedAt        DateTime          @default(now())
   endsAt           DateTime
   lockExpiresAt    DateTime?
+  sessionId        String?
+  questionKey      String?
   game             ZarkGame          @relation(fields: [gameId], references: [id])
+  session          ZarkGameSession?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   results          ZarkMatchResult[]
 
   @@unique([seriesId, roundNumber])
   @@index([gameId, startedAt])
   @@index([channelId, startedAt])
+  @@index([sessionId, roundNumber])
+}
+
+model ZarkGameSession {
+  id                    String            @id @default(cuid())
+  gameId                String
+  guildId               String
+  channelId             String
+  activeChannelKey      String?           @unique
+  hostId                String
+  status                GameSessionStatus @default(WAITING)
+  currentRound          Int               @default(0)
+  totalRounds           Int               @default(1)
+  currentMatchId        String?
+  messageId             String?
+  recentQuestionKeys    String[]          @default([])
+  lobbyEnabled          Boolean           @default(false)
+  autoStart             Boolean           @default(true)
+  readyCheckEnabled     Boolean           @default(false)
+  allowLateJoin         Boolean           @default(true)
+  skipEnabled           Boolean           @default(true)
+  skipVotePercent       Int               @default(51)
+  hostSkipOverride      Boolean            @default(true)
+  allowReplay           Boolean           @default(true)
+  minPlayers            Int               @default(1)
+  maxPlayers            Int               @default(25)
+  durationMs            Int               @default(15000)
+  questionCooldownMs    Int               @default(1000)
+  historySize           Int               @default(30)
+  startedAt             DateTime?
+  endedAt               DateTime?
+  expiresAt             DateTime
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  game                  ZarkGame          @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  members               ZarkGameSessionMember[]
+  matches               ZarkMatch[]
+  skipVotes             ZarkSkipVote[]
+
+  @@index([guildId, channelId, status])
+  @@index([expiresAt, status])
+}
+
+model ZarkGameSessionMember {
+  id              String                  @id @default(cuid())
+  sessionId       String
+  userId          String
+  displayName     String
+  role            GameSessionMemberRole   @default(PLAYER)
+  status          GameSessionMemberStatus @default(JOINED)
+  joinedAt        DateTime                @default(now())
+  readyAt         DateTime?
+  leftAt          DateTime?
+  replayRequested Boolean                 @default(false)
+  session         ZarkGameSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([userId, status])
+}
+
+model ZarkSkipVote {
+  id        String          @id @default(cuid())
+  sessionId String
+  matchId   String
+  userId    String
+  createdAt DateTime        @default(now())
+  session   ZarkGameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, matchId, userId])
+  @@index([sessionId, matchId])
 }
 
 model ZarkMatchResult {
@@ -768,6 +901,7 @@ model LfgMember {
   joinedAt      DateTime        @default(now())
   leftAt        DateTime?
   completedAt   DateTime?
+  ratingRequestedAt DateTime?
   voiceJoinedAt DateTime?
   voiceSeconds  Int             @default(0)
   played        Boolean         @default(false)
@@ -777,6 +911,7 @@ model LfgMember {
   @@id([roomId, userId])
   @@index([userId, status])
   @@index([roomId, voiceJoinedAt])
+  @@index([status, ratingRequestedAt])
 }
 
 model AiUsageDaily {

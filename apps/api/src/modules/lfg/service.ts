@@ -475,7 +475,7 @@ export async function getLfgRoom(roomId: string): Promise<LiveRoom> {
 export async function listPendingRatingRooms() {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60_000);
   const rooms = await db.lfgRoom.findMany({
-    where: { status: "COMPLETED", ratingRequestedAt: null, completedAt: { gte: since } },
+    where: { status: "COMPLETED", completedAt: { gte: since }, members: { some: { status: "COMPLETED", ratingRequestedAt: null } } },
     include: roomInclude,
     orderBy: { completedAt: "asc" },
     take: 50,
@@ -483,9 +483,12 @@ export async function listPendingRatingRooms() {
   return rooms.map(toLiveRoom);
 }
 
-export async function markRatingRequestsDelivered(roomId: string) {
-  await db.lfgRoom.update({ where: { id: roomId }, data: { ratingRequestedAt: new Date() } });
-  return { delivered: true };
+export async function markRatingRequestsDelivered(roomId: string, userIds: string[]) {
+  const deliveredAt = new Date();
+  if (userIds.length) await db.lfgMember.updateMany({ where: { roomId, userId: { in: userIds }, status: "COMPLETED", ratingRequestedAt: null }, data: { ratingRequestedAt: deliveredAt } });
+  const remaining = await db.lfgMember.count({ where: { roomId, status: "COMPLETED", ratingRequestedAt: null } });
+  if (!remaining) await db.lfgRoom.update({ where: { id: roomId }, data: { ratingRequestedAt: deliveredAt } });
+  return { delivered: userIds.length, remaining };
 }
 
 export async function setLfgListing(roomId: string, listingChannelId: string, listingMessageId: string) {
@@ -863,7 +866,7 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     controlMessageId: room.controlMessageId ?? undefined,
     listingChannelId: room.listingChannelId ?? undefined,
     listingMessageId: room.listingMessageId ?? undefined,
-    members: activeMembers.map((member) => ({ id: member.user.id, displayName: member.user.displayName, avatarUrl: member.user.avatarUrl ?? undefined, voiceActive: Boolean(member.voiceJoinedAt), voiceSeconds: member.voiceSeconds + (member.voiceJoinedAt ? Math.max(0, Math.floor((Date.now() - member.voiceJoinedAt.getTime()) / 1000)) : 0) })),
+    members: activeMembers.map((member) => ({ id: member.user.id, displayName: member.user.displayName, avatarUrl: member.user.avatarUrl ?? undefined, voiceActive: Boolean(member.voiceJoinedAt), voiceSeconds: member.voiceSeconds + (member.voiceJoinedAt ? Math.max(0, Math.floor((Date.now() - member.voiceJoinedAt.getTime()) / 1000)) : 0), ratingRequestedAt: member.ratingRequestedAt?.toISOString() })),
   };
 }
 

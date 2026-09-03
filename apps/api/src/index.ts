@@ -11,10 +11,11 @@ import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, enforceRateLimit, hasEventCapacity, initEvents, subscribe } from "./events.js";
 import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
+import { bindGameSessionMessage, cancelGameSession, cleanupStaleGameSessions, createGameSession, getGameSession, joinGameSession, leaveGameSession, listRecoverableGameSessions, replayGameSession, setGameSessionReady, startGameSession, voteToSkip } from "./game-session-service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
-import { addGameQuestion, claimBumpReminder, createLfgCategory, deleteGameQuestion, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
+import { addGameQuestion, claimBumpReminder, createLfgCategory, createZarkGameCategory, deleteGameQuestion, deleteZarkGameCategory, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, getZarkGameQuestions, listZarkGameCategories, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, updateZarkGameCategory, updateZarkGameSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
@@ -432,7 +433,31 @@ app.post("/api/web-admin/zark-games/:slug/questions", async (request) => {
 });
 app.get("/api/web-admin/zark-games", async (request) => {
   await requireWebAdmin(request);
+  await listZarkGames();
   return getZarkGameContent();
+});
+app.get("/api/web-admin/zark-games/:slug/questions", async (request) => {
+  await requireWebAdmin(request); const params = z.object({ slug: z.string() }).parse(request.params);
+  const query = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(10).max(100).default(50), search: z.string().max(200).optional() }).parse(request.query);
+  return getZarkGameQuestions(params.slug, query);
+});
+app.get("/api/web-admin/zark-game-categories", async (request) => { await requireWebAdmin(request); return listZarkGameCategories(); });
+app.post("/api/web-admin/zark-game-categories", async (request) => {
+  const admin = await requireWebAdmin(request);
+  const body = z.object({ slug: z.string().regex(/^[a-z0-9-]+$/), name: z.string().min(2).max(80), icon: z.string().max(10).optional(), sortOrder: z.number().int().optional(), enabled: z.boolean().optional() }).parse(request.body);
+  return createZarkGameCategory(admin.userId, body);
+});
+app.put("/api/web-admin/zark-game-categories/:id", async (request) => {
+  const admin = await requireWebAdmin(request); const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ name: z.string().min(2).max(80), icon: z.string().max(10).nullable().optional(), sortOrder: z.number().int().optional(), enabled: z.boolean().optional() }).parse(request.body);
+  return updateZarkGameCategory(admin.userId, params.id, body);
+});
+app.delete("/api/web-admin/zark-game-categories/:id", async (request) => { const admin = await requireWebAdmin(request); return deleteZarkGameCategory(admin.userId, z.object({ id: z.string() }).parse(request.params).id); });
+app.put("/api/web-admin/zark-games/:slug/settings", async (request) => {
+  const admin = await requireWebAdmin(request);
+  const params = z.object({ slug: z.string() }).parse(request.params);
+  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).nullable().optional(), icon: z.string().max(10).nullable().optional(), imageData: uploadedImageSchema.nullable().optional(), categoryId: z.string().min(1), enabled: z.boolean(), minPlayers: z.number().int().min(1).max(100), maxPlayers: z.number().int().min(1).max(100), roundDurationSeconds: z.number().int().min(10).max(60), lobbyEnabled: z.boolean(), autoStart: z.boolean(), readyCheckEnabled: z.boolean(), allowLateJoin: z.boolean(), skipEnabled: z.boolean(), skipVotePercent: z.number().int().min(1).max(100), hostSkipOverride: z.boolean(), allowReplay: z.boolean(), questionCooldownSeconds: z.number().int().min(0).max(60), recentQuestionHistorySize: z.number().int().min(1).max(400) }).parse(request.body);
+  return updateZarkGameSettings(admin.userId, params.slug, body);
 });
 app.put("/api/web-admin/zark-games/:slug/questions/:id", async (request) => {
   const admin = await requireWebAdmin(request);
@@ -504,6 +529,24 @@ app.post("/api/daily/answer", { preHandler: requireServiceKey }, async (request,
   return reply.send(await answerDaily(body));
 });
 app.get("/api/zark-games", listZarkGames);
+app.get("/api/play/sessions/recover", { preHandler: requireServiceKey }, listRecoverableGameSessions);
+app.get("/api/play/sessions/:id", { preHandler: requireServiceKey }, async (request) => getGameSession(z.object({ id: z.string() }).parse(request.params).id));
+app.post("/api/play/sessions", { preHandler: requireServiceKey }, async (request) => {
+  const body = z.object({ gameSlug: z.string().optional(), guildId: z.string().min(1).max(40), channelId: z.string().min(1).max(40), hostId: z.string().min(1).max(40), displayName: z.string().min(1).max(80), rounds: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(10)]).default(1), seconds: z.number().int().min(10).max(60).optional() }).parse(request.body);
+  return createGameSession(body);
+});
+app.post("/api/play/sessions/:id/join", { preHandler: requireServiceKey }, async (request) => joinGameSession(z.object({ id: z.string() }).parse(request.params).id, z.object({ userId: z.string(), displayName: z.string().min(1).max(80) }).parse(request.body)));
+app.post("/api/play/sessions/:id/ready", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ userId: z.string(), ready: z.boolean().default(true) }).parse(request.body);
+  return setGameSessionReady(params.id, body.userId, body.ready);
+});
+app.post("/api/play/sessions/:id/start", { preHandler: requireServiceKey }, async (request) => startGameSession(z.object({ id: z.string() }).parse(request.params).id, z.object({ userId: z.string() }).parse(request.body).userId));
+app.post("/api/play/sessions/:id/leave", { preHandler: requireServiceKey }, async (request) => leaveGameSession(z.object({ id: z.string() }).parse(request.params).id, z.object({ userId: z.string() }).parse(request.body).userId));
+app.post("/api/play/sessions/:id/skip", { preHandler: requireServiceKey }, async (request) => voteToSkip(z.object({ id: z.string() }).parse(request.params).id, z.object({ userId: z.string() }).parse(request.body).userId));
+app.post("/api/play/sessions/:id/cancel", { preHandler: requireServiceKey }, async (request) => cancelGameSession(z.object({ id: z.string() }).parse(request.params).id, z.object({ userId: z.string() }).parse(request.body).userId));
+app.post("/api/play/sessions/:id/replay", { preHandler: requireServiceKey }, async (request) => replayGameSession(z.object({ id: z.string() }).parse(request.params).id, z.object({ userId: z.string(), displayName: z.string().min(1).max(80) }).parse(request.body)));
+app.put("/api/play/sessions/:id/message", { preHandler: requireServiceKey }, async (request) => bindGameSessionMessage(z.object({ id: z.string() }).parse(request.params).id, z.object({ messageId: z.string().min(1) }).parse(request.body).messageId));
 app.post("/api/play/start", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ gameSlug: z.string().optional(), channelId: z.string().min(1).max(40), rounds: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(10)]).default(1), seconds: z.number().int().min(10).max(60).optional() }).parse(request.body ?? {});
   return startZarkRace(body.gameSlug, { channelId: body.channelId, totalRounds: body.rounds, durationSeconds: body.seconds });
@@ -676,7 +719,8 @@ app.post("/api/lfg/:id/room-rating", { preHandler: requireServiceKey }, async (r
 app.get("/api/lfg/rating-requests/pending", { preHandler: requireServiceKey }, listPendingRatingRooms);
 app.post("/api/lfg/:id/rating-requests/delivered", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
-  return markRatingRequestsDelivered(params.id);
+  const body = z.object({ userIds: z.array(z.string()).max(100) }).parse(request.body);
+  return markRatingRequestsDelivered(params.id, body.userIds);
 });
 app.post("/api/reports/player", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ reporterId: z.string(), reporterName: z.string().min(1).max(80), reportedId: z.string(), roomId: z.string().optional(), reason: z.string().min(2).max(80), description: z.string().max(1000).optional() }).parse(request.body);
@@ -790,14 +834,17 @@ void processDueLfgRooms().catch((error) => app.log.error(error));
 void processAutoSmartRooms().catch((error) => app.log.error(error));
 void expireDueTrades().catch((error) => app.log.error(error));
 void backfillTradeThumbnails().catch((error) => app.log.error(error));
+void cleanupStaleGameSessions().catch((error) => app.log.error(error));
 const roomLifecycleTimer = setInterval(() => void processDueLfgRooms().catch((error) => app.log.error(error)), 30_000);
 const autoSmartRoomTimer = setInterval(() => void processAutoSmartRooms().catch((error) => app.log.error(error)), 5 * 60_000);
 const tradeExpiryTimer = setInterval(() => void expireDueTrades().catch((error) => app.log.error(error)), 5 * 60_000);
 const tradeThumbnailTimer = setInterval(() => void backfillTradeThumbnails().catch((error) => app.log.error(error)), 5 * 60_000);
+const gameSessionCleanupTimer = setInterval(() => void cleanupStaleGameSessions().catch((error) => app.log.error(error)), 30_000);
 roomLifecycleTimer.unref();
 autoSmartRoomTimer.unref();
 tradeExpiryTimer.unref();
 tradeThumbnailTimer.unref();
+gameSessionCleanupTimer.unref();
 let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
@@ -807,6 +854,7 @@ async function shutdown(signal: string) {
   clearInterval(autoSmartRoomTimer);
   clearInterval(tradeExpiryTimer);
   clearInterval(tradeThumbnailTimer);
+  clearInterval(gameSessionCleanupTimer);
   await closeEvents();
   await app.close();
   await db.$disconnect();

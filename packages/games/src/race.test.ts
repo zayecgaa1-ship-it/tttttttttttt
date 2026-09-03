@@ -50,7 +50,11 @@ test("legacy logo and anime banks work without database placeholders", () => {
 
 test("every Zark game keeps at least the configured question-bank minimum", () => {
   assert.equal(raceGames.size, 40, "Zark should expose exactly 40 games");
-  for (const game of raceGames.values()) assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} fell below ${minimumRaceQuestionsPerGame} prompts`);
+  for (const game of raceGames.values()) {
+    assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} fell below ${minimumRaceQuestionsPerGame} prompts`);
+    assert.ok((game.questions?.length ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} does not expose its editable question bank`);
+    assert.equal(new Set(game.questions?.map((question) => question.prompt)).size, game.questions?.length, `${game.slug} contains duplicate prompts`);
+  }
 });
 
 test("every Zark game gives exactly fifteen seconds to answer", () => {
