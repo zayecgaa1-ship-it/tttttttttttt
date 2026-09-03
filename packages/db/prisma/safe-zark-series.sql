@@ -18,6 +18,19 @@ BEGIN
 END
 $zark_series_migration$;
 
+-- ZarkGame already contains the 40 built-in games in production. Prisma cannot
+-- add a required @updatedAt column to those rows unless they are backfilled
+-- first. This migration is idempotent and preserves every existing record.
+DO $zark_game_updated_at_migration$
+BEGIN
+  IF to_regclass('"ZarkGame"') IS NOT NULL THEN
+    ALTER TABLE "ZarkGame" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3);
+    UPDATE "ZarkGame" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+    ALTER TABLE "ZarkGame" ALTER COLUMN "updatedAt" SET NOT NULL;
+  END IF;
+END
+$zark_game_updated_at_migration$;
+
 -- Early deployments used five minutes for an empty Voice channel. The room
 -- contract is now ten minutes, matching the website leave flow and the member
 -- warning shown by Zark. Preserve any custom value that is not the old default.
