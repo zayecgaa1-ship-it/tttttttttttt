@@ -209,6 +209,7 @@ if (!token) {
         if (await isSuspendedAdmin(interaction.user.id)) throw new Error("تم تعليق صلاحيات هذا الحساب من نظام Zark Admin Protection. تواصل مع المالك.");
         if (interaction.commandName === "daily") return await daily(interaction);
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1, interaction.options.getInteger("seconds") ?? undefined);
+        if (interaction.commandName === "lobby") return await createGameLobby(interaction, interaction.options.getString("game", true), interaction.options.getInteger("rounds") ?? 5, interaction.options.getInteger("seconds") ?? 15);
         if (interaction.commandName === "profile") return await profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
         if (interaction.commandName === "loyalty") return await loyalty(interaction);
         if (interaction.commandName === "weekly") return await weekly(interaction);
@@ -378,6 +379,26 @@ if (!token) {
 
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
+    if (parts[0] === "zark" && parts[1] === "lobby") {
+      const action = parts[2];
+      const lobbyId = parts[3];
+      await interaction.deferUpdate();
+      if (action === "start") {
+        const match = await apiSend<ZarkMatch>(`/api/play/lobby/${lobbyId}/start`, "POST", { userId: interaction.user.id });
+        await interaction.editReply(await gameMessagePayload(match));
+        const sent = await interaction.fetchReply();
+        return activateRace(interaction.channelId, match, sent.id, interaction.channel);
+      }
+      if (!["join", "leave", "ready"].includes(action)) return interaction.followUp({ content: "إجراء لوبي غير صالح.", flags: MessageFlags.Ephemeral });
+      const lobby = await apiSend<GameLobby>(`/api/play/lobby/${lobbyId}/${action.toUpperCase()}`, "POST", { userId: interaction.user.id, displayName: displayName(interaction) });
+      if (lobby.autoStart) {
+        const match = await apiSend<ZarkMatch>(`/api/play/lobby/${lobbyId}/start`, "POST", { userId: interaction.user.id, autoStart: true });
+        await interaction.editReply(await gameMessagePayload(match));
+        const sent = await interaction.fetchReply();
+        return activateRace(interaction.channelId, match, sent.id, interaction.channel);
+      }
+      return interaction.editReply(gameLobbyPayload(lobby));
+    }
     if (parts[0] === "zark" && parts[1] === "replay") {
       const gameSlug = parts[2];
       const rounds = Number(parts[3]);
@@ -554,7 +575,7 @@ if (!token) {
   }
 
   async function completePlayAutocomplete(interaction: any) {
-    if (interaction.commandName !== "play") return interaction.respond([]);
+    if (!["play", "lobby"].includes(interaction.commandName)) return interaction.respond([]);
     const focused = interaction.options.getFocused(true);
     if (focused.name !== "game") return interaction.respond([]);
     const query = String(focused.value ?? "").trim().toLocaleLowerCase("ar");
@@ -567,6 +588,13 @@ if (!token) {
     const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: message.channelId, rounds: 1 });
     const sent = await message.channel.send(await gameMessagePayload(match));
     activateRace(message.channelId, match, sent.id, message.channel);
+  }
+
+  async function createGameLobby(interaction: any, gameSlug: string, rounds: number, seconds: number) {
+    if (activeRaceChannels.has(interaction.channelId) || activeDailyChannels.has(interaction.channelId)) throw new Error("توجد لعبة شغالة في هذه القناة. انتظر حتى تنتهي.");
+    await interaction.deferReply();
+    const lobby = await apiSend<GameLobby>("/api/play/lobby", "POST", { gameSlug, channelId: interaction.channelId, userId: interaction.user.id, displayName: displayName(interaction), rounds, seconds });
+    return interaction.editReply(gameLobbyPayload(lobby));
   }
 
   function playHelpEmbed() {
@@ -1689,6 +1717,17 @@ if (!token) {
     };
   }
 
+  function gameLobbyPayload(lobby: GameLobby) {
+    const members = lobby.members.length ? lobby.members.map((member) => `${member.ready ? "✅" : "⏳"} ${member.displayName}`).join("\n") : "لاعبون غير موجودين";
+    const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`zark:lobby:join:${lobby.id}`).setLabel("دخول").setEmoji("➕").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`zark:lobby:leave:${lobby.id}`).setLabel("خروج").setEmoji("🚪").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`zark:lobby:ready:${lobby.id}`).setLabel("جاهز").setEmoji("✅").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`zark:lobby:start:${lobby.id}`).setLabel("بدء الآن").setEmoji("▶️").setStyle(ButtonStyle.Danger),
+    );
+    return { embeds: [baseEmbed().setTitle(`👥 لوبي ${lobby.gameName}`).setDescription(`**${lobby.members.length}/${lobby.maxPlayers}** لاعب · تحتاج ${lobby.minPlayers} على الأقل\n🎯 ${lobby.totalRounds} جولات · ⏱️ ${lobby.durationSeconds} ثانية\n\n${members}\n\nعندما يصبح الجميع جاهزًا يبدأ اللوبي تلقائيًا. ويمكن للمضيف بدءه يدويًا.`)], components: [controls] };
+  }
+
   async function renderGameVisual(match: ZarkMatch, daily = false) {
     const flagCode = match.gameSlug === "flags" ? countryCodeFromFlag(match.prompt) : undefined;
     const media = match.mediaUrl ? await remoteImage(match.mediaUrl) : flagCode ? await remoteImage(`https://flagcdn.com/w640/${flagCode.toLowerCase()}.png`) : undefined;
@@ -2113,6 +2152,12 @@ function buildCommands() {
       .addStringOption((option) => option.setName("game").setDescription("اكتب اسم اللعبة للبحث بين 36 لعبة أو help").setAutocomplete(true))
       .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات: 5 أو 10 أو 15 أو 20، أو أي عدد من 1 إلى 20").setMinValue(1).setMaxValue(20))
       .addIntegerOption((option) => option.setName("seconds").setDescription("وقت الإجابة بالثواني — من 10 إلى 60، الافتراضي 15").setMinValue(10).setMaxValue(60)),
+    new SlashCommandBuilder()
+      .setName("lobby")
+      .setDescription("أنشئ لوبيًا جماعيًا قبل بدء لعبة Zark")
+      .addStringOption((option) => option.setName("game").setDescription("اختر اللعبة").setRequired(true).setAutocomplete(true))
+      .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات — الافتراضي 5").setMinValue(1).setMaxValue(20))
+      .addIntegerOption((option) => option.setName("seconds").setDescription("وقت الإجابة — الافتراضي 15").setMinValue(10).setMaxValue(60)),
     new SlashCommandBuilder().setName("profile").setDescription("اعرض ملف Zark + LFG الموحد").addUserOption((option) => option.setName("user").setDescription("العضو — اتركه فارغًا لملفك")),
     new SlashCommandBuilder().setName("leaderboard").setDescription("متصدرو اليوم").addStringOption((option) => option.setName("type").setDescription("نوع النقاط").addChoices({ name: "ألعاب Zark", value: "game" }, { name: "تفاعل LFG", value: "engagement" })),
     availabilityCommand("availability"),
@@ -2138,6 +2183,7 @@ function availabilityCommand(name: string) {
 type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number; hintUsed?: boolean };
 type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; durationMs?: number; prompt: string; choices?: string[]; mediaUrl?: string; endsAt: string };
 type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; choices: string[]; gameSlug: string; totalRounds: number; durationSeconds: number };
+type GameLobby = { id: string; gameSlug: string; gameName: string; channelId: string; hostId: string; status: string; totalRounds: number; durationSeconds: number; minPlayers: number; maxPlayers: number; members: Array<{ userId: string; displayName: string; ready: boolean }>; allReady: boolean; autoStart?: boolean };
 type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };

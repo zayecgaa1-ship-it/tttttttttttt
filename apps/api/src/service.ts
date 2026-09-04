@@ -131,6 +131,8 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
   try {
     match = await serializable(async (tx) => {
       if (options.channelId) {
+        const activeLobby = await tx.zarkGameSession.findUnique({ where: { activeChannelKey: options.channelId }, select: { status: true } });
+        if (activeLobby && ["WAITING", "READY"].includes(activeLobby.status)) throw new Error("يوجد لوبي شغال في هذه القناة. ادخل اللوبي أو ابدأه أولًا.");
         await tx.zarkMatch.updateMany({ where: { activeChannelKey: options.channelId, lockExpiresAt: { lte: startedAt }, status: "OPEN" }, data: { activeChannelKey: null, status: "EXPIRED" } });
         await tx.zarkMatch.updateMany({ where: { activeChannelKey: options.channelId, lockExpiresAt: { lte: startedAt } }, data: { activeChannelKey: null } });
         const active = await tx.zarkMatch.findUnique({ where: { activeChannelKey: options.channelId }, select: { game: { select: { name: true } }, roundNumber: true, totalRounds: true } });
@@ -161,6 +163,73 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
   }
   publish({ type: "zark.match_started", matchId: match.id, seriesId, gameSlug: game.slug, channelId: options.channelId, roundNumber: 1, totalRounds });
   return publicZarkMatch(match, game);
+}
+
+type LobbyActor = { userId: string; displayName: string };
+
+function publicLobby(session: any) {
+  const members = session.members.filter((member: any) => member.status !== "LEFT");
+  return {
+    id: session.id, gameSlug: session.game.slug, gameName: session.game.name, channelId: session.channelId,
+    hostId: session.hostId, status: session.status, totalRounds: session.totalRounds,
+    durationSeconds: Math.round(session.durationMs / 1_000), minPlayers: session.minPlayers, maxPlayers: session.maxPlayers,
+    members: members.map((member: any) => ({ userId: member.userId, displayName: member.displayName, ready: member.status === "READY" })),
+    allReady: members.length >= session.minPlayers && members.every((member: any) => member.status === "READY"),
+  };
+}
+
+export async function createZarkLobby(gameSlug: string, input: LobbyActor & { channelId: string; rounds?: number; seconds?: number }) {
+  await ensureSystemData();
+  const game = await db.zarkGame.findUnique({ where: { slug: gameSlug } });
+  if (!game?.enabled || !raceGames.has(gameSlug)) throw new Error("اللعبة غير متاحة حاليًا.");
+  const totalRounds = input.rounds ?? 5;
+  const durationSeconds = input.seconds ?? 15;
+  if (!Number.isInteger(totalRounds) || totalRounds < minimumRoundCount || totalRounds > maximumRoundCount) throw new Error("عدد الجولات يجب أن يكون من 1 إلى 20.");
+  if (!Number.isInteger(durationSeconds) || durationSeconds < 10 || durationSeconds > 60) throw new Error("وقت الإجابة يجب أن يكون من 10 إلى 60 ثانية.");
+  const expiresAt = new Date(Date.now() + 10 * 60_000);
+  await db.zarkGameSession.updateMany({ where: { activeChannelKey: input.channelId, status: { in: ["WAITING", "READY"] }, expiresAt: { lte: new Date() } }, data: { status: "CANCELLED", activeChannelKey: null, endedAt: new Date() } });
+  try {
+    const session = await db.zarkGameSession.create({ data: {
+      gameId: game.id, guildId: "discord", channelId: input.channelId, activeChannelKey: input.channelId, hostId: input.userId,
+      totalRounds, durationMs: durationSeconds * 1_000, lobbyEnabled: true, readyCheckEnabled: true, minPlayers: 2, maxPlayers: 8, expiresAt,
+      members: { create: { userId: input.userId, displayName: input.displayName } },
+    }, include: { game: true, members: true } });
+    return publicLobby(session);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new Error("يوجد لوبي أو لعبة شغالة في هذه القناة.");
+    throw error;
+  }
+}
+
+export async function updateZarkLobby(lobbyId: string, actor: LobbyActor, action: "JOIN" | "LEAVE" | "READY") {
+  const session = await db.zarkGameSession.findUnique({ where: { id: lobbyId }, include: { game: true, members: true } });
+  if (!session || !["WAITING", "READY"].includes(session.status) || new Date() > session.expiresAt) throw new Error("انتهى هذا اللوبي.");
+  if (action === "JOIN") {
+    if (session.members.filter((member) => member.status !== "LEFT").length >= session.maxPlayers) throw new Error("اللوبي مكتمل.");
+    await db.zarkGameSessionMember.upsert({ where: { sessionId_userId: { sessionId: lobbyId, userId: actor.userId } }, update: { displayName: actor.displayName, status: "JOINED", leftAt: null, readyAt: null }, create: { sessionId: lobbyId, userId: actor.userId, displayName: actor.displayName } });
+  } else if (action === "LEAVE") {
+    if (actor.userId === session.hostId) throw new Error("المضيف لا يستطيع الخروج؛ ابدأ اللوبي أو ألغِه ثم أنشئ واحدًا جديدًا.");
+    await db.zarkGameSessionMember.updateMany({ where: { sessionId: lobbyId, userId: actor.userId, status: { not: "LEFT" } }, data: { status: "LEFT", leftAt: new Date(), readyAt: null } });
+  } else {
+    const member = session.members.find((item) => item.userId === actor.userId && item.status !== "LEFT");
+    if (!member) throw new Error("ادخل اللوبي أولًا.");
+    await db.zarkGameSessionMember.update({ where: { sessionId_userId: { sessionId: lobbyId, userId: actor.userId } }, data: { status: member.status === "READY" ? "JOINED" : "READY", readyAt: member.status === "READY" ? null : new Date() } });
+  }
+  const updated = await db.zarkGameSession.findUniqueOrThrow({ where: { id: lobbyId }, include: { game: true, members: true } });
+  const lobby = publicLobby(updated);
+  if (lobby.allReady) await db.zarkGameSession.update({ where: { id: lobbyId }, data: { status: "READY" } });
+  return { ...lobby, autoStart: lobby.allReady };
+}
+
+export async function startZarkLobby(lobbyId: string, actorId: string, autoStart = false) {
+  const session = await db.zarkGameSession.findUnique({ where: { id: lobbyId }, include: { game: true, members: true } });
+  if (!session || !["WAITING", "READY"].includes(session.status) || new Date() > session.expiresAt) throw new Error("انتهى هذا اللوبي.");
+  const members = session.members.filter((member) => member.status !== "LEFT");
+  const allReady = members.length >= session.minPlayers && members.every((member) => member.status === "READY");
+  if (autoStart ? !allReady : actorId !== session.hostId) throw new Error("بدء اللوبي للمضيف فقط، أو يتم تلقائيًا عند جاهزية الجميع.");
+  if (members.length < session.minPlayers) throw new Error(`يلزم ${session.minPlayers} لاعبين على الأقل.`);
+  await db.zarkGameSession.update({ where: { id: lobbyId }, data: { status: "RUNNING", activeChannelKey: null, startedAt: new Date() } });
+  return startZarkRace(session.game.slug, { channelId: session.channelId, totalRounds: session.totalRounds, durationSeconds: Math.round(session.durationMs / 1_000) });
 }
 
 export async function advanceZarkRace(matchId: string) {
