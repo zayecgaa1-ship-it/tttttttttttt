@@ -1738,27 +1738,39 @@ if (!token) {
     const flagCode = match.gameSlug === "flags" ? countryCodeFromFlag(match.prompt) : undefined;
     const media = match.mediaUrl ? await remoteImage(match.mediaUrl) : flagCode ? await remoteImage(`https://flagcdn.com/w640/${flagCode.toLowerCase()}.png`) : undefined;
     const cleanedPrompt = cleanPrompt(match.prompt, match.gameSlug === "flags");
-    const visualLabel = match.gameSlug === "flags" ? "علم أي دولة؟" : match.gameName;
-    const lines = wrapText(cleanedPrompt, media ? 40 : 34).slice(0, media ? 2 : 3);
-    const promptStart = media ? 220 : 365 - ((lines.length - 1) * 45);
-    const lineMarkup = lines.map((line, index) => `<text x="800" y="${promptStart + index * 90}" text-anchor="middle" class="prompt">${escapeXml(line)}</text>`).join("");
+    const visualLabel = match.gameSlug === "flags" ? "أعلام" : match.gameName;
+    const lines = wrapText(cleanedPrompt, media ? 34 : 30).slice(0, media ? 3 : 4);
+    const promptFontSize = lines.some((line) => line.length > 28) ? 52 : 62;
+    const headerY = 84;
+    const titleY = 166;
+    const promptStart = 252;
+    const promptGap = 72;
+    const instructionY = promptStart + lines.length * promptGap + 8;
+    const contentTop = instructionY + 44;
+    const footerY = 846;
+    const frameY = Math.min(contentTop + 20, 515);
+    const frameHeight = Math.max(230, Math.min(330, footerY - frameY - 65));
+    const frameWidth = 810;
+    const frameX = (1600 - frameWidth) / 2;
+    const lineMarkup = lines.map((line, index) => `<text x="800" y="${promptStart + index * promptGap}" text-anchor="middle" class="prompt">${escapeXml(line)}</text>`).join("");
+    const instruction = match.gameSlug === "flags" ? "🏆 طريق الفوز: اختر اسم الدولة" : "🏆 طريق الفوز: اختر الإجابة الصحيحة";
     const mediaFrame = media
-      ? `<rect x="370" y="330" width="860" height="440" rx="36" fill="#080808" stroke="#ff2029" stroke-width="7"/><rect x="395" y="355" width="810" height="390" rx="24" fill="#151515"/>`
-      : `<circle cx="800" cy="650" r="145" fill="#19080a" stroke="#ff2029" stroke-width="6"/><text x="800" y="695" text-anchor="middle" style="font:900 130px ${arabicFont};fill:#fff">${escapeXml(gameEmoji(match.gameSlug))}</text>`;
+      ? `<rect x="${frameX - 18}" y="${frameY - 18}" width="${frameWidth + 36}" height="${frameHeight + 36}" rx="36" fill="#080808" stroke="#ff2029" stroke-width="7"/><rect x="${frameX}" y="${frameY}" width="${frameWidth}" height="${frameHeight}" rx="24" fill="#151515"/>`
+      : `<circle cx="800" cy="${Math.min(650, contentTop + 155)}" r="125" fill="#19080a" stroke="#ff2029" stroke-width="6"/><text x="800" y="${Math.min(695, contentTop + 200)}" text-anchor="middle" style="font:900 112px ${arabicFont};fill:#fff">${escapeXml(gameEmoji(match.gameSlug))}</text>`;
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="shade"><stop stop-color="#020202" stop-opacity=".28"/><stop offset="1" stop-color="#020202" stop-opacity=".94"/></linearGradient></defs>
       <rect width="1600" height="900" fill="url(#shade)"/>
-      <style>${fontFaceStyle}.prompt{font:900 68px ${arabicFont};fill:#fff}.tag{font:900 23px ${arabicFont};fill:#fff;letter-spacing:5px}</style>
-      <rect x="630" y="48" width="340" height="58" rx="12" fill="#ed1c24"/><text x="800" y="87" text-anchor="middle" class="tag">ZARK GAME</text>
-      <text x="800" y="170" text-anchor="middle" style="font:900 78px ${arabicFont};fill:#fff">${escapeXml(visualLabel)}</text>
-      ${lineMarkup}${mediaFrame}
-      <text x="800" y="850" text-anchor="middle" style="font:800 31px ${arabicFont};fill:#ddd">${daily ? "تحدي اليوم · أول إجابة صحيحة تفوز" : `الجولة ${match.roundNumber}/${match.totalRounds} · أول إجابة صحيحة تفوز`}</text>
+      <style>${fontFaceStyle}.prompt{font:900 ${promptFontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext}.tag{font:900 23px ${arabicFont};fill:#fff;letter-spacing:5px}.instruction{font:800 30px ${arabicFont};fill:#ffced0;direction:rtl;unicode-bidi:plaintext}</style>
+      <rect x="630" y="${headerY - 36}" width="340" height="58" rx="12" fill="#ed1c24"/><text x="800" y="${headerY + 3}" text-anchor="middle" class="tag">ZARK GAME</text>
+      <text x="800" y="${titleY}" text-anchor="middle" style="font:900 58px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext">${escapeXml(visualLabel)}</text>
+      ${lineMarkup}<text x="800" y="${instructionY}" text-anchor="middle" class="instruction">${instruction}</text>${mediaFrame}
+      <text x="800" y="${footerY}" text-anchor="middle" style="font:800 34px ${arabicFont};fill:#ddd;direction:rtl;unicode-bidi:plaintext">${daily ? "تحدي اليوم • أول إجابة صحيحة تفوز" : `الجولة ${match.roundNumber} / ${match.totalRounds} • أول إجابة صحيحة تفوز`}</text>
     </svg>`);
     const base = sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" });
     const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
     if (media) {
-      const framed = await sharp(media).resize(810, 390, { fit: "contain", background: "#151515" }).png().toBuffer();
-      layers.push({ input: framed, left: 395, top: 355 });
+      const framed = await sharp(media).resize(frameWidth, frameHeight, { fit: "contain", background: "#151515" }).png().toBuffer();
+      layers.push({ input: framed, left: frameX, top: frameY });
     }
     return base.composite(layers).png({ compressionLevel: 8 }).toBuffer();
   }
