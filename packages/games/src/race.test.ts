@@ -40,8 +40,8 @@ test("seeded prompts are deterministic", () => {
   assert.deepEqual(game.generate(seededRandom(42)), game.generate(seededRandom(42)));
 });
 
-test("legacy logo and anime banks work without database placeholders", () => {
-  for (const slug of ["car-logos", "company-logos", "anime-silhouette", "game-logos"]) {
+test("merged logo and anime banks work without database placeholders", () => {
+  for (const slug of ["logos", "anime-silhouette", "game-logos"]) {
     const prompt = raceGames.get(slug)!.generate(seededRandom(17));
     assert.ok(prompt.prompt.length > 5);
     assert.ok(prompt.answers.length > 0);

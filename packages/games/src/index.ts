@@ -311,8 +311,7 @@ const extraQuizGames: RaceGame[] = [
 ];
 
 const databaseGames: RaceGame[] = [
-  { slug: "car-logos", name: "شعارات السيارات", description: "اعرف شركة السيارة من الشعار.", basePoints: 120, durationMs: 45_000, aliases: ["سيارات", "لوجو سيارات"], questionSource: "DATABASE", generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة"); } },
-  { slug: "company-logos", name: "شعارات الشركات", description: "تعرف على الشركة من شعارها.", basePoints: 120, durationMs: 45_000, aliases: ["شركات", "لوجو شركات"], questionSource: "DATABASE", generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة"); } },
+  { slug: "logos", name: "الشعارات", description: "خمن شعار شركة أو سيارة من الصورة.", basePoints: 120, durationMs: 45_000, aliases: ["شعارات", "سيارات", "شركات", "لوجو", "لوجو سيارات", "لوجو شركات"], questionSource: "DATABASE", generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة"); } },
   { slug: "anime-silhouette", name: "بطل الأنمي", description: "اعرف الشخصية من الظل أو الصورة المخفية.", basePoints: 140, durationMs: 50_000, aliases: ["انمي", "أنمي", "بطل الانمي"], questionSource: "DATABASE", generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة"); } },
   { slug: "game-logos", name: "خمن اللعبة", description: "اعرف اللعبة من رمزها وتلميح سريع.", basePoints: 120, durationMs: 45_000, aliases: ["لعبة", "العاب", "شعار لعبة"], generate: () => { throw new Error("هذه اللعبة تستخدم بنك الأسئلة المستورد"); } },
 ];
@@ -320,7 +319,8 @@ const databaseGames: RaceGame[] = [
 function withImportedQuestions(game: RaceGame): RaceGame {
   // بعض الألعاب (خصوصاً الشعارات) لها صور جاهزة وبنك نصي أكبر. لا نسمح
   // لبنك الصور أن يلغي الأسئلة النصية؛ ندمج البنكين حتى تبقى الجولة متنوعة.
-  const imported = [...(visualLogoQuestionBank[game.slug] ?? []), ...(importedQuestionBank[game.slug] ?? [])];
+  const sourceSlugs = game.slug === "logos" ? ["car-logos", "company-logos"] : [game.slug];
+  const imported = sourceSlugs.flatMap((slug) => [...(visualLogoQuestionBank[slug] ?? []), ...(importedQuestionBank[slug] ?? [])]);
   const generated = imported.length ? [] : sampleModuleQuestions(game);
   const uniqueQuestions = [...imported, ...generated].filter((question, index, all) => all.findIndex((item) => item.prompt === question.prompt) === index);
   const questions = expandQuestionPool(uniqueQuestions, game.slug);
@@ -373,7 +373,7 @@ export const raceAnswerDurationMs = 15_000;
 // Retired games are intentionally absent from the active map. Their historic
 // match results remain in PostgreSQL, while ensureSystemData disables their
 // catalog entries so they cannot be started or shown to players.
-export const retiredRaceGameSlugs = ["emoji-guess", "music", "movies", "series"] as const;
+export const retiredRaceGameSlugs = ["emoji-guess", "music", "movies", "series", "car-logos", "company-logos"] as const;
 
 export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
   [translate, completeWord, flags, math, capitals, fastType, wordOrder, trueFalse, quickChoice, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames.filter((game) => !retiredRaceGameSlugs.includes(game.slug as typeof retiredRaceGameSlugs[number])), ...databaseGames]

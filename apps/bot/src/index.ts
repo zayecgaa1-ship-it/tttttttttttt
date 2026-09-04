@@ -70,22 +70,21 @@ let runtimeSettings: GuildRuntimeSettings = {
 const playChoices = [
   ["📘 help — اختصارات الألعاب", "help"],
   ["🌍 ترجم", "translate"], ["🚩 أعلام", "flags"], ["🌐 عواصم ودول", "capitals"], ["⌨️ أسرع كتابة", "fast-type"],
-  ["🧩 إكمل الكلمة", "complete-word"], ["🔤 ترتيب الجملة", "word-order"], ["🎯 حساب سريع", "math"], ["😀 خمن الإيموجي", "emoji-guess"],
-  ["🚘 شعارات السيارات", "car-logos"], ["🏢 شعارات الشركات", "company-logos"], ["🎭 بطل الأنمي", "anime-silhouette"],
+  ["🧩 إكمل الكلمة", "complete-word"], ["🔤 ترتيب الجملة", "word-order"], ["🎯 حساب سريع", "math"], ["🔘 اختيارات سريعة", "quick-choice"],
+  ["🏢 الشعارات", "logos"], ["🎭 بطل الأنمي", "anime-silhouette"],
   ["🎮 خمن اللعبة", "game-logos"],
   ["✅ صح أو خطأ", "true-false"], ["🔡 ترتيب الحروف", "letter-order"], ["👤 من أنا؟", "who-am-i"], ["❓ معلومات عامة", "trivia"], ["🧠 ألغاز سريعة", "riddles"], ["🎮 اختبار اللاعبين", "gaming-quiz"],
-  ["🐾 عالم الحيوانات", "animals"], ["🔬 علوم", "science"], ["🪐 الفضاء", "space"], ["⚽ كرة القدم", "football"], ["💻 تقنية", "technology"], ["🎬 أفلام", "movies"],
-  ["📺 مسلسلات", "series"], ["🎵 موسيقى", "music"], ["🍕 مأكولات", "food"], ["🌿 الطبيعة", "nature"], ["🎨 ألوان", "colors"], ["🗣️ لغات", "languages"],
+  ["🐾 عالم الحيوانات", "animals"], ["🔬 علوم", "science"], ["🪐 الفضاء", "space"], ["⚽ كرة القدم", "football"], ["💻 تقنية", "technology"], ["🍕 مأكولات", "food"], ["🌿 الطبيعة", "nature"], ["🎨 ألوان", "colors"], ["🗣️ لغات", "languages"],
   ["🏛️ تاريخ", "history"], ["💡 اختراعات", "inventions"], ["🌐 الإنترنت", "internet"], ["🧩 منطق", "logic"], ["📝 مرادفات", "synonyms"], ["↔️ أضداد", "antonyms"],
   ["🗺️ بلدان العالم", "countries"], ["🏅 رياضات", "sports"], ["🌍 جغرافيا", "geography"], ["📚 كتب وقصص", "books"],
 ] as const;
 
 const dotAliases = new Map([
   [".ترجم", "translate"], [".اعلام", "flags"], [".أعلام", "flags"], [".عواصم", "capitals"], [".اسرع", "fast-type"], [".أسرع", "fast-type"],
-  [".اكمل", "complete-word"], [".أكمل", "complete-word"], [".ترتيب", "word-order"], [".حساب", "math"], [".ايموجي", "emoji-guess"], [".أنمي", "anime-silhouette"], [".انمي", "anime-silhouette"],
+  [".اكمل", "complete-word"], [".أكمل", "complete-word"], [".ترتيب", "word-order"], [".حساب", "math"], [".اختيارات", "quick-choice"], [".خيارات", "quick-choice"], [".أنمي", "anime-silhouette"], [".انمي", "anime-silhouette"],
   [".صح", "true-false"], [".حروف", "letter-order"], [".منانا", "who-am-i"], [".معلومات", "trivia"],
-  [".سيارات", "car-logos"], [".شركات", "company-logos"], [".لعبة", "game-logos"], [".العاب", "game-logos"], [".ألغاز", "riddles"], [".الغاز", "riddles"], [".قيمنق", "gaming-quiz"],
-  [".حيوانات", "animals"], [".علوم", "science"], [".فضاء", "space"], [".كرة", "football"], [".تقنية", "technology"], [".افلام", "movies"], [".أفلام", "movies"], [".مسلسلات", "series"], [".موسيقى", "music"], [".مأكولات", "food"], [".طبيعة", "nature"], [".ألوان", "colors"], [".الوان", "colors"], [".لغات", "languages"], [".تاريخ", "history"], [".اختراعات", "inventions"], [".انترنت", "internet"], [".إنترنت", "internet"], [".منطق", "logic"], [".مرادفات", "synonyms"], [".أضداد", "antonyms"], [".اضداد", "antonyms"], [".بلدان", "countries"], [".رياضات", "sports"], [".جغرافيا", "geography"], [".كتب", "books"],
+  [".سيارات", "logos"], [".شركات", "logos"], [".شعارات", "logos"], [".لعبة", "game-logos"], [".العاب", "game-logos"], [".ألغاز", "riddles"], [".الغاز", "riddles"], [".قيمنق", "gaming-quiz"],
+  [".حيوانات", "animals"], [".علوم", "science"], [".فضاء", "space"], [".كرة", "football"], [".تقنية", "technology"], [".مأكولات", "food"], [".طبيعة", "nature"], [".ألوان", "colors"], [".الوان", "colors"], [".لغات", "languages"], [".تاريخ", "history"], [".اختراعات", "inventions"], [".انترنت", "internet"], [".إنترنت", "internet"], [".منطق", "logic"], [".مرادفات", "synonyms"], [".أضداد", "antonyms"], [".اضداد", "antonyms"], [".بلدان", "countries"], [".رياضات", "sports"], [".جغرافيا", "geography"], [".كتب", "books"],
   [".مساعدة العاب", "help"], [".play help", "help"],
 ]);
 
@@ -560,7 +559,7 @@ if (!token) {
     return baseEmbed().setTitle("🎮 اختصارات ألعاب Zark").setDescription("اختر لعبة من `/play`، أو اكتب الاختصار مباشرة في الشات. لا يمكن بدء لعبة ثانية في نفس القناة حتى تنتهي الحالية.").addFields(
       { name: "🌍 معرفة وسرعة", value: "`.اعلام` · `.ترجم` · `.عواصم` · `.معلومات` · `.حساب`" },
       { name: "⌨️ كلمات", value: "`.اسرع` · `.اكمل` · `.ترتيب` · `.حروف` · `.صح` · `.منانا`" },
-      { name: "🎯 شعارات وتخمين", value: "`.سيارات` · `.شركات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
+      { name: "🎯 شعارات وتخمين", value: "`.شعارات` · `.سيارات` · `.شركات` · `.اختيارات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
       { name: "🌟 ألعاب إضافية", value: "`.حيوانات` `.علوم` `.فضاء` `.كرة` `.تقنية` `.مأكولات` `.طبيعة` `.الوان` `.لغات` `.تاريخ` `.اختراعات` `.انترنت` `.منطق` `.مرادفات` `.اضداد` `.بلدان` `.رياضات` `.جغرافيا` `.كتب`" },
       { name: "🔁 جولات", value: "اكتب اسم اللعبة في `/play` للبحث ضمن **36 لعبة**، ثم اكتب العدد الذي يناسبك من 1 إلى 20 (مثل 5 أو 10 أو 15 أو 20). كل لعبة تحتوي 400+ سؤال." },
     );
@@ -1433,7 +1432,7 @@ if (!token) {
       { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
-      { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.ايموجي` `.سيارات` `.شركات` `.انمي` `.صح` `.معلومات`" },
+      { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.اختيارات` `.شعارات` `.انمي` `.صح` `.معلومات`" },
     );
     const website = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع Zark").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
     return interaction.reply({ embeds: [embed], components: [website], flags: MessageFlags.Ephemeral });
@@ -1443,7 +1442,7 @@ if (!token) {
     const start = baseEmbed().setTitle("🚀 Zark من البداية").setDescription("1. استخدم `/pulse` لمعرفة أفضل فرصة لك الآن.\n2. اضبط اهتماماتك عبر `/lfg interests`.\n3. حدّث وقتك عبر `/availability` أو `/وقت-فراغي`.\n4. اضغط **تجمع ذكي** أو استخدم `/lfg smart` ليجد لك Zark لاعبين.");
     const playGuide = baseEmbed().setTitle("🎮 الألعاب والتحديات").addFields(
       { name: "بدء لعبة", value: "`/play` ثم اختر اللعبة وعدد الجولات. أثناء اللعبة لديك **10 ثوانٍ** فقط للإجابة؛ أول إجابة صحيحة تفوز." },
-      { name: "اختصارات سريعة", value: "`.أعلام` `.ترجم` `.سيارات` `.شركات` `.انمي` `.ألغاز` أو `/play help`." },
+      { name: "اختصارات سريعة", value: "`.أعلام` `.ترجم` `.شعارات` `.اختيارات` `.انمي` `.ألغاز` أو `/play help`." },
       { name: "تحدي اليوم", value: "`/daily` ينشر تحديًا يوميًا. أكمله لتربح XP ونقاط ولاء ومكافأة مهمة يومية." },
       { name: "النقاط والرتب", value: "`/loyalty` يعرض رصيدك. تربح نقاطًا من الفوز والجلسات والتحدي اليومي؛ VIP يمكن شراؤها بالنقاط." },
     );
