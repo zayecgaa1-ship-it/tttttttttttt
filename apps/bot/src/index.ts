@@ -379,6 +379,19 @@ if (!token) {
 
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
+    if (parts[0] === "zark" && parts[1] === "answer") {
+      const matchId = parts[2];
+      const answer = parts[3];
+      const race = activeRaceChannels.get(interaction.channelId);
+      if (!race || race.matchId !== matchId) return interaction.reply({ content: "انتهت هذه الجولة أو حُسمت بالفعل.", flags: MessageFlags.Ephemeral });
+      await interaction.deferUpdate();
+      const player = { userId: interaction.user.id, displayName: displayName(interaction), answer };
+      const result = await apiSend<RaceAnswer>(`/api/play/${matchId}/answer`, "POST", player);
+      if (result.correct && result.points > 0) return finishRaceWithWinner(interaction.channel, race, player.displayName, result);
+      if (result.expired) return expireActiveRace(interaction.channelId, matchId, interaction.channel);
+      if (result.capped) return interaction.followUp({ content: "انتهت هذه الجولة أو سُجلت إجابتك مسبقًا.", flags: MessageFlags.Ephemeral });
+      return interaction.followUp({ content: "إجابة غير صحيحة، جرّب الإجابة النصية إن احتجت.", flags: MessageFlags.Ephemeral });
+    }
     if (interaction.customId === "zark_play_now") return play(interaction);
     if (interaction.customId === "pulse:smart") return smartLfg(interaction);
     if (interaction.customId === "pulse:availability") return availability(interaction);
@@ -1629,9 +1642,16 @@ if (!token) {
   async function gameMessagePayload(match: ZarkMatch, daily = false) {
     const filename = `zark-game-${match.id}.png`;
     const image = await renderGameVisual(match, daily);
+    const components = !daily && match.gameSlug === "true-false"
+      ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`zark:answer:${match.id}:صح`).setLabel("صح").setEmoji("✅").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`zark:answer:${match.id}:خطأ`).setLabel("خطأ").setEmoji("❌").setStyle(ButtonStyle.Danger),
+      )]
+      : [];
     return {
       embeds: [baseEmbed().setTitle(`${daily ? "⚡" : "🎮"} ${match.gameName}${!daily && match.totalRounds ? ` · الجولة ${match.roundNumber}/${match.totalRounds}` : ""}`).setDescription(`أول إجابة صحيحة تحسم الجولة · النقاط حسب السرعة والدقة\nتنتهي <t:${Math.floor(new Date(match.endsAt).getTime() / 1000)}:R>`).setImage(`attachment://${filename}`)],
       files: [new AttachmentBuilder(image, { name: filename })],
+      components,
     };
   }
 
