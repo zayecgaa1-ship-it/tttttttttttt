@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "../../../packages/db/src/client.js";
-import { calculateWinnerPoints, evaluateAnswer, raceGames, seededRandom } from "../../../packages/games/src/index.js";
+import { calculateWinnerPoints, evaluateAnswer, raceGames, retiredRaceGameSlugs, seededRandom } from "../../../packages/games/src/index.js";
 import type { RaceGame } from "../../../packages/games/src/index.js";
 import type { DailyChallenge, LeaderboardRow, ZarkGameSummary } from "../../../packages/shared/src/index.js";
 import { enforceRateLimit, publish } from "./events.js";
@@ -14,13 +14,14 @@ const allowedRoundCounts = new Set([1, 2, 3, 4, 5, 10]);
 let systemDataPromise: Promise<void> | undefined;
 
 export async function ensureSystemData() {
-  if (!systemDataPromise) systemDataPromise = Promise.all(
-    Array.from(raceGames.values()).map((game) => db.zarkGame.upsert({
+  if (!systemDataPromise) systemDataPromise = Promise.all([
+    ...Array.from(raceGames.values()).map((game) => db.zarkGame.upsert({
       where: { slug: game.slug },
-      update: { name: game.name, description: game.description, kind: "RACE", basePoints: game.basePoints, category: game.category ?? "RACE", aliases: [...(game.aliases ?? [])] },
+      update: { name: game.name, description: game.description, kind: "RACE", enabled: true, basePoints: game.basePoints, category: game.category ?? "RACE", aliases: [...(game.aliases ?? [])] },
       create: { slug: game.slug, name: game.name, description: game.description, kind: "RACE", basePoints: game.basePoints, category: game.category ?? "RACE", aliases: [...(game.aliases ?? [])] },
     })),
-  ).then(async () => {
+    db.zarkGame.updateMany({ where: { slug: { in: [...retiredRaceGameSlugs] } }, data: { enabled: false } }),
+  ]).then(async () => {
     const legacyMatches = await db.zarkMatch.findMany({ where: { seriesId: null }, select: { id: true } });
     if (legacyMatches.length) await db.$transaction(legacyMatches.map((match) => db.zarkMatch.update({ where: { id: match.id }, data: { seriesId: match.id } })));
   }).catch((error) => { systemDataPromise = undefined; throw error; });

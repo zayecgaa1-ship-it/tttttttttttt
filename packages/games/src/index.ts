@@ -348,9 +348,13 @@ function expandQuestionPool(source: RacePrompt[], slug: string): RacePrompt[] {
 export const minimumRaceQuestionsPerGame = minimumQuestionsPerGame;
 // The API persists this duration and Discord renders the same deadline.
 export const raceAnswerDurationMs = 15_000;
+// Retired games are intentionally absent from the active map. Their historic
+// match results remain in PostgreSQL, while ensureSystemData disables their
+// catalog entries so they cannot be started or shown to players.
+export const retiredRaceGameSlugs = ["emoji-guess", "music", "movies", "series"] as const;
 
 export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
-  [translate, completeWord, flags, math, capitals, fastType, emojiGuess, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames, ...databaseGames]
+  [translate, completeWord, flags, math, capitals, fastType, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames.filter((game) => !retiredRaceGameSlugs.includes(game.slug as typeof retiredRaceGameSlugs[number])), ...databaseGames]
     .map((game) => withImportedQuestions({ ...game, durationMs: raceAnswerDurationMs }))
     .map((game) => [game.slug, game]),
 );
