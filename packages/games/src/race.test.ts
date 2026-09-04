@@ -48,6 +48,13 @@ test("legacy logo and anime banks work without database placeholders", () => {
   }
 });
 
+test("quick choice prompts expose three distinct options including the right answer", () => {
+  const prompt = raceGames.get("quick-choice")!.generate(seededRandom(23));
+  assert.equal(prompt.choices?.length, 3);
+  assert.equal(new Set(prompt.choices).size, 3);
+  assert.ok(prompt.choices?.some((choice) => prompt.answers.includes(choice)));
+});
+
 test("every active Zark game keeps at least the configured question-bank minimum", () => {
   assert.ok(raceGames.size >= 20 && raceGames.size <= 40, "Zark should keep a focused, playable game catalogue");
   for (const game of raceGames.values()) assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame, `${game.slug} fell below ${minimumRaceQuestionsPerGame} prompts`);

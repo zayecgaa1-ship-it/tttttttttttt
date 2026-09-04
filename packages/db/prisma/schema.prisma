@@ -442,6 +442,7 @@ model ZarkMatch {
   totalRounds      Int               @default(1)
   prompt           String
   answer           String
+  choices          String[]          @default([])
   mediaUrl         String?
   status           MatchStatus       @default(OPEN)
   durationMs       Int               @default(60000)

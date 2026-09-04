@@ -142,6 +142,7 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
           totalRounds,
           prompt: generated.prompt,
           answer: generated.answers.join("|||"),
+          choices: generated.choices ?? [],
           mediaUrl: generated.mediaUrl,
           durationMs,
           startedAt,
@@ -197,6 +198,7 @@ export async function advanceZarkRace(matchId: string) {
           totalRounds: locked.totalRounds,
           prompt: generated.prompt,
           answer: generated.answers.join("|||"),
+          choices: generated.choices ?? [],
           mediaUrl: generated.mediaUrl,
           durationMs: locked.durationMs,
           startedAt,
@@ -311,7 +313,7 @@ async function generateRacePrompt(module: RaceGame, gameId: string, channelId?: 
   return { prompt: question.prompt, answers: question.acceptedAnswers, mediaUrl: question.mediaUrl ?? undefined };
 }
 
-function publicZarkMatch(match: { id: string; seriesId: string | null; roundNumber: number; totalRounds: number; prompt: string; mediaUrl: string | null; startedAt: Date; endsAt: Date }, game: { slug: string; name: string }) {
+function publicZarkMatch(match: { id: string; seriesId: string | null; roundNumber: number; totalRounds: number; prompt: string; choices: string[]; mediaUrl: string | null; startedAt: Date; endsAt: Date }, game: { slug: string; name: string }) {
   return {
     id: match.id,
     seriesId: match.seriesId ?? match.id,
@@ -320,6 +322,7 @@ function publicZarkMatch(match: { id: string; seriesId: string | null; roundNumb
     roundNumber: match.roundNumber,
     totalRounds: match.totalRounds,
     prompt: match.prompt,
+    choices: match.choices,
     mediaUrl: match.mediaUrl ?? undefined,
     startedAt: match.startedAt.toISOString(),
     endsAt: match.endsAt.toISOString(),

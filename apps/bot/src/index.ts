@@ -392,6 +392,21 @@ if (!token) {
       if (result.capped) return interaction.followUp({ content: "انتهت هذه الجولة أو سُجلت إجابتك مسبقًا.", flags: MessageFlags.Ephemeral });
       return interaction.followUp({ content: "إجابة غير صحيحة، جرّب الإجابة النصية إن احتجت.", flags: MessageFlags.Ephemeral });
     }
+    if (parts[0] === "zark" && parts[1] === "choice") {
+      const matchId = parts[2];
+      const choiceIndex = Number(parts[3]);
+      const race = activeRaceChannels.get(interaction.channelId);
+      if (!race || race.matchId !== matchId) return interaction.reply({ content: "انتهت هذه الجولة أو حُسمت بالفعل.", flags: MessageFlags.Ephemeral });
+      const answer = race.choices[choiceIndex];
+      if (!answer) return interaction.reply({ content: "هذا الاختيار غير صالح.", flags: MessageFlags.Ephemeral });
+      await interaction.deferUpdate();
+      const player = { userId: interaction.user.id, displayName: displayName(interaction), answer };
+      const result = await apiSend<RaceAnswer>(`/api/play/${matchId}/answer`, "POST", player);
+      if (result.correct && result.points > 0) return finishRaceWithWinner(interaction.channel, race, player.displayName, result);
+      if (result.expired) return expireActiveRace(interaction.channelId, matchId, interaction.channel);
+      if (result.capped) return interaction.followUp({ content: "انتهت هذه الجولة أو سُجلت إجابتك مسبقًا.", flags: MessageFlags.Ephemeral });
+      return interaction.followUp({ content: "إجابة غير صحيحة — حاول في الجولة القادمة.", flags: MessageFlags.Ephemeral });
+    }
     if (interaction.customId === "zark_play_now") return play(interaction);
     if (interaction.customId === "pulse:smart") return smartLfg(interaction);
     if (interaction.customId === "pulse:availability") return availability(interaction);
@@ -1585,7 +1600,7 @@ if (!token) {
     const endsAtMs = new Date(match.endsAt).getTime();
     const timeout = setTimeout(() => void expireActiveRace(channelId, match.id, channel).catch((error) => console.error("Race expiration failed", error)), Math.max(50, endsAtMs - Date.now() + 50));
     timeout.unref();
-    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs });
+    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs, choices: match.choices ?? [] });
   }
 
   function clearActiveRace(channelId: string, matchId: string) {
@@ -1647,6 +1662,8 @@ if (!token) {
         new ButtonBuilder().setCustomId(`zark:answer:${match.id}:صح`).setLabel("صح").setEmoji("✅").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`zark:answer:${match.id}:خطأ`).setLabel("خطأ").setEmoji("❌").setStyle(ButtonStyle.Danger),
       )]
+      : !daily && match.choices && match.choices.length === 3
+        ? [new ActionRowBuilder<ButtonBuilder>().addComponents(...match.choices.map((choice, index) => new ButtonBuilder().setCustomId(`zark:choice:${match.id}:${index}`).setLabel(trimText(choice, 80)).setStyle([ButtonStyle.Primary, ButtonStyle.Secondary, ButtonStyle.Success][index])))]
       : [];
     return {
       embeds: [baseEmbed().setTitle(`${daily ? "⚡" : "🎮"} ${match.gameName}${!daily && match.totalRounds ? ` · الجولة ${match.roundNumber}/${match.totalRounds}` : ""}`).setDescription(`أول إجابة صحيحة تحسم الجولة · النقاط حسب السرعة والدقة\nتنتهي <t:${Math.floor(new Date(match.endsAt).getTime() / 1000)}:R>`).setImage(`attachment://${filename}`)],
@@ -2102,8 +2119,8 @@ function availabilityCommand(name: string) {
 }
 
 type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number };
-type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; prompt: string; mediaUrl?: string; endsAt: string };
-type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number };
+type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; prompt: string; choices?: string[]; mediaUrl?: string; endsAt: string };
+type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; choices: string[] };
 type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };

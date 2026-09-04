@@ -1,6 +1,8 @@
 export type RacePrompt = {
   prompt: string;
   answers: string[];
+  /** خيارات ظاهرة للاعب عند استخدام وضع الاختيارات. لا تحمل علامة الإجابة الصحيحة. */
+  choices?: string[];
   mediaUrl?: string;
 };
 
@@ -149,6 +151,26 @@ const trueFalse: RaceGame = {
       ["عدد قارات العالم ثماني قارات", ["خطأ", "غلط"]],
     ] as const, random);
     return { prompt: `✅❌ صح أم خطأ: **${item[0]}**`, answers: [...item[1]] };
+  },
+};
+
+const quickChoice: RaceGame = {
+  slug: "quick-choice",
+  name: "اختيارات سريعة",
+  description: "اختر الإجابة الصحيحة من ثلاثة أزرار قبل الجميع.",
+  basePoints: 105,
+  durationMs: 30_000,
+  aliases: ["اختيارات", "خيارات", "choice"],
+  generate: (random) => {
+    const item = pick([
+      ["ما الكوكب المعروف بالكوكب الأحمر؟", "المريخ", ["المريخ", "الزهرة", "زحل"]],
+      ["كم عدد أضلاع المثلث؟", "3", ["3", "4", "5"]],
+      ["ما اللغة الرسمية في البرازيل؟", "البرتغالية", ["البرتغالية", "الإسبانية", "الفرنسية"]],
+      ["في أي لعبة يوجد Creeper؟", "ماينكرافت", ["ماينكرافت", "فورتنايت", "روبلوكس"]],
+      ["ما عاصمة اليابان؟", "طوكيو", ["طوكيو", "سيول", "بكين"]],
+      ["ما الغاز الذي يحتاجه الإنسان للتنفس؟", "الأكسجين", ["الأكسجين", "النيتروجين", "ثاني أكسيد الكربون"]],
+    ] as const, random);
+    return { prompt: `🎯 اختر الإجابة الصحيحة: **${item[0]}**`, answers: [item[1]], choices: [...item[2]].sort(() => random() - 0.5) };
   },
 };
 
@@ -339,7 +361,7 @@ function expandQuestionPool(source: RacePrompt[], slug: string): RacePrompt[] {
       const question = source[index];
       const header = `${questionHeaders[(cycle + index) % questionHeaders.length]}${cycle >= questionHeaders.length ? ` · مستوى ${cycle + 1}` : ""}`;
       const prompt = cycle === 0 ? question.prompt : `${header}\n${question.prompt}`;
-      expanded.push({ prompt, answers: [...question.answers], mediaUrl: question.mediaUrl });
+      expanded.push({ prompt, answers: [...question.answers], choices: question.choices ? [...question.choices] : undefined, mediaUrl: question.mediaUrl });
     }
   }
   return expanded;
@@ -354,7 +376,7 @@ export const raceAnswerDurationMs = 15_000;
 export const retiredRaceGameSlugs = ["emoji-guess", "music", "movies", "series"] as const;
 
 export const raceGames: ReadonlyMap<string, RaceGame> = new Map(
-  [translate, completeWord, flags, math, capitals, fastType, wordOrder, trueFalse, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames.filter((game) => !retiredRaceGameSlugs.includes(game.slug as typeof retiredRaceGameSlugs[number])), ...databaseGames]
+  [translate, completeWord, flags, math, capitals, fastType, wordOrder, trueFalse, quickChoice, letterOrder, whoAmI, trivia, riddles, gamingQuiz, ...extraQuizGames.filter((game) => !retiredRaceGameSlugs.includes(game.slug as typeof retiredRaceGameSlugs[number])), ...databaseGames]
     .map((game) => withImportedQuestions({ ...game, durationMs: raceAnswerDurationMs }))
     .map((game) => [game.slug, game]),
 );
