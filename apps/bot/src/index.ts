@@ -1651,6 +1651,13 @@ if (!token) {
 
   async function activatePublishedRace(channelId: string, match: ZarkMatch, messageId: string, channel: any) {
     const active = await apiSend<ZarkMatch>(`/api/play/${match.id}/activate`, "POST", {});
+    const message = await channel.messages?.fetch(messageId).catch(() => null);
+    const oldEmbed = message?.embeds?.[0];
+    if (message && oldEmbed) {
+      const embed = baseEmbed().setTitle(oldEmbed.title ?? `🎮 ${active.gameName}`).setDescription(`أول إجابة صحيحة تحسم الجولة · النقاط حسب السرعة والدقة\n⏱️ ينتهي <t:${Math.floor(new Date(active.endsAt).getTime() / 1000)}:R>`);
+      if (oldEmbed.image?.url) embed.setImage(oldEmbed.image.url);
+      await message.edit({ embeds: [embed] }).catch((error: unknown) => console.warn("Could not refresh game timer", error));
+    }
     activateRace(channelId, active, messageId, channel);
   }
 
@@ -1745,7 +1752,7 @@ if (!token) {
     const cleanedPrompt = cleanPrompt(match.prompt, match.gameSlug === "flags");
     const visualLabel = match.gameSlug === "flags" ? "أعلام" : match.gameName;
     const lines = wrapText(cleanedPrompt, media ? 34 : 30).slice(0, media ? 3 : 4);
-    const promptFontSize = lines.some((line) => line.length > 28) ? 52 : 62;
+    const promptFontSize = lines.some((line) => line.length > 28) ? 58 : 70;
     const headerY = 84;
     const titleY = 166;
     const promptStart = 252;
@@ -1765,11 +1772,11 @@ if (!token) {
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="shade"><stop stop-color="#020202" stop-opacity=".28"/><stop offset="1" stop-color="#020202" stop-opacity=".94"/></linearGradient></defs>
       <rect width="1600" height="900" fill="url(#shade)"/>
-      <style>${fontFaceStyle}.prompt{font:900 ${promptFontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext}.tag{font:900 23px ${arabicFont};fill:#fff;letter-spacing:5px}.instruction{font:800 30px ${arabicFont};fill:#ffced0;direction:rtl;unicode-bidi:plaintext}</style>
+      <style>${fontFaceStyle}.prompt{font:700 ${promptFontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext}.tag{font:700 26px ${arabicFont};fill:#fff;letter-spacing:5px}.instruction{font:700 36px ${arabicFont};fill:#fff0f0;direction:rtl;unicode-bidi:plaintext}</style>
       <rect x="630" y="${headerY - 36}" width="340" height="58" rx="12" fill="#ed1c24"/><text x="800" y="${headerY + 3}" text-anchor="middle" class="tag">ZARK GAME</text>
-      <text x="800" y="${titleY}" text-anchor="middle" style="font:900 58px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext">${escapeXml(visualLabel)}</text>
+      <text x="800" y="${titleY}" text-anchor="middle" style="font:700 66px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext">${escapeXml(visualLabel)}</text>
       ${lineMarkup}<text x="800" y="${instructionY}" text-anchor="middle" class="instruction">${instruction}</text>${mediaFrame}
-      <text x="800" y="${footerY}" text-anchor="middle" style="font:800 34px ${arabicFont};fill:#ddd;direction:rtl;unicode-bidi:plaintext">${daily ? "تحدي اليوم • أول إجابة صحيحة تفوز" : `الجولة ${match.roundNumber} / ${match.totalRounds} • أول إجابة صحيحة تفوز`}</text>
+      <text x="800" y="${footerY}" text-anchor="middle" style="font:700 40px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext">${daily ? "تحدي اليوم • أول إجابة صحيحة تفوز" : `الجولة ${match.roundNumber} / ${match.totalRounds} • أول إجابة صحيحة تفوز`}</text>
     </svg>`);
     const base = sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" });
     const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
