@@ -232,6 +232,14 @@ export async function startZarkLobby(lobbyId: string, actorId: string, autoStart
   return startZarkRace(session.game.slug, { channelId: session.channelId, totalRounds: session.totalRounds, durationSeconds: Math.round(session.durationMs / 1_000) });
 }
 
+export async function cancelZarkLobby(lobbyId: string, actorId: string) {
+  const session = await db.zarkGameSession.findUnique({ where: { id: lobbyId }, include: { game: true, members: true } });
+  if (!session || !["WAITING", "READY"].includes(session.status)) throw new Error("هذا اللوبي غير متاح للإلغاء.");
+  if (session.hostId !== actorId) throw new Error("إلغاء اللوبي للمضيف فقط.");
+  const cancelled = await db.zarkGameSession.update({ where: { id: lobbyId }, data: { status: "CANCELLED", activeChannelKey: null, endedAt: new Date() }, include: { game: true, members: true } });
+  return publicLobby(cancelled);
+}
+
 export async function advanceZarkRace(matchId: string) {
   const current = await db.zarkMatch.findUnique({ where: { id: matchId }, include: { game: true } });
   if (!current) throw new Error("الجولة غير موجودة");

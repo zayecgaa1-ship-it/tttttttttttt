@@ -389,6 +389,10 @@ if (!token) {
         const sent = await interaction.fetchReply();
         return activateRace(interaction.channelId, match, sent.id, interaction.channel);
       }
+      if (action === "cancel") {
+        await apiSend<GameLobby>(`/api/play/lobby/${lobbyId}/cancel`, "POST", { userId: interaction.user.id });
+        return interaction.editReply({ embeds: [baseEmbed().setTitle("🛑 تم إلغاء اللوبي").setDescription("ألغى المضيف اللوبي. يمكنك إنشاء لوبي جديد عبر `/lobby`.")], components: [] });
+      }
       if (!["join", "leave", "ready"].includes(action)) return interaction.followUp({ content: "إجراء لوبي غير صالح.", flags: MessageFlags.Ephemeral });
       const lobby = await apiSend<GameLobby>(`/api/play/lobby/${lobbyId}/${action.toUpperCase()}`, "POST", { userId: interaction.user.id, displayName: displayName(interaction) });
       if (lobby.autoStart) {
@@ -603,7 +607,7 @@ if (!token) {
       { name: "⌨️ كلمات", value: "`.اسرع` · `.اكمل` · `.ترتيب` · `.حروف` · `.صح` · `.منانا`" },
       { name: "🎯 شعارات وتخمين", value: "`.شعارات` · `.سيارات` · `.شركات` · `.اختيارات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
       { name: "🌟 ألعاب إضافية", value: "`.حيوانات` `.علوم` `.فضاء` `.كرة` `.تقنية` `.مأكولات` `.طبيعة` `.الوان` `.لغات` `.تاريخ` `.اختراعات` `.انترنت` `.منطق` `.مرادفات` `.اضداد` `.بلدان` `.رياضات` `.جغرافيا` `.كتب`" },
-      { name: "🔁 جولات", value: "اكتب اسم اللعبة في `/play` للبحث ضمن **36 لعبة**، ثم اكتب العدد الذي يناسبك من 1 إلى 20 (مثل 5 أو 10 أو 15 أو 20). كل لعبة تحتوي 400+ سؤال." },
+      { name: "🔁 جولات ولوبي", value: "اكتب اسم اللعبة في `/play` للبحث ضمن **36 لعبة**، ثم اكتب العدد الذي يناسبك من 1 إلى 20. وللعب الجماعي استخدم `/lobby` ثم دخول وجاهز؛ يبدأ تلقائيًا عند جاهزية الجميع." },
     );
   }
 
@@ -1724,6 +1728,7 @@ if (!token) {
       new ButtonBuilder().setCustomId(`zark:lobby:leave:${lobby.id}`).setLabel("خروج").setEmoji("🚪").setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`zark:lobby:ready:${lobby.id}`).setLabel("جاهز").setEmoji("✅").setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`zark:lobby:start:${lobby.id}`).setLabel("بدء الآن").setEmoji("▶️").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`zark:lobby:cancel:${lobby.id}`).setLabel("إلغاء").setEmoji("🛑").setStyle(ButtonStyle.Secondary),
     );
     return { embeds: [baseEmbed().setTitle(`👥 لوبي ${lobby.gameName}`).setDescription(`**${lobby.members.length}/${lobby.maxPlayers}** لاعب · تحتاج ${lobby.minPlayers} على الأقل\n🎯 ${lobby.totalRounds} جولات · ⏱️ ${lobby.durationSeconds} ثانية\n\n${members}\n\nعندما يصبح الجميع جاهزًا يبدأ اللوبي تلقائيًا. ويمكن للمضيف بدءه يدويًا.`)], components: [controls] };
   }

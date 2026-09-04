@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, enforceRateLimit, eventRuntimeStatus, hasEventCapacity, initEvents, subscribe } from "./events.js";
-import { advanceZarkRace, answerDaily, answerZarkRace, createZarkLobby, expireZarkRace, getOrCreateDaily, getZarkRaceHint, leaderboard, listZarkGames, startZarkLobby, startZarkRace, updateZarkLobby } from "./service.js";
+import { advanceZarkRace, answerDaily, answerZarkRace, cancelZarkLobby, createZarkLobby, expireZarkRace, getOrCreateDaily, getZarkRaceHint, leaderboard, listZarkGames, startZarkLobby, startZarkRace, updateZarkLobby } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
@@ -545,6 +545,11 @@ app.post("/api/play/lobby/:id/start", { preHandler: requireServiceKey }, async (
   const params = z.object({ id: z.string() }).parse(request.params);
   const body = z.object({ userId: z.string().min(1), autoStart: z.boolean().optional() }).parse(request.body);
   return startZarkLobby(params.id, body.userId, body.autoStart);
+});
+app.post("/api/play/lobby/:id/cancel", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ userId: z.string().min(1) }).parse(request.body);
+  return cancelZarkLobby(params.id, body.userId);
 });
 app.post("/api/play/:id/answer", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
