@@ -16,9 +16,11 @@ const lfgListingChannelId = process.env.DISCORD_LFG_CHANNEL_ID;
 const tradeChannelId = process.env.TRADE_CHANNEL_ID?.trim() || "1544719421371850925";
 const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter((role) => /^\d{17,20}$/.test(role));
 const ownerUserId = process.env.DISCORD_OWNER_ID?.trim() || "492368135144603658";
-// Only these channels accept user image uploads. Configure the three channel
-// IDs in Railway, comma-separated. Scam links are removed everywhere.
-const mediaAllowedChannelIds = new Set((process.env.DISCORD_MEDIA_ALLOWED_CHANNEL_IDS ?? "").split(",").map((id) => id.trim()).filter((id) => /^\d{17,20}$/.test(id)));
+// Image deletion is deliberately opt-in per channel. The three IDs configured
+// by the owner are protected/no-upload channels; normal server channels keep
+// accepting images. The old variable remains supported to avoid a Railway
+// configuration break while it is renamed to the clearer BLOCKED form.
+const mediaBlockedChannelIds = new Set((process.env.DISCORD_MEDIA_BLOCKED_CHANNEL_IDS ?? process.env.DISCORD_MEDIA_ALLOWED_CHANNEL_IDS ?? "").split(",").map((id) => id.trim()).filter((id) => /^\d{17,20}$/.test(id)));
 const configuredHackAlertChannelId = process.env.DISCORD_HACK_ALERT_CHANNEL_ID?.trim();
 const hackAlertChannelName = "ممنوع-الارسال";
 const disboardBotId = process.env.DISBOARD_BOT_ID?.trim() || "302050872383242240";
@@ -145,7 +147,7 @@ if (!token) {
       console.error("Bot settings load failed; using environment defaults", error);
     }
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
-    if (!mediaAllowedChannelIds.size) console.warn("Media protection allowlist is empty: blocking user image uploads in every channel until DISCORD_MEDIA_ALLOWED_CHANNEL_IDS is set.");
+    if (!mediaBlockedChannelIds.size) console.warn("Media image protection is disabled: set DISCORD_MEDIA_BLOCKED_CHANNEL_IDS only for channels where uploads must be deleted.");
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
     await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
     const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel(), processPendingBroadcast()]);
@@ -1115,14 +1117,13 @@ if (!token) {
     const hasImage = attachments.some((attachment: any) => isImageAttachment(attachment));
     const text = `${message.content ?? ""} ${attachments.map((attachment: any) => `${attachment.name ?? ""} ${attachment.url ?? ""}`).join(" ")}`;
     const scam = looksLikeScamBroadcast(text);
-    // Fail closed: while the allowlist is empty all member image uploads are
-    // blocked. Once the three IDs are configured, only those channels allow
-    // images. This stops a hacked account immediately after deployment.
-    const blockedImage = hasImage && !mediaAllowedChannelIds.has(message.channelId);
+    // Never apply a server-wide image ban. Only explicitly protected channels
+    // delete images; scam text/links are still removed in every channel.
+    const blockedImage = hasImage && mediaBlockedChannelIds.has(message.channelId);
     if (!scam && !blockedImage) return false;
     await message.delete().catch(() => undefined);
-    await warnPossiblyCompromisedMember(message, scam ? "رابط أو نص احتيالي" : "صورة مرسلة خارج قنوات الصور المسموحة");
-    await sendModerationAlert(message, scam ? "رابط أو نص احتيالي" : "صورة خارج قنوات الصور المسموحة");
+    await warnPossiblyCompromisedMember(message, scam ? "رابط أو نص احتيالي" : "صورة مرسلة في قناة محمية");
+    await sendModerationAlert(message, scam ? "رابط أو نص احتيالي" : "صورة في قناة محمية");
     return true;
   }
 

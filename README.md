@@ -101,7 +101,7 @@ DISCORD_TOKEN
 DISCORD_GUILD_ID
 DISCORD_LFG_CATEGORY_ID
 DISCORD_REPORT_CHANNEL_ID (قناة تنبيهات البلاغات، ويمكن تعديلها من لوحة الإدارة)
-DISCORD_MEDIA_ALLOWED_CHANNEL_IDS (معرّفات قنوات الصور المسموحة فقط، مفصولة بفاصلة؛ يحذف البوت الصور من بقية القنوات)
+DISCORD_MEDIA_BLOCKED_CHANNEL_IDS (معرّفات القنوات المحمية فقط، مفصولة بفاصلة؛ يحذف البوت الصور منها ولا يحذف الصور من بقية القنوات)
 DISCORD_HACK_ALERT_CHANNEL_ID (اختياري: قناة لا يسمح للأعضاء بالكتابة فيها عمليًا؛ أي رسالة فيها تحذف رسائل الحساب في آخر 10 دقائق وتنبّه الإدارة)
 DISCORD_BUMP_CHANNEL_ID (قناة تذكير /bump؛ عند تركها فارغة تُستخدم القناة العامة)
 PUBLIC_SITE_URL (مثل https://zark-ps.com ويظهر داخل أزرار البوت)
