@@ -329,6 +329,17 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
   return { correct: true as const, ...result };
 }
 
+/** يبدأ العداد بعد أن ينشر البوت الكرت فعليًا، وليس قبل انتهاء توليد الصورة. */
+export async function activateZarkRace(matchId: string) {
+  const current = await db.zarkMatch.findUnique({ where: { id: matchId }, include: { game: true, results: { select: { id: true }, take: 1 } } });
+  if (!current) throw new Error("الجولة غير موجودة.");
+  if (current.status !== "OPEN" || current.results.length) return publicZarkMatch(current, current.game);
+  const startedAt = new Date();
+  const endsAt = new Date(startedAt.getTime() + current.durationMs);
+  const match = await db.zarkMatch.update({ where: { id: matchId }, data: { startedAt, endsAt, lockExpiresAt: current.channelId ? new Date(endsAt.getTime() + 90_000) : null } });
+  return publicZarkMatch(match, current.game);
+}
+
 export async function getZarkRaceHint(matchId: string, userId: string) {
   await enforceRateLimit("race-hint", userId, 6, 30);
   const match = await db.zarkMatch.findUnique({ where: { id: matchId } });

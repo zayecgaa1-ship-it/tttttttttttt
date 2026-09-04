@@ -387,7 +387,7 @@ if (!token) {
         const match = await apiSend<ZarkMatch>(`/api/play/lobby/${lobbyId}/start`, "POST", { userId: interaction.user.id });
         await interaction.editReply(await gameMessagePayload(match));
         const sent = await interaction.fetchReply();
-        return activateRace(interaction.channelId, match, sent.id, interaction.channel);
+        return activatePublishedRace(interaction.channelId, match, sent.id, interaction.channel);
       }
       if (action === "cancel") {
         await apiSend<GameLobby>(`/api/play/lobby/${lobbyId}/cancel`, "POST", { userId: interaction.user.id });
@@ -399,7 +399,7 @@ if (!token) {
         const match = await apiSend<ZarkMatch>(`/api/play/lobby/${lobbyId}/start`, "POST", { userId: interaction.user.id, autoStart: true });
         await interaction.editReply(await gameMessagePayload(match));
         const sent = await interaction.fetchReply();
-        return activateRace(interaction.channelId, match, sent.id, interaction.channel);
+        return activatePublishedRace(interaction.channelId, match, sent.id, interaction.channel);
       }
       return interaction.editReply(gameLobbyPayload(lobby));
     }
@@ -575,7 +575,7 @@ if (!token) {
     const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: interaction.channelId, rounds, seconds });
     await interaction.editReply(await gameMessagePayload(match));
     const sent = await interaction.fetchReply();
-    activateRace(interaction.channelId, match, sent.id, interaction.channel);
+    await activatePublishedRace(interaction.channelId, match, sent.id, interaction.channel);
   }
 
   async function completePlayAutocomplete(interaction: any) {
@@ -591,7 +591,7 @@ if (!token) {
     if (activeDailyChannels.has(message.channelId)) throw new Error("توجد لعبة شغالة في هذه القناة. انتظر حتى تنتهي.");
     const match = await apiSend<ZarkMatch>("/api/play/start", "POST", { gameSlug, channelId: message.channelId, rounds: 1 });
     const sent = await message.channel.send(await gameMessagePayload(match));
-    activateRace(message.channelId, match, sent.id, message.channel);
+    await activatePublishedRace(message.channelId, match, sent.id, message.channel);
   }
 
   async function createGameLobby(interaction: any, gameSlug: string, rounds: number, seconds: number) {
@@ -1649,6 +1649,11 @@ if (!token) {
     activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs, choices: match.choices ?? [], gameSlug: match.gameSlug, totalRounds: match.totalRounds, durationSeconds: Math.round((match.durationMs ?? 15_000) / 1_000) });
   }
 
+  async function activatePublishedRace(channelId: string, match: ZarkMatch, messageId: string, channel: any) {
+    const active = await apiSend<ZarkMatch>(`/api/play/${match.id}/activate`, "POST", {});
+    activateRace(channelId, active, messageId, channel);
+  }
+
   function clearActiveRace(channelId: string, matchId: string) {
     const active = activeRaceChannels.get(channelId);
     if (!active || active.matchId !== matchId) return;
@@ -1700,7 +1705,7 @@ if (!token) {
     const next = progress.nextMatch;
     await channel.send({ content: `⚡ الجولة **${next.roundNumber}/${next.totalRounds}** تبدأ الآن!` });
     const sent = await channel.send(await gameMessagePayload(next));
-    activateRace(channel.id, next, sent.id, channel);
+    await activatePublishedRace(channel.id, next, sent.id, channel);
   }
 
   async function gameMessagePayload(match: ZarkMatch, daily = false) {
