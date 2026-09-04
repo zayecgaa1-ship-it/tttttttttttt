@@ -10,7 +10,8 @@ import { awardLoyaltyPoints } from "./modules/loyalty/service.js";
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const splitAnswers = (answer: string) => answer.split("|||");
-const allowedRoundCounts = new Set([1, 2, 3, 4, 5, 10]);
+const minimumRoundCount = 1;
+const maximumRoundCount = 20;
 let systemDataPromise: Promise<void> | undefined;
 
 export async function ensureSystemData() {
@@ -114,7 +115,7 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
   const game = await db.zarkGame.findUniqueOrThrow({ where: { slug: module.slug } });
   if (!game.enabled) throw new Error("اللعبة معطّلة حاليًا");
   const totalRounds = options.totalRounds ?? 1;
-  if (!allowedRoundCounts.has(totalRounds)) throw new Error("عدد الجولات يجب أن يكون 1 أو 2 أو 3 أو 4 أو 5 أو 10");
+  if (!Number.isInteger(totalRounds) || totalRounds < minimumRoundCount || totalRounds > maximumRoundCount) throw new Error("عدد الجولات يجب أن يكون من 1 إلى 20");
   const durationSeconds = options.durationSeconds;
   if (durationSeconds !== undefined && (!Number.isInteger(durationSeconds) || durationSeconds < 10 || durationSeconds > 60)) throw new Error("وقت الإجابة يجب أن يكون من 10 إلى 60 ثانية");
   const durationMs = durationSeconds === undefined ? module.durationMs : durationSeconds * 1_000;

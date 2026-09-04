@@ -532,9 +532,9 @@ if (!token) {
     return baseEmbed().setTitle("🎮 اختصارات ألعاب Zark").setDescription("اختر لعبة من `/play`، أو اكتب الاختصار مباشرة في الشات. لا يمكن بدء لعبة ثانية في نفس القناة حتى تنتهي الحالية.").addFields(
       { name: "🌍 معرفة وسرعة", value: "`.اعلام` · `.ترجم` · `.عواصم` · `.معلومات` · `.حساب`" },
       { name: "⌨️ كلمات", value: "`.اسرع` · `.اكمل` · `.ترتيب` · `.حروف` · `.صح` · `.منانا`" },
-      { name: "🎯 شعارات وتخمين", value: "`.ايموجي` · `.سيارات` · `.شركات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
-      { name: "🌟 ألعاب إضافية", value: "`.حيوانات` `.علوم` `.فضاء` `.كرة` `.تقنية` `.افلام` `.مسلسلات` `.موسيقى` `.مأكولات` `.طبيعة` `.الوان` `.لغات` `.تاريخ` `.اختراعات` `.انترنت` `.منطق` `.مرادفات` `.اضداد` `.بلدان` `.رياضات` `.جغرافيا` `.كتب`" },
-      { name: "🔁 جولات", value: "اكتب اسم اللعبة في `/play` للبحث ضمن **40 لعبة**، ثم اختر 2 أو 3 أو 4 أو 5 أو 10 جولات. كل لعبة تحتوي 400+ سؤال." },
+      { name: "🎯 شعارات وتخمين", value: "`.سيارات` · `.شركات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
+      { name: "🌟 ألعاب إضافية", value: "`.حيوانات` `.علوم` `.فضاء` `.كرة` `.تقنية` `.مأكولات` `.طبيعة` `.الوان` `.لغات` `.تاريخ` `.اختراعات` `.انترنت` `.منطق` `.مرادفات` `.اضداد` `.بلدان` `.رياضات` `.جغرافيا` `.كتب`" },
+      { name: "🔁 جولات", value: "اكتب اسم اللعبة في `/play` للبحث ضمن **36 لعبة**، ثم اكتب العدد الذي يناسبك من 1 إلى 20 (مثل 5 أو 10 أو 15 أو 20). كل لعبة تحتوي 400+ سؤال." },
     );
   }
 
@@ -2056,14 +2056,8 @@ function buildCommands() {
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("ابدأ لعبة Zark داخل Discord")
-      .addStringOption((option) => option.setName("game").setDescription("اكتب اسم اللعبة للبحث بين 40 لعبة أو help").setAutocomplete(true))
-      .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات — اختياري، الافتراضي جولة واحدة").addChoices(
-        { name: "جولتان", value: 2 },
-        { name: "3 جولات", value: 3 },
-        { name: "4 جولات", value: 4 },
-        { name: "5 جولات", value: 5 },
-        { name: "10 جولات", value: 10 },
-      ))
+      .addStringOption((option) => option.setName("game").setDescription("اكتب اسم اللعبة للبحث بين 36 لعبة أو help").setAutocomplete(true))
+      .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات: 5 أو 10 أو 15 أو 20، أو أي عدد من 1 إلى 20").setMinValue(1).setMaxValue(20))
       .addIntegerOption((option) => option.setName("seconds").setDescription("وقت الإجابة بالثواني — من 10 إلى 60، الافتراضي 15").setMinValue(10).setMaxValue(60)),
     new SlashCommandBuilder().setName("profile").setDescription("اعرض ملف Zark + LFG الموحد").addUserOption((option) => option.setName("user").setDescription("العضو — اتركه فارغًا لملفك")),
     new SlashCommandBuilder().setName("leaderboard").setDescription("متصدرو اليوم").addStringOption((option) => option.setName("type").setDescription("نوع النقاط").addChoices({ name: "ألعاب Zark", value: "game" }, { name: "تفاعل LFG", value: "engagement" })),
