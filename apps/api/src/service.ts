@@ -340,7 +340,7 @@ async function generateRacePrompt(module: RaceGame, gameId: string, channelId?: 
   return { prompt: question.prompt, answers: question.acceptedAnswers, mediaUrl: question.mediaUrl ?? undefined };
 }
 
-function publicZarkMatch(match: { id: string; seriesId: string | null; roundNumber: number; totalRounds: number; prompt: string; choices: string[]; mediaUrl: string | null; startedAt: Date; endsAt: Date }, game: { slug: string; name: string }) {
+function publicZarkMatch(match: { id: string; seriesId: string | null; roundNumber: number; totalRounds: number; prompt: string; choices: string[]; mediaUrl: string | null; durationMs: number; startedAt: Date; endsAt: Date }, game: { slug: string; name: string }) {
   return {
     id: match.id,
     seriesId: match.seriesId ?? match.id,
@@ -348,6 +348,7 @@ function publicZarkMatch(match: { id: string; seriesId: string | null; roundNumb
     gameName: game.name,
     roundNumber: match.roundNumber,
     totalRounds: match.totalRounds,
+    durationMs: match.durationMs,
     prompt: match.prompt,
     choices: match.choices,
     mediaUrl: match.mediaUrl ?? undefined,

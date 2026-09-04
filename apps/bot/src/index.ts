@@ -378,6 +378,13 @@ if (!token) {
 
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
+    if (parts[0] === "zark" && parts[1] === "replay") {
+      const gameSlug = parts[2];
+      const rounds = Number(parts[3]);
+      const seconds = Number(parts[4]);
+      if (!gameSlug || !Number.isInteger(rounds) || rounds < 1 || rounds > 20 || !Number.isInteger(seconds) || seconds < 10 || seconds > 60) return interaction.reply({ content: "إعدادات إعادة اللعب غير صالحة.", flags: MessageFlags.Ephemeral });
+      return play(interaction, gameSlug, rounds, seconds);
+    }
     if (parts[0] === "zark" && parts[1] === "hint") {
       const race = activeRaceChannels.get(interaction.channelId);
       if (!race || race.matchId !== parts[2]) return interaction.reply({ content: "انتهت هذه الجولة أو حُسمت بالفعل.", flags: MessageFlags.Ephemeral });
@@ -1606,7 +1613,7 @@ if (!token) {
     const endsAtMs = new Date(match.endsAt).getTime();
     const timeout = setTimeout(() => void expireActiveRace(channelId, match.id, channel).catch((error) => console.error("Race expiration failed", error)), Math.max(50, endsAtMs - Date.now() + 50));
     timeout.unref();
-    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs, choices: match.choices ?? [] });
+    activeRaceChannels.set(channelId, { matchId: match.id, messageId, timeout, endsAtMs, choices: match.choices ?? [], gameSlug: match.gameSlug, totalRounds: match.totalRounds, durationSeconds: Math.round((match.durationMs ?? 15_000) / 1_000) });
   }
 
   function clearActiveRace(channelId: string, matchId: string) {
@@ -1651,7 +1658,10 @@ if (!token) {
       const ranking = progress.standings.length
         ? progress.standings.slice(0, 10).map((row, index) => `${medal(index)} **${row.displayName}** — ${row.wins} فوز · ${row.points} XP`).join("\n")
         : "انتهت المباراة دون فائز.";
-      await channel.send({ embeds: [baseEmbed().setTitle("🏆 انتهت مباراة Zark").setDescription(`اكتملت **${progress.totalRounds}** جولة.\n\n${ranking}`)] });
+      const replay = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`zark:replay:${race.gameSlug}:${race.totalRounds}:${race.durationSeconds}`).setLabel("إعادة نفس اللعبة").setEmoji("🔁").setStyle(ButtonStyle.Primary),
+      );
+      await channel.send({ embeds: [baseEmbed().setTitle("🏆 انتهت مباراة Zark").setDescription(`اكتملت **${progress.totalRounds}** جولة.\n\n${ranking}\n\nاضغط **إعادة نفس اللعبة** لبدء سلسلة جديدة بالإعدادات نفسها.`)], components: [replay] });
       return;
     }
     const next = progress.nextMatch;
@@ -2126,8 +2136,8 @@ function availabilityCommand(name: string) {
 }
 
 type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number; hintUsed?: boolean };
-type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; prompt: string; choices?: string[]; mediaUrl?: string; endsAt: string };
-type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; choices: string[] };
+type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; durationMs?: number; prompt: string; choices?: string[]; mediaUrl?: string; endsAt: string };
+type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; choices: string[]; gameSlug: string; totalRounds: number; durationSeconds: number };
 type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
