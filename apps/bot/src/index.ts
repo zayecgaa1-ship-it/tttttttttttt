@@ -378,6 +378,13 @@ if (!token) {
 
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
+    if (parts[0] === "zark" && parts[1] === "hint") {
+      const race = activeRaceChannels.get(interaction.channelId);
+      if (!race || race.matchId !== parts[2]) return interaction.reply({ content: "انتهت هذه الجولة أو حُسمت بالفعل.", flags: MessageFlags.Ephemeral });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const hint = await apiSend<{ hint: string; alreadyUsed: boolean; pointsPenaltyPercent: number }>(`/api/play/${race.matchId}/hint`, "POST", { userId: interaction.user.id });
+      return interaction.editReply({ content: hint.alreadyUsed ? `💡 تلميحك المستخدم: **${hint.hint}**` : `💡 التلميح: **${hint.hint}**\nاستخدامه يخصم ${hint.pointsPenaltyPercent}% من نقاط فوزك في هذه الجولة.` });
+    }
     if (parts[0] === "zark" && parts[1] === "answer") {
       const matchId = parts[2];
       const answer = parts[3];
@@ -1634,7 +1641,7 @@ if (!token) {
     await prompt?.delete().catch(() => undefined);
     const filename = `zark-winner-${race.matchId}.png`;
     const image = await renderWinnerVisual(winner, result.points, result.elapsedMs ?? 0, result.typoCount ?? 0);
-    await channel.send({ embeds: [baseEmbed().setTitle("🏁 حُسمت الجولة!").setDescription(winnerLine(winner, 1, result.points)).setImage(`attachment://${filename}`)], files: [new AttachmentBuilder(image, { name: filename })] });
+    await channel.send({ embeds: [baseEmbed().setTitle("🏁 حُسمت الجولة!").setDescription(`${winnerLine(winner, 1, result.points)}${result.hintUsed ? "\n💡 احتُسب خصم التلميح لهذه الجولة." : ""}`).setImage(`attachment://${filename}`)], files: [new AttachmentBuilder(image, { name: filename })] });
     await advanceRaceSeries(channel, race);
   }
 
@@ -1656,18 +1663,19 @@ if (!token) {
   async function gameMessagePayload(match: ZarkMatch, daily = false) {
     const filename = `zark-game-${match.id}.png`;
     const image = await renderGameVisual(match, daily);
-    const components = !daily && match.gameSlug === "true-false"
-      ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const answerButtons = !daily && match.gameSlug === "true-false"
+      ? new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(`zark:answer:${match.id}:صح`).setLabel("صح").setEmoji("✅").setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId(`zark:answer:${match.id}:خطأ`).setLabel("خطأ").setEmoji("❌").setStyle(ButtonStyle.Danger),
-      )]
+      )
       : !daily && match.choices && match.choices.length === 3
-        ? [new ActionRowBuilder<ButtonBuilder>().addComponents(...match.choices.map((choice, index) => new ButtonBuilder().setCustomId(`zark:choice:${match.id}:${index}`).setLabel(trimText(choice, 80)).setStyle([ButtonStyle.Primary, ButtonStyle.Secondary, ButtonStyle.Success][index])))]
-      : [];
+        ? new ActionRowBuilder<ButtonBuilder>().addComponents(...match.choices.map((choice, index) => new ButtonBuilder().setCustomId(`zark:choice:${match.id}:${index}`).setLabel(trimText(choice, 80)).setStyle([ButtonStyle.Primary, ButtonStyle.Secondary, ButtonStyle.Success][index])))
+        : undefined;
+    const hintButton = !daily ? new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`zark:hint:${match.id}`).setLabel("تلميح").setEmoji("💡").setStyle(ButtonStyle.Secondary)) : undefined;
     return {
       embeds: [baseEmbed().setTitle(`${daily ? "⚡" : "🎮"} ${match.gameName}${!daily && match.totalRounds ? ` · الجولة ${match.roundNumber}/${match.totalRounds}` : ""}`).setDescription(`أول إجابة صحيحة تحسم الجولة · النقاط حسب السرعة والدقة\nتنتهي <t:${Math.floor(new Date(match.endsAt).getTime() / 1000)}:R>`).setImage(`attachment://${filename}`)],
       files: [new AttachmentBuilder(image, { name: filename })],
-      components,
+      components: [answerButtons, hintButton].filter(Boolean),
     };
   }
 
@@ -2117,7 +2125,7 @@ function availabilityCommand(name: string) {
   return new SlashCommandBuilder().setName(name).setDescription("غيّر حالتك بضغطة واحدة");
 }
 
-type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number };
+type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number; hintUsed?: boolean };
 type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; prompt: string; choices?: string[]; mediaUrl?: string; endsAt: string };
 type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; choices: string[] };
 type ActiveDaily = { challengeId: string; messageId: string };

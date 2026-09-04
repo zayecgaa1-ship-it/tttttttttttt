@@ -10,7 +10,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, enforceRateLimit, eventRuntimeStatus, hasEventCapacity, initEvents, subscribe } from "./events.js";
-import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, leaderboard, listZarkGames, startZarkRace } from "./service.js";
+import { advanceZarkRace, answerDaily, answerZarkRace, expireZarkRace, getOrCreateDaily, getZarkRaceHint, leaderboard, listZarkGames, startZarkRace } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
@@ -536,6 +536,11 @@ app.post("/api/play/:id/answer", { preHandler: requireServiceKey }, async (reque
   const params = z.object({ id: z.string() }).parse(request.params);
   const body = z.object({ userId: z.string().min(1), displayName: z.string().min(1).max(80), answer: z.string().min(1).max(200) }).parse(request.body);
   return answerZarkRace(params.id, body);
+});
+app.post("/api/play/:id/hint", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ userId: z.string().min(1).max(80) }).parse(request.body);
+  return getZarkRaceHint(params.id, body.userId);
 });
 app.post("/api/play/:id/expire", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);

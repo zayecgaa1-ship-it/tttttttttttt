@@ -443,6 +443,7 @@ model ZarkMatch {
   prompt           String
   answer           String
   choices          String[]          @default([])
+  hintUserIds      String[]          @default([])
   mediaUrl         String?
   status           MatchStatus       @default(OPEN)
   durationMs       Int               @default(60000)

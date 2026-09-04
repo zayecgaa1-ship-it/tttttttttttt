@@ -10,6 +10,10 @@ import { awardLoyaltyPoints } from "./modules/loyalty/service.js";
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const splitAnswers = (answer: string) => answer.split("|||");
+const hintForAnswer = (answer: string) => answer.split(/\s+/).map((word) => {
+  if (word.length <= 2) return `${word[0] ?? ""}…`;
+  return `${word[0]}…${word.at(-1)}`;
+}).join(" ");
 const minimumRoundCount = 1;
 const maximumRoundCount = 20;
 let systemDataPromise: Promise<void> | undefined;
@@ -230,12 +234,14 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
     if (!claimed.count) return { capped: true as const, points: 0 };
     const rank = 1;
     const elapsedMs = Math.max(0, now.getTime() - match.startedAt.getTime());
-    const points = calculateWinnerPoints({ basePoints: match.game.basePoints, elapsedMs, durationMs: match.durationMs, typoCount: evaluation.typoCount });
+    const rawPoints = calculateWinnerPoints({ basePoints: match.game.basePoints, elapsedMs, durationMs: match.durationMs, typoCount: evaluation.typoCount });
+    const hintUsed = match.hintUserIds.includes(input.userId);
+    const points = hintUsed ? Math.max(3, Math.floor(rawPoints * 0.7)) : rawPoints;
     await tx.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName }, create: { id: input.userId, displayName: input.displayName } });
     await tx.zarkMatchResult.create({ data: { matchId, userId: input.userId, rank, elapsedMs, points } });
     await tx.user.update({ where: { id: input.userId }, data: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 } } });
     await tx.gameProfile.upsert({ where: { userId_gameId: { userId: input.userId, gameId: match.gameId } }, update: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 }, losses: { increment: rank === 1 ? 0 : 1 } }, create: { userId: input.userId, gameId: match.gameId, xp: points, wins: rank === 1 ? 1 : 0, losses: rank === 1 ? 0 : 1 } });
-    return { duplicate: false as const, rank, points, typoCount: evaluation.typoCount, elapsedMs };
+    return { duplicate: false as const, rank, points, typoCount: evaluation.typoCount, elapsedMs, hintUsed };
   });
   if (!("capped" in result) && !result.duplicate) {
     await awardLoyaltyPoints({ userId: input.userId, amount: 20, reason: "فوز في لعبة Zark", referenceKey: `zark-win:${matchId}:${input.userId}` });
@@ -244,6 +250,27 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
     publish({ type: "leaderboard.updated" });
   }
   return { correct: true as const, ...result };
+}
+
+export async function getZarkRaceHint(matchId: string, userId: string) {
+  await enforceRateLimit("race-hint", userId, 6, 30);
+  const match = await db.zarkMatch.findUnique({ where: { id: matchId } });
+  const now = new Date();
+  if (!match || match.status !== "OPEN" || now > match.endsAt) throw new Error("انتهت هذه الجولة.");
+  // الجولات القصيرة لا يمكن أن تنتظر 30 ثانية؛ لذلك يفتح التلميح بعد نصف
+  // الوقت على الأقل، وبحد أدنى خمس ثوانٍ وحد أقصى ثلاثين ثانية.
+  const unlockAfterMs = Math.min(30_000, Math.max(5_000, Math.floor(match.durationMs / 2)));
+  const waitMs = unlockAfterMs - (now.getTime() - match.startedAt.getTime());
+  if (waitMs > 0) throw new Error(`التلميح يفتح بعد ${Math.ceil(waitMs / 1000)} ثوانٍ.`);
+  const alreadyUsed = match.hintUserIds.includes(userId);
+  if (!alreadyUsed) {
+    const marked = await db.zarkMatch.updateMany({
+      where: { id: matchId, status: "OPEN", endsAt: { gte: now }, NOT: { hintUserIds: { has: userId } } },
+      data: { hintUserIds: { push: userId } },
+    });
+    if (!marked.count) throw new Error("انتهت هذه الجولة أو استُخدم التلميح بالفعل.");
+  }
+  return { hint: hintForAnswer(splitAnswers(match.answer)[0]), alreadyUsed, pointsPenaltyPercent: 30 };
 }
 
 export async function expireZarkRace(matchId: string) {
