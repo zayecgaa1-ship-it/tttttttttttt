@@ -277,6 +277,9 @@ model User {
   loyaltyPoints             Int                    @default(0)
   lifetimeLoyaltyPoints     Int                    @default(0)
   vipUnlocked               Boolean                @default(false)
+  loyaltyDoubleUntil        DateTime?
+  lfgPriorityUntil          DateTime?
+  loyaltyBadge              String?
   submittedReportCount      Int                    @default(0)
   tutorialCompleted         Boolean                @default(false)
   tutorialCompletedAt       DateTime?
@@ -312,6 +315,8 @@ model User {
   tradeNotifications        TradeNotification[]    @relation("TradeNotificationUser")
   tradeNotificationsActed   TradeNotification[]    @relation("TradeNotificationActor")
   tradeAuditEntries         TradeAuditLog[]
+
+  @@index([lfgPriorityUntil])
 }
 
 model LoyaltyTransaction {

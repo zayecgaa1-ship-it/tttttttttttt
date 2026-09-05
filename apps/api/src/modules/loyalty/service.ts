@@ -1,9 +1,17 @@
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { db } from "../../../../../packages/db/src/client.js";
 import { publish } from "../../events.js";
 import { serializable } from "../../db-transaction.js";
 
 export const VIP_PRICE = 2_500;
+export const loyaltyShop = [
+  { key: "double-24h", name: "مضاعف الولاء ×2", description: "كل نقاط الولاء التي تكسبها تتضاعف لمدة 24 ساعة.", icon: "⚡", price: 450, kind: "TIMED" },
+  { key: "lfg-priority-7d", name: "أولوية غرف LFG", description: "غرفك تظهر بشارة مميزة وفي مقدمة قائمة الغرف لمدة 7 أيام.", icon: "🚀", price: 700, kind: "TIMED" },
+  { key: "gold-badge", name: "شارة المؤسس الذهبية", description: "شارة دائمة تظهر بجانب اسمك في ملف Zark.", icon: "🏅", price: 1_000, kind: "PERMANENT" },
+  { key: "vip", name: "Zark VIP", description: "رتبة VIP دائمة في Discord مع شارة مميزة.", icon: "💎", price: VIP_PRICE, kind: "PERMANENT" },
+] as const;
+export type LoyaltyRewardKey = typeof loyaltyShop[number]["key"];
 export const loyaltyTiers = [
   { key: "member", name: "Zark Member", threshold: 0 },
   { key: "loyal", name: "Zark Loyal", threshold: 500 },
@@ -16,8 +24,13 @@ export function loyaltyTier(points: number) {
 
 export async function awardLoyaltyPoints(input: { userId: string; amount: number; reason: string; referenceKey: string }) {
   if (input.amount <= 0) return null;
-  const settings = await db.guildSettings.findUnique({ where: { guildId: process.env.DISCORD_GUILD_ID ?? "default" }, select: { loyaltyBoostUntil: true, loyaltyBoostMultiplier: true } });
-  const multiplier = settings?.loyaltyBoostUntil && settings.loyaltyBoostUntil.getTime() > Date.now() ? Math.max(1, settings.loyaltyBoostMultiplier) : 1;
+  const [settings, member] = await Promise.all([
+    db.guildSettings.findUnique({ where: { guildId: process.env.DISCORD_GUILD_ID ?? "default" }, select: { loyaltyBoostUntil: true, loyaltyBoostMultiplier: true } }),
+    db.user.findUnique({where:{id:input.userId},select:{loyaltyDoubleUntil:true}}),
+  ]);
+  const globalMultiplier = settings?.loyaltyBoostUntil && settings.loyaltyBoostUntil.getTime() > Date.now() ? Math.max(1, settings.loyaltyBoostMultiplier) : 1;
+  const personalMultiplier = member?.loyaltyDoubleUntil && member.loyaltyDoubleUntil.getTime() > Date.now() ? 2 : 1;
+  const multiplier = Math.min(4, globalMultiplier * personalMultiplier);
   const amount = input.amount * multiplier;
   try {
     const result = await serializable(async (tx) => {
@@ -34,23 +47,35 @@ export async function awardLoyaltyPoints(input: { userId: string; amount: number
 }
 
 export async function getLoyaltyProfile(userId: string) {
-  const user = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { loyaltyPoints: true, lifetimeLoyaltyPoints: true, vipUnlocked: true, loyaltyTransactions: { orderBy: { createdAt: "desc" }, take: 12 } } });
+  const user = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { loyaltyPoints: true, lifetimeLoyaltyPoints: true, vipUnlocked: true, loyaltyDoubleUntil:true, lfgPriorityUntil:true, loyaltyBadge:true, loyaltyTransactions: { orderBy: { createdAt: "desc" }, take: 16 } } });
   const tier = loyaltyTier(user.lifetimeLoyaltyPoints);
   const next = loyaltyTiers.find((item) => item.threshold > user.lifetimeLoyaltyPoints);
-  return { points: user.loyaltyPoints, lifetimePoints: user.lifetimeLoyaltyPoints, vipUnlocked: user.vipUnlocked, tier, nextTier: next, vipPrice: VIP_PRICE, recent: user.loyaltyTransactions.map((item) => ({ amount: item.amount, reason: item.reason, createdAt: item.createdAt.toISOString() })) };
+  const now=Date.now();
+  const shop=loyaltyShop.map(reward=>({...reward,owned:reward.key==='vip'?user.vipUnlocked:reward.key==='gold-badge'?user.loyaltyBadge==='GOLD':false,activeUntil:reward.key==='double-24h'?user.loyaltyDoubleUntil?.toISOString():reward.key==='lfg-priority-7d'?user.lfgPriorityUntil?.toISOString():undefined,active:reward.key==='vip'?user.vipUnlocked:reward.key==='gold-badge'?user.loyaltyBadge==='GOLD':reward.key==='double-24h'?Boolean(user.loyaltyDoubleUntil&&user.loyaltyDoubleUntil.getTime()>now):Boolean(user.lfgPriorityUntil&&user.lfgPriorityUntil.getTime()>now)}));
+  return { points: user.loyaltyPoints, lifetimePoints: user.lifetimeLoyaltyPoints, vipUnlocked: user.vipUnlocked, loyaltyBadge:user.loyaltyBadge, tier, nextTier: next, vipPrice: VIP_PRICE, shop, recent: user.loyaltyTransactions.map((item) => ({ amount: item.amount, reason: item.reason, referenceKey:item.referenceKey, createdAt: item.createdAt.toISOString() })) };
 }
 
-export async function buyVip(userId: string) {
+export async function purchaseLoyaltyReward(userId:string,rewardKey:LoyaltyRewardKey) {
+  const reward=loyaltyShop.find(item=>item.key===rewardKey);
+  if(!reward)throw new Error("المكافأة غير موجودة في متجر الولاء");
+  const now=new Date();
   const result = await serializable(async (tx) => {
-    const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { loyaltyPoints: true, vipUnlocked: true } });
-    if (user.vipUnlocked) throw new Error("رتبة VIP مفعلة لديك بالفعل");
-    if (user.loyaltyPoints < VIP_PRICE) throw new Error(`تحتاج ${VIP_PRICE - user.loyaltyPoints} نقطة ولاء إضافية لرتبة VIP`);
-    await tx.loyaltyTransaction.create({ data: { userId, amount: -VIP_PRICE, reason: "شراء رتبة Zark VIP", referenceKey: `vip:${userId}` } });
-    return tx.user.update({ where: { id: userId }, data: { loyaltyPoints: { decrement: VIP_PRICE }, vipUnlocked: true } });
+    const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { loyaltyPoints: true, vipUnlocked: true,loyaltyBadge:true,loyaltyDoubleUntil:true,lfgPriorityUntil:true } });
+    if(rewardKey==='vip'&&user.vipUnlocked)throw new Error("رتبة VIP مفعلة لديك بالفعل");
+    if(rewardKey==='gold-badge'&&user.loyaltyBadge==='GOLD')throw new Error("الشارة الذهبية مملوكة لديك بالفعل");
+    if (user.loyaltyPoints < reward.price) throw new Error(`تحتاج ${reward.price - user.loyaltyPoints} نقطة ولاء إضافية`);
+    const charged=await tx.user.updateMany({where:{id:userId,loyaltyPoints:{gte:reward.price}},data:{loyaltyPoints:{decrement:reward.price}}});
+    if(charged.count!==1)throw new Error("رصيد نقاط الولاء غير كافٍ");
+    const extend=(current:Date|null|undefined,days:number)=>new Date(Math.max(now.getTime(),current?.getTime()||0)+days*86_400_000);
+    const data=rewardKey==='vip'?{vipUnlocked:true}:rewardKey==='gold-badge'?{loyaltyBadge:'GOLD'}:rewardKey==='double-24h'?{loyaltyDoubleUntil:extend(user.loyaltyDoubleUntil,1)}:{lfgPriorityUntil:extend(user.lfgPriorityUntil,7)};
+    await tx.loyaltyTransaction.create({ data: { userId, amount: -reward.price, reason: `شراء ${reward.name}`, referenceKey: `shop:${rewardKey}:${userId}:${randomUUID()}` } });
+    return tx.user.update({where:{id:userId},data});
   });
-  publish({ type: "loyalty.updated", userId, points: result.loyaltyPoints, lifetimePoints: result.lifetimeLoyaltyPoints, vipUnlocked: true });
+  publish({ type: "loyalty.updated", userId, points: result.loyaltyPoints, lifetimePoints: result.lifetimeLoyaltyPoints, vipUnlocked: result.vipUnlocked });
   return getLoyaltyProfile(userId);
 }
+
+export async function buyVip(userId: string) { return purchaseLoyaltyReward(userId,'vip'); }
 
 export async function listLoyaltyRoleMembers() {
   return db.user.findMany({ where: { OR: [{ vipUnlocked: true }, { lifetimeLoyaltyPoints: { gte: 500 } }] }, select: { id: true }, take: 1_000 });

@@ -16,6 +16,8 @@
     "test:admin-games": "tsx scripts/admin-game-content-smoke.ts",
     "test:ai-failover": "tsx scripts/ai-failover-smoke.ts",
     "test:games": "tsx scripts/smoke-games-availability.ts",
+    "test:loyalty": "node scripts/lfg-platform-db-isolated.mjs scripts/loyalty-shop-db-smoke.ts",
+    "test:loyalty:web": "node scripts/loyalty-shop-web-smoke.mjs",
     "opera:gx:start": "node scripts/opera-gx-cdp.mjs start",
     "opera:gx:status": "node scripts/opera-gx-cdp.mjs status",
     "opera:gx:test": "node scripts/opera-gx-smoke.mjs",

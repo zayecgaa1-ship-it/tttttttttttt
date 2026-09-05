@@ -127,3 +127,14 @@ BEGIN
   END IF;
 END
 $restore_game_catalog$;
+
+DO $loyalty_shop_migration$
+BEGIN
+  IF to_regclass('"User"') IS NOT NULL THEN
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "loyaltyDoubleUntil" TIMESTAMP(3);
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "lfgPriorityUntil" TIMESTAMP(3);
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "loyaltyBadge" TEXT;
+    CREATE INDEX IF NOT EXISTS "User_lfgPriorityUntil_idx" ON "User"("lfgPriorityUntil");
+  END IF;
+END
+$loyalty_shop_migration$;

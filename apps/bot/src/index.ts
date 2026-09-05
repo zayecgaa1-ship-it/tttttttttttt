@@ -453,6 +453,13 @@ if (!token) {
     if (interaction.customId === "pulse:smart") return smartLfg(interaction);
     if (interaction.customId === "pulse:availability") return availability(interaction);
     if (interaction.customId === "pulse:loyalty") return loyalty(interaction);
+    if (parts[0] === "loyalty" && parts[1] === "buy" && parts[2]) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const data = await apiSend<LoyaltyProfile>(`/api/users/${interaction.user.id}/loyalty/shop/${encodeURIComponent(parts[2])}`, "POST", {});
+      await syncLoyaltyRoles(interaction.user.id);
+      const reward = data.shop.find((item) => item.key === parts[2]);
+      return interaction.editReply({ content: `✅ تم تفعيل **${reward?.name ?? "المكافأة"}**. رصيدك الآن: **${data.points}** نقطة.` });
+    }
     if (interaction.customId === "loyalty:buy-vip") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const data = await apiSend<{ points: number; vipUnlocked: boolean }>(`/api/users/${interaction.user.id}/loyalty/buy-vip`, "POST", {});
@@ -1425,16 +1432,28 @@ if (!token) {
     const filename = `zark-profile-${userId}.png`;
     const image = await renderProfileVisual(data);
     const activity = profileActivityText(data);
-    const embed = baseEmbed().setTitle(`👤 ملف ${data.displayName}`).setDescription(`Level ${data.zark.level} · ${data.zark.xp.toLocaleString()} XP · ${data.zark.wins} فوز\n${activity}`).setImage(`attachment://${filename}`);
+    const badge = data.loyalty?.badge === "GOLD" ? " 🏅" : "";
+    const embed = baseEmbed().setTitle(`👤 ملف ${data.displayName}${badge}`).setDescription(`Level ${data.zark.level} · ${data.zark.xp.toLocaleString()} XP · ${data.zark.wins} فوز\n${activity}`).setImage(`attachment://${filename}`);
     await interaction.editReply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
   }
 
   async function loyalty(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const data = await apiGet<{ points: number; lifetimePoints: number; vipUnlocked: boolean; tier: { name: string }; nextTier?: { name: string; threshold: number }; vipPrice: number }>(`/api/users/${interaction.user.id}/loyalty`, true);
+    const data = await apiGet<LoyaltyProfile>(`/api/users/${interaction.user.id}/loyalty`, true);
     const next = data.nextTier ? `الرتبة التالية: **${data.nextTier.name}** عند **${data.nextTier.threshold}** نقطة تفاعل.` : "وصلت أعلى رتبة ولاء.";
-    const embed = baseEmbed().setTitle("💎 ولاء Zark").setDescription(`رصيدك: **${data.points}** نقطة\nإجمالي تفاعلك: **${data.lifetimePoints}** نقطة\nرتبتك: **${data.tier.name}**\n${next}\n\nتكسب نقاطًا من الفوز، تحدي اليوم، وإكمال جلسات LFG.`);
-    const components = !data.vipUnlocked ? [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("loyalty:buy-vip").setLabel(`شراء Zark VIP — ${data.vipPrice} نقطة`).setEmoji("💎").setStyle(ButtonStyle.Primary).setDisabled(data.points < data.vipPrice))] : [];
+    const active = data.shop.filter((reward) => reward.active || reward.owned).map((reward) => `${reward.icon} ${reward.name}`).join(" · ") || "لا توجد مزايا مفعلة بعد";
+    const catalog = data.shop.map((reward) => `${reward.icon} **${reward.name}** — ${reward.price} نقطة\n${reward.description}`).join("\n\n");
+    const embed = baseEmbed()
+      .setTitle("💎 متجر ولاء Zark")
+      .setDescription(`رصيدك: **${data.points}** نقطة\nإجمالي تفاعلك: **${data.lifetimePoints}** نقطة\nرتبتك: **${data.tier.name}**\n${next}\n\n**مزاياك:** ${active}\n\n${catalog}`)
+      .setFooter({ text: "تكسب النقاط من الفوز، تحدي اليوم، وإكمال جلسات LFG" });
+    const buttons = data.shop.map((reward) => new ButtonBuilder()
+      .setCustomId(`loyalty:buy:${reward.key}`)
+      .setLabel(reward.owned ? "مملوكة" : `${reward.price} نقطة`)
+      .setEmoji(reward.icon)
+      .setStyle(reward.active || reward.owned ? ButtonStyle.Success : ButtonStyle.Primary)
+      .setDisabled(reward.owned || data.points < reward.price));
+    const components = buttons.length ? [new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons)] : [];
     return interaction.editReply({ embeds: [embed], components });
   }
 
@@ -1940,6 +1959,7 @@ if (!token) {
       .setColor(Number.parseInt(room.accentColor.replace("#", ""), 16) || brand.color)
       .setTitle(`${room.roomEmoji ?? room.gameIcon ?? "🎮"} ${room.title ?? room.gameName} | LFG`)
       .setDescription(`${status}\n${room.platform ? LFG_PLATFORM_LABELS[room.platform] : "المنصة غير محددة"}\n👑 **${room.hostName}** · 👥 **${room.currentPlayers}/${room.maxPlayers}**\n🕐 ${timing}${room.mapName ? `\n🗺️ **الماب:** ${room.mapName}` : ""}${room.gameMode ? `\n🎯 **النمط:** ${room.gameMode}` : ""}${room.description ? `\n${room.description}` : ""}`);
+    if (room.hostPriority) embed.addFields({ name: "🚀 أولوية المتجر", value: "هذه الغرفة مميزة وتظهر أولًا ضمن غرف LFG." });
     if (detailed) embed.addFields({ name: "أعضاء الغرفة", value: players.slice(0, 1024) });
     return embed;
   }
@@ -2229,11 +2249,12 @@ type RaceProgress = { completed: true; seriesId: string; totalRounds: number; st
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
-type LiveRoom = { platform?: LfgPlatform; id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
+type LiveRoom = { platform?: LfgPlatform; id: string; hostId: string; hostPriority?: boolean; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type TradeView = { id: string; code: string; publicId: number; itemName: string; imageData: string; haveText: string; wantText: string; description?: string; status: string; discordChannelId?: string; discordMessageId?: string; owner: { id: string; displayName: string; avatarUrl?: string }; game: { name: string; icon?: string }; _count?: { interests: number; conversations: number } };
-type UnifiedProfile = { displayName: string; avatarUrl?: string; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
+type LoyaltyProfile = { points: number; lifetimePoints: number; vipUnlocked: boolean; tier: { name: string }; nextTier?: { name: string; threshold: number }; shop: Array<{ key: string; name: string; description: string; icon: string; price: number; kind: string; owned: boolean; active: boolean; activeUntil?: string }> };
+type UnifiedProfile = { displayName: string; avatarUrl?: string; loyalty?: { points: number; lifetimePoints: number; vipUnlocked: boolean; badge?: string }; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
 type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";
 type SecurityResult = { suspend: boolean; duplicate?: boolean; counts?: { bans: number; timeouts: number; kicks: number; roles: number; channels: number; webhooks: number }; suspension?: { reason: string }; settings?: { securityLogChannelId?: string | null; ownerDmAlertsEnabled?: boolean } };
 type BroadcastCampaign = { id: string; title: string; content: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; totalMembers: number; sentCount: number; failedCount: number; skippedCount: number; createdAt: string };

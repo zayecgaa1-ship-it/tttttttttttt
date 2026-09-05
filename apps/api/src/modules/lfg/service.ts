@@ -474,7 +474,7 @@ export async function completeLfgRoom(roomId: string, actorId?: string) {
 export async function listLfgRooms() {
   const recentlyCompleted = new Date(Date.now() - 2 * 60_000);
   const rooms = await db.lfgRoom.findMany({ where: { OR: [{ status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, { status: "COMPLETED", completedAt: { gte: recentlyCompleted } }] }, include: roomInclude, orderBy: [{ scheduledFor: "asc" }, { createdAt: "desc" }], take: 100 });
-  return rooms.map(toLiveRoom);
+  return prioritizeLiveRooms(rooms.map(toLiveRoom));
 }
 
 export async function getLfgRoom(roomId: string): Promise<LiveRoom> {
@@ -771,7 +771,7 @@ export async function searchLfgRooms(query: string) {
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: 50,
   });
-  return rooms.map(toLiveRoom);
+  return prioritizeLiveRooms(rooms.map(toLiveRoom));
 }
 
 export async function getNotificationCandidates(roomId: string) {
@@ -857,6 +857,7 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     hostId: room.hostId,
     hostName: room.host.displayName,
     hostAvatarUrl: room.host.avatarUrl ?? undefined,
+    hostPriority: Boolean(room.host.lfgPriorityUntil && room.host.lfgPriorityUntil.getTime() > Date.now()),
     lfgGameId: room.lfgGame.id,
     gameSlug: room.lfgGame.slug,
     platform: room.platform ?? undefined,
@@ -896,6 +897,10 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     listingMessageId: room.listingMessageId ?? undefined,
     members: activeMembers.map((member) => ({ id: member.user.id, displayName: member.user.displayName, avatarUrl: member.user.avatarUrl ?? undefined, voiceActive: Boolean(member.voiceJoinedAt), voiceSeconds: member.voiceSeconds + (member.voiceJoinedAt ? Math.max(0, Math.floor((Date.now() - member.voiceJoinedAt.getTime()) / 1000)) : 0) })),
   };
+}
+
+function prioritizeLiveRooms(rooms: LiveRoom[]) {
+  return rooms.sort((left, right) => Number(Boolean(right.hostPriority)) - Number(Boolean(left.hostPriority)));
 }
 
 async function upsertActor(input: { userId: string; displayName: string; avatarUrl?: string }) {

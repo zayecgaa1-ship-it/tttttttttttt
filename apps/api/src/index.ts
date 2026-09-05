@@ -16,7 +16,7 @@ import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailabilit
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, claimBumpReminder, cleanupOperationalLogs, createLfgCategory, deleteGameQuestion, getAdminAuditLog, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
-import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
+import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, purchaseLoyaltyReward, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
 import { answerTradeCompletion, backfillTradeThumbnails, createTrade, decideInterest, deleteTradePermanently, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
 import { claimBroadcast, createBroadcast, getPendingBroadcast, listBroadcasts, updateBroadcastProgress } from "./modules/broadcast/service.js";
@@ -107,6 +107,10 @@ app.put("/api/me/tutorial", async (request) => {
 });
 app.get("/api/me/loyalty", async (request) => getLoyaltyProfile((await requireWebUser(request)).userId));
 app.post("/api/me/loyalty/buy-vip", async (request) => buyVip((await requireWebUser(request)).userId));
+app.post("/api/me/loyalty/shop/:reward", async (request) => {
+  const params = z.object({ reward: z.enum(["double-24h", "lfg-priority-7d", "gold-badge", "vip"]) }).parse(request.params);
+  return purchaseLoyaltyReward((await requireWebUser(request)).userId, params.reward);
+});
 const tradeStatusSchema = z.enum(["OPEN", "PENDING", "COMPLETION_PENDING", "COMPLETED", "CANCELLED", "EXPIRED", "DISPUTED", "REMOVED"]);
 const tradeReasonSchema = z.enum(["SCAM_FRAUD", "HARASSMENT", "MISLEADING_TRADE", "SPAM", "PROHIBITED_CONTENT", "OTHER"]);
 const tradeCreateSchema = z.object({ gameSlug: z.string().min(1).max(80), itemName: z.string().min(1).max(100), imageData: z.string().min(30).max(2_000_000), haveText: z.string().min(1).max(300), wantText: z.string().min(1).max(300), description: z.string().max(1000).optional(), acceptedTerms: z.literal(true) });
@@ -675,6 +679,10 @@ app.get("/api/users/:id/loyalty", { preHandler: requireServiceKey }, async (requ
 app.post("/api/users/:id/loyalty/buy-vip", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
   return buyVip(params.id);
+});
+app.post("/api/users/:id/loyalty/shop/:reward", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string(), reward: z.enum(["double-24h", "lfg-priority-7d", "gold-badge", "vip"]) }).parse(request.params);
+  return purchaseLoyaltyReward(params.id, params.reward);
 });
 app.post("/api/loyalty/boost", { preHandler: requireServiceKey }, async (request) => {
   const body = z.object({ adminId: z.string().min(1), minutes: z.number().int().min(15).max(180).default(60) }).parse(request.body);

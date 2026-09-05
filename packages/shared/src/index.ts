@@ -9,6 +9,7 @@ export type LiveRoom = {
   hostId: string;
   hostName: string;
   hostAvatarUrl?: string;
+  hostPriority?: boolean;
   lfgGameId: string;
   gameSlug: string;
   gameName: string;
