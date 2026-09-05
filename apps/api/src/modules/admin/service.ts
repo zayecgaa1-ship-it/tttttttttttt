@@ -331,7 +331,7 @@ export async function getZarkGameContent() {
     category: game.category,
     enabled: game.enabled,
     // الأسئلة المضافة من لوحة التحكم تبقى منفصلة عن بنك اللعبة الداخلي، حتى
-    // لا يظهر للإدارة رقم مضلل مثل 0 رغم وجود 400+ سؤال جاهز للعبة.
+    // عدد الأسئلة الأصلية المتاحة في بنك اللعبة، دون صيغ زخرفية مكررة.
     builtInQuestionCount: raceGames.get(game.slug)?.questionCount ?? 0,
     customQuestionCount: game.questions.length,
     enabledCustomQuestionCount: game.questions.filter((question) => question.enabled).length,

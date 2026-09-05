@@ -59,6 +59,7 @@ export type DailyChallenge = {
 };
 
 export type ZarkGameSummary = {
+  durationMs?: number;
   slug: string;
   name: string;
   description?: string;

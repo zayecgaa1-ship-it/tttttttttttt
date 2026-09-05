@@ -37,9 +37,9 @@ const errors = [];
 page.on('pageerror',error=>errors.push(error.message));
 mkdirSync('artifacts/design',{recursive:true});
 try {
-  for (const width of process.argv.includes('--interactions-only') ? [] : [1440,1024,768,390,320]) {
+  for (const width of process.argv.includes('--interactions-only') ? [] : process.argv.includes('--games-hub') ? [1440,768,390,320] : [1440,1024,768,390,320]) {
     await page.setViewportSize({width,height:960});
-    for (const route of ['/', '/games.html','/lfg.html','/leaderboard.html','/profile.html','/reports.html','/trade.html','/admin.html','/security.html','/status.html']) {
+    for (const route of process.argv.includes('--games-hub') ? ['/', '/games.html'] : ['/', '/games.html','/lfg.html','/leaderboard.html','/profile.html','/reports.html','/trade.html','/admin.html','/security.html','/status.html']) {
       await page.goto('https://zark.local'+route,{waitUntil:'domcontentloaded'});
       await page.waitForTimeout(120);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Overflow: ${route} at ${width}`);
@@ -60,6 +60,14 @@ try {
   await page.locator('#game-search').fill('لا يوجد');
   assert.equal(await page.locator('.game-tile').count(),0);
   await page.locator('#game-reset').click();
+  await page.locator('[data-save-game="flags"]').click();
+  await page.locator('#game-favorites').click();
+  assert.equal(await page.locator('.game-tile').count(),1);
+  assert.equal(await page.locator('.game-tile').getAttribute('data-game'),'flags');
+  await page.reload();await page.waitForSelector('.game-tile');
+  assert.equal(await page.locator('[data-save-game="flags"]').getAttribute('aria-pressed'),'true');
+  await page.locator('#game-sort').selectOption('questions');
+  assert.equal(await page.locator('.game-tile').first().getAttribute('data-game'),'capitals');
   await page.locator('#game-category').selectOption('لغة');
   assert.equal(await page.locator('.game-tile').count(),2);
   await page.locator('#play-zark').click();

@@ -116,3 +116,14 @@ BEGIN
   END IF;
 END
 $lfg_platform_migration$;
+
+-- Restore only legacy entries disabled by the retired-game seed. After the
+-- catalogue assigns descriptive categories, subsequent deploys preserve edits.
+DO $restore_game_catalog$
+BEGIN
+  IF to_regclass('"ZarkGame"') IS NOT NULL THEN
+    UPDATE "ZarkGame" SET "enabled" = TRUE
+    WHERE "category" = 'RACE' AND "slug" IN ('emoji-guess','movies','series','music','car-logos','company-logos');
+  END IF;
+END
+$restore_game_catalog$;

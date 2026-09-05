@@ -16,7 +16,7 @@ try {
   const env={...process.env,DATABASE_URL:url.toString()};
   for(const args of [
     ['node_modules/prisma/build/index.js','db','push','--skip-generate','--schema','packages/db/prisma/schema.prisma'],
-    ['node_modules/tsx/dist/cli.mjs','scripts/lfg-platform-db-smoke.ts']
+    ['node_modules/tsx/dist/cli.mjs',process.argv[2] || 'scripts/lfg-platform-db-smoke.ts']
   ]){
     const result=spawnSync(process.execPath,args,{env,stdio:'inherit'});
     assert.equal(result.status,0,'isolated database check failed');

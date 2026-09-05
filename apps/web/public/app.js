@@ -6,6 +6,8 @@ let roomFilter = 'all';
 let roomSearch = '';
 const platformLabels = {MOBILE:'📱 جوال',PC:'💻 كمبيوتر',PLAYSTATION:'🎮 بلايستيشن'};
 let userGamePlatforms = new Map();
+let favoriteGames = readFavoriteGames();
+function readFavoriteGames(){try{const saved=JSON.parse(localStorage.getItem('zark-favorite-games')||'[]');return new Set(Array.isArray(saved)?saved.filter(value=>typeof value==='string'):[]);}catch{return new Set();}}
 function platformLabel(value){return platformLabels[value] || 'منصة غير محددة';}
 let activeUserTicket;
 let activeAdminTicket;
@@ -351,15 +353,32 @@ function renderGames() {
     $('game-category').innerHTML = '<option value="all">كل التصنيفات</option>' + categories.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
     $('game-category').value = categories.includes(category) ? category : 'all';
   }
-  const filtered = games.filter(game => ($('game-category')?.value === 'all' || game.category === category) && normalize([game.name, game.description, game.slug, ...(game.aliases || [])].join(' ')).includes(query));
-  $('zark-games').innerHTML = filtered.map((game,index)=>`<button type="button" class="game-tile" data-tone="${index%4}" data-game="${escapeHtml(game.slug)}" aria-pressed="${$('race-command')?.dataset.game === game.slug}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>${escapeHtml(game.category || 'تحدي جماعي')}</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>${Number.isFinite(Number(game.questionCount)) && Number(game.questionCount)>0 ? `${Number(game.questionCount).toLocaleString('ar')} سؤال` : 'تحدٍ داخل Discord'}</span><span>اختر اللعبة ↖</span></footer></button>`).join('') || empty(games.length ? 'ما لقينا لعبة بهذا البحث. جرّب اسمًا ثانيًا أو غيّر التصنيف.' : 'لا توجد ألعاب متاحة حاليًا. ارجع قريبًا.');
+  const favoritesOnly=$('game-favorites')?.getAttribute('aria-pressed')==='true';
+  const filtered = games.filter(game => (!favoritesOnly||favoriteGames.has(game.slug)) && ($('game-category')?.value === 'all' || game.category === category) && normalize([game.name, game.description, game.slug, ...(game.aliases || [])].join(' ')).includes(query));
+  filtered.sort((a,b)=>$('game-sort')?.value==='questions' ? (b.questionCount||0)-(a.questionCount||0) : a.name.localeCompare(b.name,'ar'));
+  if($('catalog-total'))$('catalog-total').textContent=games.length;
+  if($('catalog-questions'))$('catalog-questions').textContent=games.reduce((sum,game)=>sum+(Number(game.questionCount)||0),0).toLocaleString('ar');
+  if($('catalog-categories'))$('catalog-categories').textContent=new Set(games.map(game=>game.category)).size;
+  $('zark-games').innerHTML = filtered.map((game,index)=>`<article class="game-entry"><button type="button" class="game-save" data-save-game="${escapeHtml(game.slug)}" aria-label="حفظ ${escapeHtml(game.name)} في المفضلة" aria-pressed="${favoriteGames.has(game.slug)}">${favoriteGames.has(game.slug)?'★':'☆'}</button><button type="button" class="game-tile" data-tone="${index%4}" data-game="${escapeHtml(game.slug)}" aria-pressed="${$('race-command')?.dataset.game === game.slug}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>${escapeHtml(game.category || 'تحدي جماعي')}</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>${Number.isFinite(Number(game.questionCount)) && Number(game.questionCount)>0 ? `${Number(game.questionCount).toLocaleString('ar')} سؤال` : 'تحدٍ داخل Discord'}</span><span>اختر اللعبة ↖</span></footer></button></article>`).join('') || empty(games.length ? 'ما لقينا لعبة بهذه الفلاتر. جرّب بحثًا ثانيًا أو احفظ ألعابًا في المفضلة.' : 'لا توجد ألعاب متاحة حاليًا. ارجع قريبًا.');
   if ($('game-count')) $('game-count').textContent = `${filtered.length} لعبة متاحة`;
   if ($('game-search')) $('game-search').oninput = renderGames;
+  if ($('game-sort')) $('game-sort').onchange = renderGames;
+  if ($('game-favorites')) $('game-favorites').onclick = () => {$('game-favorites').setAttribute('aria-pressed',String(!favoritesOnly));renderGames();};
   if ($('game-category')) $('game-category').onchange = renderGames;
-  if ($('game-reset')) $('game-reset').onclick = () => { $('game-search').value = ''; $('game-category').value = 'all'; renderGames(); $('game-search').focus(); };
+  if ($('game-reset')) $('game-reset').onclick = () => { $('game-search').value = ''; $('game-category').value = 'all'; $('game-favorites')?.setAttribute('aria-pressed','false');renderGames(); $('game-search').focus(); };
   document.querySelectorAll('.game-tile[data-game]').forEach(button=>button.onclick=()=>startRace(button.dataset.game));
   $('play-zark').disabled = !games.length;
   $('play-zark').onclick=()=>startRace();
+  document.querySelectorAll('[data-save-game]').forEach(button=>button.onclick=()=>{
+    const slug=button.dataset.saveGame;
+    favoriteGames.has(slug)?favoriteGames.delete(slug):favoriteGames.add(slug);
+    try{localStorage.setItem('zark-favorite-games',JSON.stringify([...favoriteGames]));}catch{}
+    renderGames();
+    document.querySelector(`[data-save-game="${CSS.escape(slug)}"]`)?.focus();
+  });
+  const linked=new URLSearchParams(location.search).get('game');
+  if($('save-selected-game'))$('save-selected-game').textContent=favoriteGames.has($('race-command').dataset.game)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';
+  if(linked&&!$('race-command').dataset.game&&games.some(game=>game.slug===linked))startRace(linked);
 }
 
 async function startRace(gameSlug){
@@ -368,11 +387,16 @@ async function startRace(gameSlug){
   if (!game) return;
   $('race-title').textContent = `${game.icon || gameIcon(game.slug)} ${game.name}`;
   $('race-prompt').textContent = game.description || 'تحدٍ سريع داخل Discord';
+  if($('race-details'))$('race-details').textContent=`${game.category||'تحدي'} · ${Math.round((game.durationMs||15000)/1000)} ثانية افتراضيًا · ${game.questionCount||0} سؤال`;
   $('race-note').textContent = 'انسخ الأمر وأرسله في قناة الألعاب داخل Discord لبدء الجولة واحتساب النقاط.';
   const command = game.aliases?.[0] ? `.${game.aliases[0]}` : '/play';
   $('race-command').textContent = command;
   $('race-command').dataset.game = game.slug;
   $('race-actions').hidden = false;
+  if($('save-selected-game')){
+    $('save-selected-game').textContent=favoriteGames.has(game.slug)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';
+    $('save-selected-game').onclick=()=>{favoriteGames.has(game.slug)?favoriteGames.delete(game.slug):favoriteGames.add(game.slug);try{localStorage.setItem('zark-favorite-games',JSON.stringify([...favoriteGames]));}catch{}renderGames();$('save-selected-game').textContent=favoriteGames.has(game.slug)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';};
+  }
   $('copy-game-command').textContent = 'نسخ الأمر';
   $('copy-game-command').onclick = async () => {
     try { await navigator.clipboard.writeText($('race-command').textContent); $('copy-game-command').textContent = 'تم النسخ ✓'; }
@@ -586,7 +610,7 @@ async function loadAdminZarkContent(selectedSlug){
 function renderAdminQuestions(){
   const game=adminZarkContent.find(item=>item.slug===$('admin-zark-game-filter').value);
   if(!game){$('admin-question-list').innerHTML=empty('لا توجد ألعاب قابلة للإدارة.');return;}
-  $('admin-zark-game-summary').innerHTML=`<b>${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)}</b><small>${game.builtInQuestionCount||400}+ سؤال داخلي · ${game.enabledCustomQuestionCount||0}/${game.customQuestionCount||0} سؤال إداري مفعّل</small><p>${escapeHtml(game.description||'لعبة تحدي داخل Discord')}</p>`;
+  $('admin-zark-game-summary').innerHTML=`<b>${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)}</b><small>${game.builtInQuestionCount||0} سؤال داخلي · ${game.enabledCustomQuestionCount||0}/${game.customQuestionCount||0} سؤال إداري مفعّل</small><p>${escapeHtml(game.description||'لعبة تحدي داخل Discord')}</p>`;
   $('admin-question-count').textContent=`${game.questionCount}+ سؤال`;
   $('admin-question-list').innerHTML=game.questions.length?game.questions.map(question=>`<article class="question-item ${question.enabled?'':'disabled'}"><div class="question-preview">${question.mediaUrl?`<img src="${escapeHtml(question.mediaUrl)}" alt="">`:`<span>${escapeHtml(game.icon||gameIcon(game.slug))}</span>`}</div><div class="question-copy"><header><b>${escapeHtml(question.prompt)}</b><span>${question.enabled?'مفعّل':'معطّل'} · صعوبة ${question.difficulty}/5</span></header><p>الإجابات: ${question.acceptedAnswers.map(escapeHtml).join('، ')}</p><small>${new Date(question.updatedAt).toLocaleString('ar')}</small></div><div class="question-actions"><button class="button ghost small" type="button" data-edit-question="${question.id}">تعديل</button><button class="button danger small" type="button" data-delete-question="${question.id}">حذف</button></div></article>`).join(''):empty('لا توجد أسئلة لهذه اللعبة بعد. أضف أول سؤال من النموذج أعلاه.');
   document.querySelectorAll('[data-edit-question]').forEach(button=>button.onclick=()=>editAdminQuestion(button.dataset.editQuestion));

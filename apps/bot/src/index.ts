@@ -8,6 +8,7 @@ import path from "node:path";
 import fs from "node:fs";
 import sharp from "sharp";
 import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../packages/shared/src/lfg-platform.js";
+import { raceGames } from "../../../packages/games/src/index.js";
 import { apiGet, apiSend } from "./api/client.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -68,17 +69,7 @@ let runtimeSettings: GuildRuntimeSettings = {
   aiMaxOutputTokens: 250,
 };
 
-const playChoices = [
-  ["📘 help — اختصارات الألعاب", "help"],
-  ["🌍 ترجم", "translate"], ["🚩 أعلام", "flags"], ["🌐 عواصم ودول", "capitals"], ["⌨️ أسرع كتابة", "fast-type"],
-  ["🧩 إكمل الكلمة", "complete-word"], ["🔤 ترتيب الجملة", "word-order"], ["🎯 حساب سريع", "math"], ["🔘 اختيارات سريعة", "quick-choice"],
-  ["🏢 الشعارات", "logos"], ["🎭 بطل الأنمي", "anime-silhouette"],
-  ["🎮 خمن اللعبة", "game-logos"],
-  ["✅ صح أو خطأ", "true-false"], ["🔡 ترتيب الحروف", "letter-order"], ["👤 من أنا؟", "who-am-i"], ["❓ معلومات عامة", "trivia"], ["🧠 ألغاز سريعة", "riddles"], ["🎮 اختبار اللاعبين", "gaming-quiz"],
-  ["🐾 عالم الحيوانات", "animals"], ["🔬 علوم", "science"], ["🪐 الفضاء", "space"], ["⚽ كرة القدم", "football"], ["💻 تقنية", "technology"], ["🍕 مأكولات", "food"], ["🌿 الطبيعة", "nature"], ["🎨 ألوان", "colors"], ["🗣️ لغات", "languages"],
-  ["🏛️ تاريخ", "history"], ["💡 اختراعات", "inventions"], ["🌐 الإنترنت", "internet"], ["🧩 منطق", "logic"], ["📝 مرادفات", "synonyms"], ["↔️ أضداد", "antonyms"],
-  ["🗺️ بلدان العالم", "countries"], ["🏅 رياضات", "sports"], ["🌍 جغرافيا", "geography"], ["📚 كتب وقصص", "books"],
-] as const;
+const playChoices: Array<readonly [string,string]> = [["📘 help — اختصارات الألعاب", "help"], ...[...raceGames.values()].map(game=>[`${game.icon} ${game.name}`,game.slug] as const)];
 
 const dotAliases = new Map([
   [".ترجم", "translate"], [".اعلام", "flags"], [".أعلام", "flags"], [".عواصم", "capitals"], [".اسرع", "fast-type"], [".أسرع", "fast-type"],
@@ -88,6 +79,8 @@ const dotAliases = new Map([
   [".حيوانات", "animals"], [".علوم", "science"], [".فضاء", "space"], [".كرة", "football"], [".تقنية", "technology"], [".مأكولات", "food"], [".طبيعة", "nature"], [".ألوان", "colors"], [".الوان", "colors"], [".لغات", "languages"], [".تاريخ", "history"], [".اختراعات", "inventions"], [".انترنت", "internet"], [".إنترنت", "internet"], [".منطق", "logic"], [".مرادفات", "synonyms"], [".أضداد", "antonyms"], [".اضداد", "antonyms"], [".بلدان", "countries"], [".رياضات", "sports"], [".جغرافيا", "geography"], [".كتب", "books"],
   [".مساعدة العاب", "help"], [".play help", "help"],
 ]);
+
+for(const game of raceGames.values())for(const alias of game.aliases || [])dotAliases.set(`.${alias}`,game.slug);
 
 if (!token) {
   console.warn("DISCORD_TOKEN غير مضبوط؛ تم تخطي تشغيل بوت Discord.");
@@ -619,8 +612,9 @@ if (!token) {
       { name: "🌍 معرفة وسرعة", value: "`.اعلام` · `.ترجم` · `.عواصم` · `.معلومات` · `.حساب`" },
       { name: "⌨️ كلمات", value: "`.اسرع` · `.اكمل` · `.ترتيب` · `.حروف` · `.صح` · `.منانا`" },
       { name: "🎯 شعارات وتخمين", value: "`.شعارات` · `.سيارات` · `.شركات` · `.اختيارات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
+      { name: "🎬 ألعاب عادت للقائمة", value: "`.ايموجي` · `.أفلام` · `.مسلسلات` · `.موسيقى` · `.سيارات` · `.شركات`" },
       { name: "🌟 ألعاب إضافية", value: "`.حيوانات` `.علوم` `.فضاء` `.كرة` `.تقنية` `.مأكولات` `.طبيعة` `.الوان` `.لغات` `.تاريخ` `.اختراعات` `.انترنت` `.منطق` `.مرادفات` `.اضداد` `.بلدان` `.رياضات` `.جغرافيا` `.كتب`" },
-      { name: "🔁 جولات ولوبي", value: "اكتب اسم اللعبة في `/play` للبحث ضمن **36 لعبة**، ثم اكتب العدد الذي يناسبك من 1 إلى 20. وللعب الجماعي استخدم `/lobby` ثم دخول وجاهز؛ يبدأ تلقائيًا عند جاهزية الجميع." },
+      { name: "🔁 جولات ولوبي", value: "اكتب اسم اللعبة في /play للبحث ضمن " + raceGames.size + " لعبة. اختر 1–20 جولة أو استخدم /lobby للعب الجماعي." },
     );
   }
 
@@ -2194,7 +2188,7 @@ function buildCommands() {
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("ابدأ لعبة Zark داخل Discord")
-      .addStringOption((option) => option.setName("game").setDescription("اكتب اسم اللعبة للبحث بين 36 لعبة أو help").setAutocomplete(true))
+      .addStringOption((option) => option.setName("game").setDescription("اكتب اسم اللعبة للبحث في المكتبة أو help").setAutocomplete(true))
       .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات: 5 أو 10 أو 15 أو 20، أو أي عدد من 1 إلى 20").setMinValue(1).setMaxValue(20))
       .addIntegerOption((option) => option.setName("seconds").setDescription("وقت الإجابة بالثواني — من 10 إلى 60، الافتراضي 15").setMinValue(10).setMaxValue(60)),
     new SlashCommandBuilder()
