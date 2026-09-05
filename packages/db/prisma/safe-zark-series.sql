@@ -99,3 +99,20 @@ BEGIN
   END IF;
 END
 $user_tutorial_migration$;
+
+-- Additive upgrade: existing rooms/preferences remain unclassified.
+DO $lfg_platform_migration$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'LfgPlatform') THEN
+    CREATE TYPE "LfgPlatform" AS ENUM ('MOBILE', 'PC', 'PLAYSTATION');
+  END IF;
+  IF to_regclass('"LfgRoom"') IS NOT NULL THEN
+    ALTER TABLE "LfgRoom" ADD COLUMN IF NOT EXISTS "platform" "LfgPlatform";
+  END IF;
+  IF to_regclass('"UserGamePreference"') IS NOT NULL THEN
+    ALTER TABLE "UserGamePreference" ADD COLUMN IF NOT EXISTS "platform" "LfgPlatform";
+    CREATE INDEX IF NOT EXISTS "UserGamePreference_lfgGameId_platform_interestStatus_notifi_idx"
+      ON "UserGamePreference"("lfgGameId", "platform", "interestStatus", "notificationsEnabled");
+  END IF;
+END
+$lfg_platform_migration$;

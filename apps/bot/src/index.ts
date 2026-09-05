@@ -7,6 +7,7 @@ import { createClient } from "redis";
 import path from "node:path";
 import fs from "node:fs";
 import sharp from "sharp";
+import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../packages/shared/src/lfg-platform.js";
 import { apiGet, apiSend } from "./api/client.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -343,14 +344,22 @@ if (!token) {
     }
     if (interaction.customId === "lfg:create:game") {
       const slug = interaction.values[0];
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:players:${slug}`).setPlaceholder("كم لاعب تحتاج؟").addOptions([2, 3, 4, 5, 6, 8, 10].map((count) => ({ label: `${count} لاعبين`, value: String(count), emoji: "👥" }))));
+      return interaction.update({ embeds: [baseEmbed().setTitle("اختر منصة الغرفة").setDescription("الدعوات تصل فقط للمهتمين بنفس اللعبة والمنصة.")], components: [platformMenu(`lfg:platform:${slug}`)] });
+    }
+    if (interaction.customId.startsWith("lfg:interest-platform:")) {
+      return setInterest(interaction, interaction.customId.split(":")[2], true, true, interaction.values[0]);
+    }
+    if (interaction.customId.startsWith("lfg:platform:")) {
+      const slug = interaction.customId.split(":")[2];
+      const platform = interaction.values[0];
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:players:${slug}:${platform}`).setPlaceholder("كم لاعب تحتاج؟").addOptions([2, 3, 4, 5, 6, 8, 10].map((count) => ({ label: `${count} لاعبين`, value: String(count), emoji: "👥" }))));
       return interaction.update({ embeds: [baseEmbed().setTitle("👥 اختر حجم الفريق").setDescription("Zark سيطابقك مع المهتمين بنفس اللعبة ويرسل دعوات خاصة بدون إزعاج.")], components: [row] });
     }
     if (interaction.customId.startsWith("lfg:players:")) {
-      const slug = interaction.customId.split(":")[2];
+      const [, , slug, platform] = interaction.customId.split(":");
       const count = interaction.values[0];
       const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        new StringSelectMenuBuilder().setCustomId(`lfg:duration:${slug}:${count}`).setPlaceholder("حدد مدة اللعب").addOptions([
+        new StringSelectMenuBuilder().setCustomId(`lfg:duration:${slug}:${count}:${platform}`).setPlaceholder("حدد مدة اللعب").addOptions([
           { label: "30 دقيقة", value: "30", emoji: "⚡" },
           { label: "ساعة", value: "60", emoji: "🕐" },
           { label: "ساعة ونصف", value: "90", emoji: "⏱️" },
@@ -361,13 +370,13 @@ if (!token) {
       return interaction.update({ embeds: [baseEmbed().setTitle("⏱️ اختر مدة الجلسة").setDescription(`الفريق المطلوب: **${count} لاعبين**\nسيُنهي Zark الغرفة تلقائيًا بعد انتهاء المدة.`)], components: [row] });
     }
     if (interaction.customId.startsWith("lfg:duration:")) {
-      const [, , slug, count] = interaction.customId.split(":");
+      const [, , slug, count, platform] = interaction.customId.split(":");
       const duration = interaction.values[0];
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`lfg:create:${slug}:${count}:${duration}:voice`).setLabel("إنشاء مع Voice").setEmoji("🎙️").setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`lfg:create:${slug}:${count}:${duration}:novoice`).setLabel("بدون Voice").setEmoji("💬").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lfg:details:${slug}:${count}:${duration}`).setLabel("إضافة تفاصيل").setEmoji("📝").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`lfg:schedule:${slug}:${count}:${duration}`).setLabel("لاحقًا").setEmoji("🕐").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lfg:create:${slug}:${count}:${duration}:voice:${platform}`).setLabel("إنشاء مع Voice").setEmoji("🎙️").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`lfg:create:${slug}:${count}:${duration}:novoice:${platform}`).setLabel("بدون Voice").setEmoji("💬").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lfg:details:${slug}:${count}:${duration}:${platform}`).setLabel("إضافة تفاصيل").setEmoji("📝").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`lfg:schedule:${slug}:${count}:${duration}:${platform}`).setLabel("لاحقًا").setEmoji("🕐").setStyle(ButtonStyle.Secondary),
       );
       return interaction.update({ embeds: [baseEmbed().setTitle("⚡ جاهز للإنشاء").setDescription(`الفريق: **${count} لاعبين** · المدة: **${duration} دقيقة**\nأنشئ بسرعة أو أضف وصفًا وGame Mode.`)], components: [row] });
     }
@@ -490,10 +499,10 @@ if (!token) {
       return interaction.editReply(availabilityPanelPayload(saved, true));
     }
     if (parts[0] !== "lfg") return;
-    if (parts[1] === "create" && parts[2] === "roblox") return showRobloxRoomModal(interaction, Number(parts[3]), Number(parts[4]), parts[5] === "voice");
-    if (parts[1] === "create") return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), parts[5] === "voice");
-    if (parts[1] === "details") return showRoomDetailsModal(interaction, parts[2], Number(parts[3]), Number(parts[4]));
-    if (parts[1] === "schedule") return showScheduledRoomModal(interaction, parts[2], Number(parts[3]), Number(parts[4]));
+    if (parts[1] === "create" && parts[2] === "roblox") return showRobloxRoomModal(interaction, Number(parts[3]), Number(parts[4]), parts[5] === "voice", parts[6]);
+    if (parts[1] === "create") return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), parts[5] === "voice", undefined, undefined, undefined, undefined, parts[6]);
+    if (parts[1] === "details") return showRoomDetailsModal(interaction, parts[2], Number(parts[3]), Number(parts[4]), parts[5]);
+    if (parts[1] === "schedule") return showScheduledRoomModal(interaction, parts[2], Number(parts[3]), Number(parts[4]), parts[5]);
     if (parts[1] === "join") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const room = await apiSend<LiveRoom>(`/api/lfg/${parts[2]}/join`, "POST", actor(interaction));
@@ -529,20 +538,20 @@ if (!token) {
     if (parts[1] === "details") {
       const description = interaction.fields.getTextInputValue("description").trim();
       const gameMode = interaction.fields.getTextInputValue("gameMode").trim();
-      return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), true, description || undefined, gameMode || undefined);
+      return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), true, description || undefined, gameMode || undefined, undefined, undefined, parts[5]);
     }
     if (parts[1] === "schedule") {
       const scheduledFor = parseScheduledTime(interaction.fields.getTextInputValue("scheduledFor"));
       const description = interaction.fields.getTextInputValue("description").trim();
       const gameMode = interaction.fields.getTextInputValue("gameMode").trim();
       const mapName = parts[2] === "roblox" ? interaction.fields.getTextInputValue("mapName").trim() : undefined;
-      return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), true, description || undefined, gameMode || undefined, scheduledFor, mapName);
+      return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), true, description || undefined, gameMode || undefined, scheduledFor, mapName, parts[5]);
     }
     if (parts[1] === "roblox") {
       const mapName = interaction.fields.getTextInputValue("mapName").trim();
       const gameMode = interaction.fields.getTextInputValue("gameMode").trim();
       const description = interaction.fields.getTextInputValue("description").trim();
-      return createRoomFromInteraction(interaction, "roblox", Number(parts[2]), Number(parts[3]), parts[4] === "voice", description || undefined, gameMode || undefined, undefined, mapName);
+      return createRoomFromInteraction(interaction, "roblox", Number(parts[2]), Number(parts[3]), parts[4] === "voice", description || undefined, gameMode || undefined, undefined, mapName, parts[5]);
     }
     if (parts[1] === "report") {
       const reason = interaction.fields.getTextInputValue("reason");
@@ -664,9 +673,9 @@ if (!token) {
     return interaction.reply({ embeds: [baseEmbed().setTitle(enabled ? "🤖 تم تفعيل التجميع التلقائي" : "⏸️ تم إيقاف التجميع التلقائي").setDescription(enabled ? "سيفحص Zark الاهتمام والتفرغ كل 5 دقائق، وينشئ غرفة فقط عندما يتوفر الحد الأدنى من اللاعبين." : "لن ينشئ Zark غرفًا تلقائيًا حتى تعيد التفعيل.")], flags: MessageFlags.Ephemeral });
   }
 
-  async function createRoomFromInteraction(interaction: any, gameSlug: string, maxPlayers: number, durationMinutes: number, needsVoice: boolean, description?: string, gameMode?: string, scheduledFor?: string, mapName?: string) {
+  async function createRoomFromInteraction(interaction: any, gameSlug: string, maxPlayers: number, durationMinutes: number, needsVoice: boolean, description?: string, gameMode?: string, scheduledFor?: string, mapName?: string, platform?: LfgPlatform) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const room = await apiSend<LiveRoom>("/api/lfg/rooms", "POST", { ...actor(interaction), gameSlug, maxPlayers, durationMinutes, needsVoice, description, gameMode, scheduledFor, mapName });
+    const room = await apiSend<LiveRoom>("/api/lfg/rooms", "POST", { ...actor(interaction), gameSlug, maxPlayers, durationMinutes, needsVoice, description, gameMode, scheduledFor, mapName, platform: LFG_PLATFORMS.includes(platform as LfgPlatform) ? platform : undefined });
     const listedRoom = await publishRoomListing(room);
     await ensureRoomSpace(listedRoom ?? room);
     await notifyInterestedPlayers(listedRoom ?? room);
@@ -1316,7 +1325,7 @@ if (!token) {
         const user = await client.users.fetch(candidate.user.id);
         const scheduleText = room.scheduledFor ? `\n🕐 الموعد: <t:${Math.floor(new Date(room.scheduledFor).getTime() / 1000)}:F>` : "";
         const mapText = room.mapName ? `\n🗺️ الماب: **${room.mapName}**` : "";
-        const delivery = await sendDirectMessage(user, { embeds: [baseEmbed().setTitle(`${room.gameIcon ?? "🎮"} تجمع ${room.gameName}${room.scheduledFor ? " مجدول" : " الآن"}!`).setDescription(`👥 ${room.currentPlayers}/${room.maxPlayers} لاعبين\n🎙️ Voice: ${room.needsVoice ? "متاح" : "غير مطلوب"}${mapText}${scheduleText}\n\nوصلتك الدعوة لأنك مهتم بهذه اللعبة وإشعاراتها مفعلة.`)], components: [buttons] }, `LFG room ${room.id}`);
+        const delivery = await sendDirectMessage(user, { embeds: [baseEmbed().setTitle(`${room.gameIcon ?? "🎮"} تجمع ${room.gameName}${room.scheduledFor ? " مجدول" : " الآن"}!`).setDescription(`👥 ${room.currentPlayers}/${room.maxPlayers} لاعبين\n${room.platform ? LFG_PLATFORM_LABELS[room.platform] : "المنصة غير محددة"}\n🎙️ Voice: ${room.needsVoice ? "متاح" : "غير مطلوب"}${mapText}${scheduleText}\n\nوصلتك الدعوة لأنك مهتم بهذه اللعبة على نفس المنصة وإشعاراتها مفعلة.`)], components: [buttons] }, `LFG room ${room.id}`);
         if (!delivery.sent) {
           failedCount += 1;
           if (delivery.quarantined) break;
@@ -1555,10 +1564,15 @@ if (!token) {
     await interaction.editReply({ embeds: [baseEmbed().setTitle("❤️ اهتمامات LFG").setDescription("Zark يرسل لك فقط عندما توجد فرصة لعب حقيقية للعبة مهتم بها.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
   }
 
-  async function setInterest(interaction: any, gameSlug: string, interested: boolean, notificationsEnabled: boolean) {
+  function platformMenu(customId: string) {
+    return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(customId).setPlaceholder("اختر المنصة: جوال، كمبيوتر، بلايستيشن").addOptions(LFG_PLATFORMS.map(value => ({label:LFG_PLATFORM_LABELS[value],value}))));
+  }
+
+  async function setInterest(interaction: any, gameSlug: string, interested: boolean, notificationsEnabled: boolean, platform?: LfgPlatform) {
+    if (interested && !platform) return interaction.update({ content: "اختر منصتك لهذه اللعبة. لن تصلك دعوات المنصات الأخرى.", embeds: [], components: [platformMenu(`lfg:interest-platform:${gameSlug}`)] });
     await interaction.deferUpdate();
-    await apiSend(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}`, "PUT", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), interested, notificationsEnabled });
-    const message = interested ? "❤️ أضفت اللعبة لاهتماماتك والإشعارات مفعلة." : "🚫 لن تصلك اقتراحات أو إشعارات لهذه اللعبة.";
+    await apiSend(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}`, "PUT", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), interested, notificationsEnabled, platform });
+    const message = interested ? `❤️ تم حفظ اهتمامك على ${platform ? LFG_PLATFORM_LABELS[platform] : "منصتك"}. الإشعارات لنفس المنصة فقط.` : "🚫 لن تصلك اقتراحات أو إشعارات لهذه اللعبة.";
     return interaction.editReply({ content: message, embeds: [], components: [] });
   }
 
@@ -1606,20 +1620,20 @@ if (!token) {
     return interaction.showModal(modal);
   }
 
-  function showRoomDetailsModal(interaction: any, gameSlug: string, count: number, durationMinutes: number) {
-    if (gameSlug === "roblox") return showRobloxRoomModal(interaction, count, durationMinutes, true);
-    const modal = new ModalBuilder().setCustomId(`lfg:details:${gameSlug}:${count}:${durationMinutes}`).setTitle("تفاصيل غرفة LFG").addComponents(
+  function showRoomDetailsModal(interaction: any, gameSlug: string, count: number, durationMinutes: number, platform?: LfgPlatform) {
+    if (gameSlug === "roblox") return showRobloxRoomModal(interaction, count, durationMinutes, true, platform);
+    const modal = new ModalBuilder().setCustomId(`lfg:details:${gameSlug}:${count}:${durationMinutes}:${platform ?? ""}`).setTitle("تفاصيل غرفة LFG").addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("gameMode").setLabel("Game Mode — اختياري").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80)),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("description").setLabel("وصف قصير — اختياري").setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500)),
     );
     return interaction.showModal(modal);
   }
 
-  function showScheduledRoomModal(interaction: any, gameSlug: string, count: number, durationMinutes: number) {
+  function showScheduledRoomModal(interaction: any, gameSlug: string, count: number, durationMinutes: number, platform?: LfgPlatform) {
     const example = new Date(Date.now() + 60 * 60_000);
     const pad = (value: number) => String(value).padStart(2, "0");
     const suggested = `${example.getFullYear()}-${pad(example.getMonth() + 1)}-${pad(example.getDate())} ${pad(example.getHours())}:${pad(example.getMinutes())}`;
-    const modal = new ModalBuilder().setCustomId(`lfg:schedule:${gameSlug}:${count}:${durationMinutes}`).setTitle("جدولة غرفة LFG").addComponents(
+    const modal = new ModalBuilder().setCustomId(`lfg:schedule:${gameSlug}:${count}:${durationMinutes}:${platform ?? ""}`).setTitle("جدولة غرفة LFG").addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("scheduledFor").setLabel("الموعد YYYY-MM-DD HH:mm").setStyle(TextInputStyle.Short).setValue(suggested).setRequired(true).setMaxLength(16)),
       ...(gameSlug === "roblox" ? [new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("mapName").setLabel("اسم ماب Roblox").setPlaceholder("Brookhaven / Blox Fruits...").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100))] : []),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("gameMode").setLabel("Game Mode — اختياري").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80)),
@@ -1628,8 +1642,8 @@ if (!token) {
     return interaction.showModal(modal);
   }
 
-  function showRobloxRoomModal(interaction: any, count: number, durationMinutes: number, needsVoice: boolean) {
-    const modal = new ModalBuilder().setCustomId(`lfg:roblox:${count}:${durationMinutes}:${needsVoice ? "voice" : "novoice"}`).setTitle("تفاصيل Roblox").addComponents(
+  function showRobloxRoomModal(interaction: any, count: number, durationMinutes: number, needsVoice: boolean, platform?: LfgPlatform) {
+    const modal = new ModalBuilder().setCustomId(`lfg:roblox:${count}:${durationMinutes}:${needsVoice ? "voice" : "novoice"}:${platform ?? ""}`).setTitle("تفاصيل Roblox").addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("mapName").setLabel("اسم الماب — مطلوب").setPlaceholder("Brookhaven / Blox Fruits / Adopt Me...").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("gameMode").setLabel("نوع اللعب — اختياري").setPlaceholder("Grinding / Roleplay / PvP").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80)),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("description").setLabel("وصف قصير — اختياري").setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500)),
@@ -1931,7 +1945,7 @@ if (!token) {
     const embed = baseEmbed()
       .setColor(Number.parseInt(room.accentColor.replace("#", ""), 16) || brand.color)
       .setTitle(`${room.roomEmoji ?? room.gameIcon ?? "🎮"} ${room.title ?? room.gameName} | LFG`)
-      .setDescription(`${status}\n👑 **${room.hostName}** · 👥 **${room.currentPlayers}/${room.maxPlayers}**\n🕐 ${timing}${room.mapName ? `\n🗺️ **الماب:** ${room.mapName}` : ""}${room.gameMode ? `\n🎯 **النمط:** ${room.gameMode}` : ""}${room.description ? `\n${room.description}` : ""}`);
+      .setDescription(`${status}\n${room.platform ? LFG_PLATFORM_LABELS[room.platform] : "المنصة غير محددة"}\n👑 **${room.hostName}** · 👥 **${room.currentPlayers}/${room.maxPlayers}**\n🕐 ${timing}${room.mapName ? `\n🗺️ **الماب:** ${room.mapName}` : ""}${room.gameMode ? `\n🎯 **النمط:** ${room.gameMode}` : ""}${room.description ? `\n${room.description}` : ""}`);
     if (detailed) embed.addFields({ name: "أعضاء الغرفة", value: players.slice(0, 1024) });
     return embed;
   }
@@ -2221,7 +2235,7 @@ type RaceProgress = { completed: true; seriesId: string; totalRounds: number; st
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
-type LiveRoom = { id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
+type LiveRoom = { platform?: LfgPlatform; id: string; hostId: string; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type TradeView = { id: string; code: string; publicId: number; itemName: string; imageData: string; haveText: string; wantText: string; description?: string; status: string; discordChannelId?: string; discordMessageId?: string; owner: { id: string; displayName: string; avatarUrl?: string }; game: { name: string; icon?: string }; _count?: { interests: number; conversations: number } };

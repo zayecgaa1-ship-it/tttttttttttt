@@ -812,12 +812,19 @@ model TradeAuditLog {
   @@index([actorId, createdAt])
 }
 
+enum LfgPlatform {
+  MOBILE
+  PC
+  PLAYSTATION
+}
+
 model UserGamePreference {
   userId               String
   lfgGameId            String
   interestStatus       GameInterestStatus @default(INTERESTED)
   notificationsEnabled Boolean            @default(true)
   autoInvitesEnabled   Boolean            @default(true)
+  platform             LfgPlatform?
   mutedUntil           DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
@@ -826,6 +833,7 @@ model UserGamePreference {
 
   @@id([userId, lfgGameId])
   @@index([lfgGameId, interestStatus, notificationsEnabled])
+  @@index([lfgGameId, platform, interestStatus, notificationsEnabled])
 }
 
 model NotificationDelivery {
@@ -848,6 +856,7 @@ model LfgRoom {
   id                  String          @id @default(cuid())
   hostId              String
   lfgGameId           String
+  platform            LfgPlatform?
   title               String?
   description         String?
   gameMode            String?

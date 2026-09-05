@@ -6,7 +6,7 @@
   <title>غرف LFG — Zark LFG System</title>
   <meta name="description" content="ابحث بذكاء عن لاعبين وانضم لغرف الألعاب الحية.">
   <link rel="stylesheet" href="/styles.css?v=2744916">
-</head>
+<meta name="theme-color" content="#101116"><link rel="stylesheet" href="/modern.css?v=20260905-platform"></head>
 <body data-page="lfg">
   <header id="site-nav"></header>
   <main class="shell page-main">
@@ -16,6 +16,7 @@
         <div class="panel-title"><span>⚡</span><div><h2>أنشئ تجمعًا</h2><p>خطوات قليلة، فريق أسرع.</p></div></div>
         <form id="create-room-form">
           <label>اللعبة<select id="room-game" required><option>جارِ التحميل...</option></select></label>
+          <label>منصة الغرفة<select id="room-platform" required><option value="">اختر المنصة</option><option value="MOBILE">📱 جوال</option><option value="PC">💻 كمبيوتر</option><option value="PLAYSTATION">🎮 بلايستيشن</option></select><small class="platform-hint">الدعوات للاعبي نفس اللعبة والمنصة فقط.</small></label>
           <div class="form-row"><label>عدد اللاعبين<select id="room-size"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option></select></label><label>متى؟<select id="room-when"><option value="now">🟢 الآن</option><option value="later">🕐 لاحقًا</option></select></label></div>
           <div id="room-schedule-label" class="simple-schedule" hidden>
             <label>الساعة<select id="room-schedule-hour"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9" selected>9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></label>
@@ -36,7 +37,7 @@
       <section class="rooms-area">
         <div class="section-heading"><div><span class="eyebrow">LIVE ROOMS</span><h2>الغرف المباشرة</h2></div><span id="room-count" class="live-chip">0 LIVE</span></div>
         <label class="smart-search"><span>⌕</span><input id="room-search" type="search" maxlength="100" placeholder="بحث ذكي بأي لغة: ماينكرافت، Minecraft، माइनक्राफ्ट..."></label>
-        <div id="lfg-filters" class="filter-row"></div><div id="rooms" class="room-list"></div>
+        <label class="platform-filter">منصة اللعب<select id="room-platform-filter"><option value="all">كل المنصات</option><option value="unknown">غير محددة</option><option value="MOBILE">📱 جوال</option><option value="PC">💻 كمبيوتر</option><option value="PLAYSTATION">🎮 بلايستيشن</option></select></label><div id="lfg-filters" class="filter-row"></div><div id="rooms" class="room-list"></div>
       </section>
     </section>
     <section id="room-manager" class="section" hidden>
@@ -45,7 +46,7 @@
         <input id="manage-room-id" type="hidden">
         <div class="settings-grid three">
           <label>عنوان الغرفة<input id="manage-room-title" maxlength="80"></label><label>رمز الغرفة<input id="manage-room-emoji" maxlength="12"></label><label>لون الغرفة<input id="manage-room-color" type="color" value="#e50914"></label>
-          <label>Game Mode<input id="manage-room-mode" maxlength="80"></label><label id="manage-room-map-label" hidden>اسم ماب Roblox<input id="manage-room-map" maxlength="100"></label><label>عدد اللاعبين<input id="manage-room-size" type="number" min="2" max="50"></label><label>المدة بالدقائق<input id="manage-room-duration" type="number" min="15" max="360"></label>
+          <label>منصة الغرفة<select id="manage-room-platform"><option value="">اختر المنصة</option><option value="MOBILE">📱 جوال</option><option value="PC">💻 كمبيوتر</option><option value="PLAYSTATION">🎮 بلايستيشن</option></select></label><label>Game Mode<input id="manage-room-mode" maxlength="80"></label><label id="manage-room-map-label" hidden>اسم ماب Roblox<input id="manage-room-map" maxlength="100"></label><label>عدد اللاعبين<input id="manage-room-size" type="number" min="2" max="50"></label><label>المدة بالدقائق<input id="manage-room-duration" type="number" min="15" max="360"></label>
         </div>
         <label>الوصف<textarea id="manage-room-description" maxlength="500"></textarea></label>
         <div class="toggle-grid two"><label class="toggle-card"><input id="manage-room-voice" type="checkbox"><span><b>Voice خاص</b><small>مساحة صوت مرتبطة بالجلسة</small></span></label><label class="toggle-card"><input id="manage-room-locked" type="checkbox"><span><b>قفل الدخول</b><small>يمنع أعضاء جدد من الانضمام</small></span></label></div>
@@ -53,8 +54,8 @@
         <p id="room-manager-result" class="form-result"></p>
       </form>
     </section>
-    <section class="section interest-section"><div class="section-heading"><div><span class="eyebrow">SMART NOTIFICATIONS</span><h2>اهتماماتك وإشعاراتك</h2></div></div><p class="section-copy">اختر الألعاب التي تهمك. يمكنك إبقاء اللعبة ضمن اهتماماتك وإيقاف الرسائل الخاصة وحدها.</p><div id="interest-games" class="interest-grid"></div></section>
+    <section class="section interest-section"><div class="section-heading"><div><span class="eyebrow">SMART NOTIFICATIONS</span><h2>اهتماماتك وإشعاراتك</h2></div></div><p class="section-copy">اختر منصتك لكل لعبة: جوال، كمبيوتر أو بلايستيشن. تصلك دعوات نفس اللعبة والمنصة فقط. حدد المنصة للألعاب التي أضفتها سابقًا لتستقبل دعوات الغرف المصنّفة.</p><div id="interest-games" class="interest-grid"></div></section>
   </main>
-  <footer id="site-footer"></footer><script src="/app.js?v=2745004"></script>
+  <footer id="site-footer"></footer><script src="/app.js?v=20260905-platform"></script>
 </body>
 </html>

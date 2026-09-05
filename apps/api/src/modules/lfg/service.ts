@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../../../../../packages/db/src/client.js";
 import type { LiveRoom } from "../../../../../packages/shared/src/index.js";
+import { matchesLfgPlatform, LFG_PLATFORMS, type LfgPlatform } from "../../../../../packages/shared/src/lfg-platform.js";
 import { enforceRateLimit, publish } from "../../events.js";
 import { serializable } from "../../db-transaction.js";
 import { getGuildRuntimeSettings } from "../admin/service.js";
@@ -161,14 +162,14 @@ export async function syncLfgUserIdentity(input: { userId: string; displayName: 
   return user;
 }
 
-export async function updateUserPreference(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug: string; interested: boolean; notificationsEnabled: boolean; autoInvitesEnabled?: boolean }) {
+export async function updateUserPreference(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug: string; interested: boolean; notificationsEnabled: boolean; autoInvitesEnabled?: boolean; platform?: LfgPlatform }) {
   await seedLfgCatalog();
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: input.gameSlug } });
   await upsertActor(input);
   const preference = await db.userGamePreference.upsert({
     where: { userId_lfgGameId: { userId: input.userId, lfgGameId: game.id } },
-    update: { interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, mutedUntil: null, ...(input.autoInvitesEnabled === undefined ? {} : { autoInvitesEnabled: input.interested && input.autoInvitesEnabled }) },
-    create: { userId: input.userId, lfgGameId: game.id, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, autoInvitesEnabled: input.interested && (input.autoInvitesEnabled ?? true) },
+    update: { platform: input.platform, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, mutedUntil: null, ...(input.autoInvitesEnabled === undefined ? {} : { autoInvitesEnabled: input.interested && input.autoInvitesEnabled }) },
+    create: { platform: input.platform, userId: input.userId, lfgGameId: game.id, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, autoInvitesEnabled: input.interested && (input.autoInvitesEnabled ?? true) },
     include: { game: true },
   });
   publish({ type: "user.interest_changed", userId: input.userId, gameSlug: game.slug, interested: input.interested, notificationsEnabled: preference.notificationsEnabled });
@@ -201,11 +202,13 @@ export async function snoozeGameNotifications(input: { userId: string; displayNa
   return preference;
 }
 
-export async function createLfgRoom(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug: string; maxPlayers: number; durationMinutes?: number; scheduledFor?: Date; title?: string; description?: string; gameMode?: string; mapName?: string; needsVoice?: boolean; roomEmoji?: string; accentColor?: string }) {
+export async function createLfgRoom(input: { userId: string; displayName: string; avatarUrl?: string; gameSlug: string; maxPlayers: number; durationMinutes?: number; scheduledFor?: Date; title?: string; description?: string; gameMode?: string; mapName?: string; needsVoice?: boolean; roomEmoji?: string; accentColor?: string; platform?: LfgPlatform }) {
   await enforceRateLimit("lfg-create", input.userId, 5, 10 * 60);
   await seedLfgCatalog();
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: input.gameSlug } });
   if (!game.enabled) throw new Error("هذه اللعبة غير متاحة في LFG حاليًا");
+  const preference = await db.userGamePreference.findUnique({ where: { userId_lfgGameId: { userId: input.userId, lfgGameId: game.id } }, select: { platform: true } });
+  const platform = input.platform ?? preference?.platform ?? null;
   const mapName = input.mapName?.trim();
   if (game.slug === "roblox" && !mapName) throw new Error("اكتب اسم ماب Roblox قبل إنشاء الغرفة");
   const maxPlayers = Math.min(game.maxPlayers, Math.max(game.minPlayers, input.maxPlayers));
@@ -220,6 +223,7 @@ export async function createLfgRoom(input: { userId: string; displayName: string
       data: {
         hostId: input.userId,
         lfgGameId: game.id,
+        platform,
         maxPlayers,
         durationMinutes,
         memberCount: 1,
@@ -252,8 +256,9 @@ export async function quickMatchLfg(input: { userId: string; displayName: string
   if (!settings.quickMatchEnabled) throw new Error("Quick Match معطّل مؤقتًا من الإدارة");
   await seedLfgCatalog();
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: input.gameSlug } });
+  const preference = await db.userGamePreference.findUnique({ where: { userId_lfgGameId: { userId: input.userId, lfgGameId: game.id } } });
   const room = await db.lfgRoom.findFirst({
-    where: { lfgGameId: game.id, status: "OPEN", hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
+    where: { lfgGameId: game.id, platform: preference?.platform ?? null, status: "OPEN", hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
     orderBy: { createdAt: "asc" },
   });
   if (room) return joinLfgRoom(room.id, input);
@@ -267,8 +272,9 @@ export async function smartMatchLfg(input: { userId: string; displayName: string
   const insight = input.gameSlug ? insights.find((item) => item.gameSlug === input.gameSlug) : insights[0];
   if (!insight) throw new Error("لا توجد لعبة متاحة للتجميع الذكي الآن");
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: insight.gameSlug } });
+  const preference = await db.userGamePreference.findUnique({ where: { userId_lfgGameId: { userId: input.userId, lfgGameId: game.id } } });
   const existing = await db.lfgRoom.findFirst({
-    where: { lfgGameId: game.id, status: "OPEN", hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
+    where: { lfgGameId: game.id, platform: preference?.platform ?? null, status: "OPEN", hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
     orderBy: [{ memberCount: "desc" }, { createdAt: "asc" }],
   });
   if (existing) return { room: await joinLfgRoom(existing.id, input), insight, joinedExisting: true };
@@ -296,30 +302,34 @@ export async function processAutoSmartRooms(options: { force?: boolean } = {}) {
   if (!claimed) return { created: false, reason: "cooldown" as const };
   const cooldownSince = new Date(now.getTime() - settings.autoRoomIntervalMinutes * 60_000);
   const candidates = (await getLfgInterestInsights()).filter((item) => item.interestedCount >= settings.autoRoomMinimumInterested);
-  let selected: { candidate: LfgInterestInsight; game: NonNullable<Awaited<ReturnType<typeof db.lfgGameCatalog.findUnique>>> } | undefined;
+  let selected: { candidate: LfgInterestInsight; game: NonNullable<Awaited<ReturnType<typeof db.lfgGameCatalog.findUnique>>>; platform: LfgPlatform; playerCount: number } | undefined;
   for (const insight of candidates) {
     const catalogGame = await db.lfgGameCatalog.findUnique({ where: { slug: insight.gameSlug } });
     if (!catalogGame) continue;
-    const [existing, recentAutoRoom] = await Promise.all([
-      db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, select: { id: true } }),
-      db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, title: { startsWith: "تجمع Zark تلقائي" }, createdAt: { gte: cooldownSince } }, select: { id: true } }),
-    ]);
-    if (!existing && !recentAutoRoom) {
-      selected = { candidate: insight, game: catalogGame };
-      break;
+    const preferences = await db.userGamePreference.findMany({ where: { lfgGameId: catalogGame.id, interestStatus: "INTERESTED", autoInvitesEnabled: true }, select: { platform: true } });
+    const groups = LFG_PLATFORMS.map(platform => ({ platform, count: preferences.filter(pref => pref.platform === platform).length })).sort((a,b) => b.count-a.count);
+    for (const group of groups) {
+      if (group.count < settings.autoRoomMinimumInterested) continue;
+      const [existing, recentAutoRoom] = await Promise.all([
+        db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, platform: group.platform, status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, select: { id: true } }),
+        db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, platform: group.platform, title: { startsWith: "تجمع Zark تلقائي" }, createdAt: { gte: cooldownSince } }, select: { id: true } }),
+      ]);
+      if (!existing && !recentAutoRoom) { selected = { candidate: insight, game: catalogGame, platform: group.platform, playerCount: group.count }; break; }
     }
+    if (selected) break;
   }
   if (!selected) return { created: false, reason: candidates.length ? "active-room-exists" as const : "not-enough-available-players" as const };
-  const { candidate, game } = selected;
+  const { candidate, game, platform, playerCount } = selected;
   await upsertActor(autoOrganizer);
   const room = await db.lfgRoom.create({
     data: {
       hostId: autoOrganizer.userId, lfgGameId: game.id, memberCount: 0,
-      maxPlayers: Math.min(game.maxPlayers, Math.max(settings.autoRoomMinimumInterested, candidate.interestedCount)),
+      platform,
+      maxPlayers: Math.min(game.maxPlayers, Math.max(settings.autoRoomMinimumInterested, playerCount)),
       durationMinutes: settings.defaultRoomDurationMinutes, status: "OPEN", source: "AUTO", needsVoice: true,
       expiresAt: null,
       title: `تجمع Zark تلقائي • ${candidate.interestPercent}% مهتمون`,
-      description: `اختاره Zark تلقائيًا: ${candidate.availableNowCount} عضوًا متفرغًا الآن من المهتمين باللعبة (الحد التلقائي: ${candidate.autoMinAvailable}).`,
+      description: `اختاره Zark تلقائيًا: ${playerCount} عضوًا مهتمًا باللعبة على نفس المنصة.`,
       roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: null,
     }, include: roomInclude,
   });
@@ -532,7 +542,7 @@ export async function listRoomCleanupResources() {
   return rooms.map(toLiveRoom);
 }
 
-export async function updateLfgRoom(roomId: string, actorId: string, input: { title?: string | null; description?: string | null; gameMode?: string | null; mapName?: string | null; maxPlayers?: number; durationMinutes?: number; needsVoice?: boolean; locked?: boolean; roomEmoji?: string | null; accentColor?: string }) {
+export async function updateLfgRoom(roomId: string, actorId: string, input: { title?: string | null; description?: string | null; gameMode?: string | null; mapName?: string | null; maxPlayers?: number; durationMinutes?: number; needsVoice?: boolean; locked?: boolean; roomEmoji?: string | null; accentColor?: string; platform?: LfgPlatform }) {
   const current = await assertRoomHost(roomId, actorId);
   if (!["SCHEDULED", "OPEN", "FULL", "ACTIVE"].includes(current.status)) throw new Error("لا يمكن تعديل غرفة منتهية");
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { id: current.lfgGameId } });
@@ -542,6 +552,7 @@ export async function updateLfgRoom(roomId: string, actorId: string, input: { ti
     where: { id: roomId },
     data: {
       title: input.title === undefined ? undefined : input.title?.trim() || null,
+      platform: input.platform,
       description: input.description === undefined ? undefined : input.description?.trim() || null,
       gameMode: input.gameMode === undefined ? undefined : input.gameMode?.trim() || null,
       mapName: input.mapName === undefined ? undefined : input.mapName?.trim() || null,
@@ -772,6 +783,7 @@ export async function getNotificationCandidates(roomId: string) {
   const candidates = await db.userGamePreference.findMany({
     where: {
       lfgGameId: room.lfgGameId,
+      platform: room.platform,
       interestStatus: "INTERESTED",
       notificationsEnabled: true,
       ...(isAutomaticRoom ? { autoInvitesEnabled: true } : {}),
@@ -786,6 +798,7 @@ export async function getNotificationCandidates(roomId: string) {
   // room alert that the member has explicitly requested.
   const selected = [];
   for (const candidate of candidates) {
+    if (!matchesLfgPlatform(room.platform, candidate.platform)) continue;
     try {
       const dedupeKey = `${roomId}:${candidate.userId}`;
       const previous = await db.notificationDelivery.findUnique({ where: { dedupeKey }, select: { status: true } });
@@ -846,6 +859,7 @@ function toLiveRoom(room: RoomWithRelations): LiveRoom {
     hostAvatarUrl: room.host.avatarUrl ?? undefined,
     lfgGameId: room.lfgGame.id,
     gameSlug: room.lfgGame.slug,
+    platform: room.platform ?? undefined,
     gameName: room.lfgGame.name,
     gameIcon: room.lfgGame.icon ?? undefined,
     title: room.title ?? undefined,

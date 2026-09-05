@@ -4,6 +4,9 @@ let state;
 let me;
 let roomFilter = 'all';
 let roomSearch = '';
+const platformLabels = {MOBILE:'📱 جوال',PC:'💻 كمبيوتر',PLAYSTATION:'🎮 بلايستيشن'};
+let userGamePlatforms = new Map();
+function platformLabel(value){return platformLabels[value] || 'منصة غير محددة';}
 let activeUserTicket;
 let activeAdminTicket;
 let reportPresenceTimer;
@@ -27,6 +30,7 @@ const roomSearchAliases={
 boot().catch(showFatal);
 
 async function boot() {
+  renderShell();
   me = (await api('/api/me')).user;
   renderShell();
   state = await api('/api/state');
@@ -56,10 +60,18 @@ function renderShell() {
   $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><span class="footer-brand">ZARK <b>LFG</b> SYSTEM</span><span>فريقك أقرب مما تتخيل.</span><div class="footer-links"><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div></div></div>`;
   $('nav-links').insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
   $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
-  document.body.insertAdjacentHTML('beforeend','<button id="tutorial-help-fab" class="tutorial-help-fab" type="button" aria-label="فتح مركز الشرح">؟<span>الشرح</span></button><span id="realtime-status" class="realtime-status" title="حالة التحديث المباشر">● مباشر</span>');
+  if (!$('tutorial-help-fab')) document.body.insertAdjacentHTML('beforeend','<button id="tutorial-help-fab" class="tutorial-help-fab" type="button" aria-label="فتح مركز الشرح">؟<span>الشرح</span></button><span id="realtime-status" class="realtime-status offline" title="حالة التحديث المباشر">● جارِ الاتصال</span>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="/status.html">حالة النظام</a>');
-  $('mobile-menu').onclick = () => $('nav-links').classList.toggle('open');
+  const menu = $('mobile-menu');
+  menu.setAttribute('aria-controls', 'nav-links');
+  menu.setAttribute('aria-expanded', 'false');
+  const closeMenu = () => { $('nav-links').classList.remove('open'); menu.setAttribute('aria-expanded', 'false'); };
+  menu.onclick = () => menu.setAttribute('aria-expanded', String($('nav-links').classList.toggle('open')));
+  $('site-nav').onkeydown = event => { if (event.key === 'Escape') { closeMenu(); menu.focus(); } };
+  document.querySelector('main').onclick = closeMenu;
+  document.querySelector('.nav-links a.active')?.setAttribute('aria-current', 'page');
+  if (!$('skip-content')) { document.body.insertAdjacentHTML('afterbegin', '<a id="skip-content" class="skip-link" href="#main-content">انتقل إلى المحتوى</a>'); document.querySelector('main').id = 'main-content'; document.querySelector('main').tabIndex = -1; }
   $('open-onboarding').onclick = () => tutorialManager.openCenter();
   $('tutorial-help-fab').onclick = () => tutorialManager.openCenter();
   if(me&&!$('zark-ai-widget')){
@@ -237,7 +249,8 @@ async function renderLfg(realtime) {
   if (!realtime) {
     $('room-game').dataset.tourId='game-selector';$('room-game').dataset.tour='game-selector';$('room-size').dataset.tourId='players-count';$('room-size').dataset.tour='players-count';$('room-when').dataset.tourId='play-when';$('room-when').dataset.tour='play-when';$('room-schedule-label').dataset.tourId='schedule-time';$('lfg-filters').dataset.tourId='categories';$('lfg-filters').dataset.tour='categories';$('interest-games').dataset.tourId='interests';$('interest-games').dataset.tour='interests';
     $('room-game').innerHTML = games.map(game => `<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||'🎮')} ${escapeHtml(game.name)}</option>`).join('');
-    $('room-game').onchange=updateRobloxMapField;updateRobloxMapField();
+    $('room-game').onchange=()=>{updateRobloxMapField();$('room-platform').value=userGamePlatforms.get($('room-game').value)||'';};updateRobloxMapField();
+    $('room-platform-filter').onchange=renderRoomList;
     $('lfg-filters').innerHTML = `<button class="active" data-filter="all">الكل</button>${catalog.map(category => `<button data-filter="${escapeHtml(category.slug)}">${escapeHtml(category.icon||'🎮')} ${escapeHtml(category.name)}</button>`).join('')}`;
     document.querySelectorAll('[data-filter]').forEach(button => button.onclick = () => { roomFilter=button.dataset.filter; document.querySelectorAll('[data-filter]').forEach(item=>item.classList.toggle('active',item===button)); renderRoomList(); });
     const initialSearch=new URLSearchParams(location.search).get('room')||new URLSearchParams(location.search).get('q')||'';$('room-search').value=initialSearch;roomSearch=normalizeRoomSearch(initialSearch);
@@ -253,6 +266,8 @@ function renderRoomList() {
   const categories = new Map((state.lfgCatalog||[]).flatMap(category => category.games.map(game => [game.slug, category.slug])));
   const rooms = (state.rooms||[]).filter(room => {
     if (roomFilter!=='all' && categories.get(room.gameSlug)!==roomFilter) return false;
+    const platformFilter=$('room-platform-filter').value;
+    if(platformFilter!=='all' && (room.platform||'unknown')!==platformFilter)return false;
     if (!roomSearch) return true;
     return smartRoomMatch(room,roomSearch);
   });
@@ -262,7 +277,7 @@ function renderRoomList() {
     const status=room.status==='SCHEDULED'?'مجدولة':room.status==='ACTIVE'?'يلعبون الآن':room.status==='COMPLETED'?'انتهت':room.status==='CLOSED'?'مغلقة':room.status==='FULL'?'مكتملة':'تجمع';
     const players=(room.members||[]).map(member=>`<span class="room-player ${member.voiceActive?'voice':''}">${avatar(member.avatarUrl,member.displayName,'mini')}${member.id===room.hostId?'👑':member.voiceActive?'🎙️':'●'} ${escapeHtml(member.displayName)}</span>`).join('')||'<span class="room-player muted">بانتظار اللاعبين</span>';
     const remaining=formatRoomTiming(room);
-    return `<article class="room-card detailed" style="--room-accent:${escapeHtml(room.accentColor||'#e50914')}"><div><div class="room-top"><span class="game-icon">${escapeHtml(room.roomEmoji||room.gameIcon||'🎮')}</span><span class="room-status status-${room.status.toLowerCase()}">${status}</span></div><h3>${escapeHtml(room.title||room.gameName)}</h3><div class="room-meta host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')}<span>${escapeHtml(room.gameName)} · Host: <b>${escapeHtml(room.hostName)}</b> · ${room.needsVoice?'🎙️ Voice':'💬 Text'} ${room.mapName?`· 🗺️ ${escapeHtml(room.mapName)}`:''} ${room.gameMode?`· ${escapeHtml(room.gameMode)}`:''}</span></div><div class="room-players">${players}</div><div class="room-progress"><i style="width:${Math.min(100,room.currentPlayers/room.maxPlayers*100)}%"></i></div><div class="room-bottom"><span>${room.currentPlayers}/${room.maxPlayers} لاعبين</span><span>⏱️ ${remaining}</span></div></div><div class="room-actions"><button class="button primary small" data-join="${room.id}" ${finished||room.locked||room.currentPlayers>=room.maxPlayers?'disabled':''}>${room.status==='SCHEDULED'?'تسجيل':'دخول'}</button><button class="button ghost small" data-leave="${room.id}" ${finished?'disabled':''}>${room.status==='SCHEDULED'?'إلغاء التسجيل':'خروج'}</button>${room.voiceChannelId&&state.guildId?`<a class="button ghost small" href="https://discord.com/channels/${escapeHtml(state.guildId)}/${escapeHtml(room.voiceChannelId)}" target="_blank" rel="noreferrer">Voice</a>`:''}${me?.userId===room.hostId&&!finished?`<button class="button ghost small" data-manage="${room.id}">إدارة</button>`:''}</div></article>`;
+    return `<article class="room-card detailed" style="--room-accent:${escapeHtml(room.accentColor||'#e50914')}"><div><div class="room-top"><span class="game-icon">${escapeHtml(room.roomEmoji||room.gameIcon||'🎮')}</span><span class="room-status status-${room.status.toLowerCase()}">${status}</span></div><h3>${escapeHtml(room.title||room.gameName)}</h3><span class="platform-badge">${platformLabel(room.platform)}</span><div class="room-meta host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')}<span>${escapeHtml(room.gameName)} · Host: <b>${escapeHtml(room.hostName)}</b> · ${room.needsVoice?'🎙️ Voice':'💬 Text'} ${room.mapName?`· 🗺️ ${escapeHtml(room.mapName)}`:''} ${room.gameMode?`· ${escapeHtml(room.gameMode)}`:''}</span></div><div class="room-players">${players}</div><div class="room-progress"><i style="width:${Math.min(100,room.currentPlayers/room.maxPlayers*100)}%"></i></div><div class="room-bottom"><span>${room.currentPlayers}/${room.maxPlayers} لاعبين</span><span>⏱️ ${remaining}</span></div></div><div class="room-actions"><button class="button primary small" data-join="${room.id}" ${finished||room.locked||room.currentPlayers>=room.maxPlayers?'disabled':''}>${room.status==='SCHEDULED'?'تسجيل':'دخول'}</button><button class="button ghost small" data-leave="${room.id}" ${finished?'disabled':''}>${room.status==='SCHEDULED'?'إلغاء التسجيل':'خروج'}</button>${room.voiceChannelId&&state.guildId?`<a class="button ghost small" href="https://discord.com/channels/${escapeHtml(state.guildId)}/${escapeHtml(room.voiceChannelId)}" target="_blank" rel="noreferrer">Voice</a>`:''}${me?.userId===room.hostId&&!finished?`<button class="button ghost small" data-manage="${room.id}">إدارة</button>`:''}</div></article>`;
   }).join('') : empty(roomSearch?'لا توجد نتيجة مطابقة للبحث.':'لا توجد غرف ضمن هذا التصنيف.');
   document.querySelectorAll('[data-join]').forEach(button => button.onclick = () => roomAction(button.dataset.join,'join',button));
   document.querySelectorAll('[data-leave]').forEach(button => button.onclick = () => roomAction(button.dataset.leave,'leave',button));
@@ -280,7 +295,7 @@ function bindCreateRoom() {
     const result = $('create-room-result'); result.textContent='جارِ إنشاء التجمع...';
     try {
       const scheduledFor=$('room-when').value==='later'?nextScheduledDate(Number($('room-schedule-hour').value),$('room-schedule-period').value).toISOString():undefined;
-      const room = await api('/api/me/lfg/rooms',{method:'POST',body:{gameSlug:$('room-game').value,maxPlayers:Number($('room-size').value),durationMinutes:Number($('room-duration').value),scheduledFor,mapName:$('room-game').value==='roblox'?$('room-map').value||undefined:undefined,gameMode:$('room-mode').value||undefined,description:$('room-description').value||undefined,needsVoice:$('room-voice').checked}});
+      const room = await api('/api/me/lfg/rooms',{method:'POST',body:{gameSlug:$('room-game').value,platform:$('room-platform').value,maxPlayers:Number($('room-size').value),durationMinutes:Number($('room-duration').value),scheduledFor,mapName:$('room-game').value==='roblox'?$('room-map').value||undefined:undefined,gameMode:$('room-mode').value||undefined,description:$('room-description').value||undefined,needsVoice:$('room-voice').checked}});
       result.textContent=`تم إنشاء غرفة ${room.gameName} بنجاح.`; state.rooms.unshift(room); renderRoomList();
     } catch(error){result.textContent=error.message;}finally{if(submit)submit.disabled=false;}
   };
@@ -300,36 +315,72 @@ async function roomAction(roomId, action, button) {
 function openRoomManager(roomId) {
   const room=(state.rooms||[]).find(item=>item.id===roomId);
   if(!room||room.hostId!==me?.userId)return;
-  $('manage-room-id').value=room.id;$('manage-room-title').value=room.title||'';$('manage-room-emoji').value=room.roomEmoji||room.gameIcon||'🎮';$('manage-room-color').value=room.accentColor||'#e50914';$('manage-room-mode').value=room.gameMode||'';$('manage-room-map-label').hidden=room.gameSlug!=='roblox';$('manage-room-map').required=room.gameSlug==='roblox';$('manage-room-map').value=room.mapName||'';$('manage-room-size').value=room.maxPlayers;$('manage-room-duration').value=room.durationMinutes;$('manage-room-description').value=room.description||'';$('manage-room-voice').checked=room.needsVoice;$('manage-room-locked').checked=room.locked;
+  $('manage-room-id').value=room.id;$('manage-room-platform').value=room.platform||'';$('manage-room-title').value=room.title||'';$('manage-room-emoji').value=room.roomEmoji||room.gameIcon||'🎮';$('manage-room-color').value=room.accentColor||'#e50914';$('manage-room-mode').value=room.gameMode||'';$('manage-room-map-label').hidden=room.gameSlug!=='roblox';$('manage-room-map').required=room.gameSlug==='roblox';$('manage-room-map').value=room.mapName||'';$('manage-room-size').value=room.maxPlayers;$('manage-room-duration').value=room.durationMinutes;$('manage-room-description').value=room.description||'';$('manage-room-voice').checked=room.needsVoice;$('manage-room-locked').checked=room.locked;
   $('room-manager').hidden=false;$('room-manager').scrollIntoView({behavior:'smooth',block:'start'});
   $('room-manager-form').onsubmit=saveRoomManager;
   document.querySelectorAll('[data-host-action]').forEach(button=>button.onclick=()=>hostRoomAction(button.dataset.hostAction));
 }
 
-async function saveRoomManager(event){event.preventDefault();const id=$('manage-room-id').value;const result=$('room-manager-result');result.textContent='جارِ حفظ إعدادات الغرفة...';try{await api(`/api/me/lfg/${id}`,{method:'PUT',body:{title:$('manage-room-title').value||null,roomEmoji:$('manage-room-emoji').value||null,accentColor:$('manage-room-color').value,gameMode:$('manage-room-mode').value||null,mapName:$('manage-room-map-label').hidden?null:$('manage-room-map').value||null,maxPlayers:Number($('manage-room-size').value),durationMinutes:Number($('manage-room-duration').value),description:$('manage-room-description').value||null,needsVoice:$('manage-room-voice').checked,locked:$('manage-room-locked').checked}});state=await api('/api/state');renderRoomList();result.textContent='✅ تم تحديث الموقع وDiscord فورًا.';}catch(error){result.textContent=`❌ ${error.message}`;}}
+async function saveRoomManager(event){event.preventDefault();const id=$('manage-room-id').value;const result=$('room-manager-result');result.textContent='جارِ حفظ إعدادات الغرفة...';try{await api(`/api/me/lfg/${id}`,{method:'PUT',body:{platform:$('manage-room-platform').value||undefined,title:$('manage-room-title').value||null,roomEmoji:$('manage-room-emoji').value||null,accentColor:$('manage-room-color').value,gameMode:$('manage-room-mode').value||null,mapName:$('manage-room-map-label').hidden?null:$('manage-room-map').value||null,maxPlayers:Number($('manage-room-size').value),durationMinutes:Number($('manage-room-duration').value),description:$('manage-room-description').value||null,needsVoice:$('manage-room-voice').checked,locked:$('manage-room-locked').checked}});state=await api('/api/state');renderRoomList();result.textContent='✅ تم تحديث الموقع وDiscord فورًا.';}catch(error){result.textContent=`❌ ${error.message}`;}}
 
 async function hostRoomAction(action){const id=$('manage-room-id').value;const result=$('room-manager-result');result.textContent='جارِ تنفيذ الإجراء...';try{await api(`/api/me/lfg/${id}/${action}`,{method:'POST'});state=await api('/api/state');renderRoomList();if(['complete','close'].includes(action))$('room-manager').hidden=true;result.textContent='✅ تم تنفيذ الإجراء.';}catch(error){result.textContent=`❌ ${error.message}`;}}
 
 async function renderInterests(games) {
   const prefs = me ? await api('/api/me/lfg-preferences') : [];
   const map = new Map(prefs.map(pref=>[pref.game.slug,pref]));
-  $('interest-games').innerHTML = games.map(game=>{const pref=map.get(game.slug);const interested=pref?.interestStatus==='INTERESTED';const sleeping=pref?.mutedUntil&&new Date(pref.mutedUntil)>new Date();const autoInvites=pref?.autoInvitesEnabled!==false;return `<article class="interest-card"><header><span>${escapeHtml(game.icon||'🎮')}</span><h3>${escapeHtml(game.name)}</h3></header>${sleeping?`<small class="snooze-status">😴 غفوة حتى ${new Date(pref.mutedUntil).toLocaleString('ar',{timeStyle:'short',dateStyle:'short'})}</small>`:''}<div class="interest-actions"><button class="${interested?'on':''}" data-interest="${game.slug}" data-interested="${interested}">❤️ ${interested?'إلغاء الاهتمام':'مهتم'}</button><button class="${pref?.notificationsEnabled?'on':''}" data-notify="${game.slug}">${pref?.notificationsEnabled?'🔔 إيقاف الإشعار':'🔕 تشغيل الإشعار'}</button></div><div class="interest-actions"><button class="${autoInvites?'on':''}" data-auto-invite="${game.slug}">🤖 ${autoInvites?'دعوات Zark مفعلة':'دعوات Zark متوقفة'}</button></div><div class="snooze-actions"><select data-snooze-select="${game.slug}"><option value="60">ساعة</option><option value="480">8 ساعات</option><option value="1440">يوم</option><option value="10080">أسبوع</option></select><button data-snooze="${game.slug}">😴 غفوة</button></div></article>`}).join('');
+  userGamePlatforms=new Map(prefs.map(pref=>[pref.game.slug,pref.platform]));
+  if($('room-platform')&&!$('room-platform').value)$('room-platform').value=userGamePlatforms.get($('room-game').value)||'';
+  $('interest-games').innerHTML = games.map(game=>{const pref=map.get(game.slug);const interested=pref?.interestStatus==='INTERESTED';const sleeping=pref?.mutedUntil&&new Date(pref.mutedUntil)>new Date();const autoInvites=pref?.autoInvitesEnabled!==false;return `<article class="interest-card"><header><span>${escapeHtml(game.icon||'🎮')}</span><h3>${escapeHtml(game.name)}</h3></header><label class="interest-platform">منصتك لهذه اللعبة<select data-preference-platform="${escapeHtml(game.slug)}"><option value="">اختر منصتك</option>${Object.entries(platformLabels).map(([value,label])=>`<option value="${value}" ${pref?.platform===value?'selected':''}>${label}</option>`).join('')}</select></label>${!pref?.platform?'<small class="platform-hint">حدد منصتك لتصلك دعوات مناسبة.</small>':''}${sleeping?`<small class="snooze-status">😴 غفوة حتى ${new Date(pref.mutedUntil).toLocaleString('ar',{timeStyle:'short',dateStyle:'short'})}</small>`:''}<div class="interest-actions"><button class="${interested?'on':''}" data-interest="${game.slug}" data-interested="${interested}">❤️ ${interested?'إلغاء الاهتمام':'مهتم'}</button><button class="${pref?.notificationsEnabled?'on':''}" data-notify="${game.slug}">${pref?.notificationsEnabled?'🔔 إيقاف الإشعار':'🔕 تشغيل الإشعار'}</button></div><div class="interest-actions"><button class="${autoInvites?'on':''}" data-auto-invite="${game.slug}">🤖 ${autoInvites?'دعوات Zark مفعلة':'دعوات Zark متوقفة'}</button></div><div class="snooze-actions"><select data-snooze-select="${game.slug}"><option value="60">ساعة</option><option value="480">8 ساعات</option><option value="1440">يوم</option><option value="10080">أسبوع</option></select><button data-snooze="${game.slug}">😴 غفوة</button></div></article>`}).join('');
+  document.querySelectorAll('[data-preference-platform]').forEach(select=>select.onchange=()=>{if(!select.value)return;const pref=map.get(select.dataset.preferencePlatform);setWebPreference(select.dataset.preferencePlatform,pref?pref.interestStatus==='INTERESTED':true,pref?.notificationsEnabled??true,select,undefined,select.value)});
   document.querySelectorAll('[data-interest]').forEach(button=>button.onclick=()=>{const next=button.dataset.interested!=='true';setWebPreference(button.dataset.interest,next,next,button)});
   document.querySelectorAll('[data-notify]').forEach(button=>button.onclick=()=>setWebPreference(button.dataset.notify,true,!map.get(button.dataset.notify)?.notificationsEnabled,button));
   document.querySelectorAll('[data-auto-invite]').forEach(button=>button.onclick=()=>setWebPreference(button.dataset.autoInvite,true,Boolean(map.get(button.dataset.autoInvite)?.notificationsEnabled),button,!Boolean(map.get(button.dataset.autoInvite)?.autoInvitesEnabled)));
   document.querySelectorAll('[data-snooze]').forEach(button=>button.onclick=()=>snoozeWebPreference(button.dataset.snooze,Number(document.querySelector(`[data-snooze-select="${button.dataset.snooze}"]`).value),button));
 }
 
-async function setWebPreference(gameSlug,interested,notificationsEnabled,button,autoInvitesEnabled){if(!me){location.href='/auth/discord';return;}if(button?.disabled)return;if(button)button.disabled=true;try{await api(`/api/me/lfg-preferences/${gameSlug}`,{method:'PUT',body:{interested,notificationsEnabled,...(autoInvitesEnabled===undefined?{}:{autoInvitesEnabled})}});await renderInterests(state.lfgGames||[]);}catch(error){alert(error.message);if(button)button.disabled=false;}}
+async function setWebPreference(gameSlug,interested,notificationsEnabled,button,autoInvitesEnabled,platform){if(!me){location.href='/auth/discord';return;}if(button?.disabled)return;if(button)button.disabled=true;try{await api(`/api/me/lfg-preferences/${gameSlug}`,{method:'PUT',body:{interested,notificationsEnabled,...(platform?{platform}:{}),...(autoInvitesEnabled===undefined?{}:{autoInvitesEnabled})}});await renderInterests(state.lfgGames||[]);}catch(error){alert(error.message);if(button)button.disabled=false;}}
 async function snoozeWebPreference(gameSlug,minutes,button){if(!me){location.href='/auth/discord';return;}if(button?.disabled)return;if(button)button.disabled=true;try{await api(`/api/me/lfg-preferences/${gameSlug}/snooze`,{method:'POST',body:{minutes}});await renderInterests(state.lfgGames||[]);}catch(error){alert(error.message);if(button)button.disabled=false;}}
 
 function renderGames() {
-  $('zark-games').innerHTML = (state.zarkGames||[]).map(game=>`<button class="game-tile" data-game="${escapeHtml(game.slug)}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>أول إجابة تفوز</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>${Math.max(400,Number(game.questionCount)||0)}+ سؤال</span><span>.${escapeHtml(game.aliases?.[0]||game.name)}</span></footer></button>`).join('');
-  document.querySelectorAll('[data-game]').forEach(button=>button.onclick=()=>startRace(button.dataset.game));
+  const games = state.zarkGames || [];
+  const normalize = value => String(value).normalize('NFKD').replace(/[\u064B-\u065F\u0670]/g, '').replace(/[أإآ]/g, 'ا').toLowerCase().trim();
+  const query = normalize($('game-search')?.value || '');
+  const category = $('game-category')?.value || 'all';
+  if ($('game-category')) {
+    const categories = [...new Set(games.map(game => game.category).filter(Boolean))];
+    $('game-category').innerHTML = '<option value="all">كل التصنيفات</option>' + categories.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    $('game-category').value = categories.includes(category) ? category : 'all';
+  }
+  const filtered = games.filter(game => ($('game-category')?.value === 'all' || game.category === category) && normalize([game.name, game.description, game.slug, ...(game.aliases || [])].join(' ')).includes(query));
+  $('zark-games').innerHTML = filtered.map((game,index)=>`<button type="button" class="game-tile" data-tone="${index%4}" data-game="${escapeHtml(game.slug)}" aria-pressed="${$('race-command')?.dataset.game === game.slug}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>${escapeHtml(game.category || 'تحدي جماعي')}</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>${Number.isFinite(Number(game.questionCount)) && Number(game.questionCount)>0 ? `${Number(game.questionCount).toLocaleString('ar')} سؤال` : 'تحدٍ داخل Discord'}</span><span>اختر اللعبة ↖</span></footer></button>`).join('') || empty(games.length ? 'ما لقينا لعبة بهذا البحث. جرّب اسمًا ثانيًا أو غيّر التصنيف.' : 'لا توجد ألعاب متاحة حاليًا. ارجع قريبًا.');
+  if ($('game-count')) $('game-count').textContent = `${filtered.length} لعبة متاحة`;
+  if ($('game-search')) $('game-search').oninput = renderGames;
+  if ($('game-category')) $('game-category').onchange = renderGames;
+  if ($('game-reset')) $('game-reset').onclick = () => { $('game-search').value = ''; $('game-category').value = 'all'; renderGames(); $('game-search').focus(); };
+  document.querySelectorAll('.game-tile[data-game]').forEach(button=>button.onclick=()=>startRace(button.dataset.game));
+  $('play-zark').disabled = !games.length;
   $('play-zark').onclick=()=>startRace();
 }
 
-async function startRace(gameSlug){const game=(state.zarkGames||[]).find(item=>item.slug===gameSlug);$('race-title').textContent=game?.name||'لعبة Zark سريعة';$('race-prompt').textContent='ابدأ الجولة داخل Discord حتى تظهر للجميع ويستطيع Zark احتساب أول فائز.';$('race-note').textContent='استخدم /play أو الأمر العربي المختصر داخل قناة الألعاب.';}
+async function startRace(gameSlug){
+  const games = state.zarkGames || [];
+  const game = gameSlug ? games.find(item=>item.slug===gameSlug) : games[Math.floor(Math.random()*games.length)];
+  if (!game) return;
+  $('race-title').textContent = `${game.icon || gameIcon(game.slug)} ${game.name}`;
+  $('race-prompt').textContent = game.description || 'تحدٍ سريع داخل Discord';
+  $('race-note').textContent = 'انسخ الأمر وأرسله في قناة الألعاب داخل Discord لبدء الجولة واحتساب النقاط.';
+  const command = game.aliases?.[0] ? `.${game.aliases[0]}` : '/play';
+  $('race-command').textContent = command;
+  $('race-command').dataset.game = game.slug;
+  $('race-actions').hidden = false;
+  $('copy-game-command').textContent = 'نسخ الأمر';
+  $('copy-game-command').onclick = async () => {
+    try { await navigator.clipboard.writeText($('race-command').textContent); $('copy-game-command').textContent = 'تم النسخ ✓'; }
+    catch { $('copy-game-command').textContent = 'حدد الأمر لنسخه يدويًا'; }
+  };
+  document.querySelectorAll('.game-tile').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.game === game.slug)));
+  document.querySelector('.game-stage').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block:'center'});
+}
 
 async function renderProfile(){
   if(!me)return;
@@ -615,7 +666,7 @@ function imageFileToDataUrl(file){return new Promise((resolve,reject)=>{if(!file
 
 async function submitForm(path,body,result,method='POST'){result.textContent='جارِ الإرسال...';try{await api(path,{method,body});result.textContent='✅ تم الحفظ بنجاح.';}catch(error){result.textContent=`❌ ${error.message}`;}}
 
-function roomCard(room){return `<article class="room-card" style="--room-accent:${escapeHtml(room.accentColor||'#e50914')}"><div class="room-top"><span class="game-icon">${escapeHtml(room.roomEmoji||room.gameIcon||'🎮')}</span><span class="room-status">${room.status==='SCHEDULED'?'SCHEDULED':room.status==='ACTIVE'?'PLAYING':room.status==='COMPLETED'?'FINISHED':'LIVE'}</span></div><h3>${escapeHtml(room.title||room.gameName)}</h3><div class="room-meta host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')}<span>Host: ${escapeHtml(room.hostName)} · ${room.needsVoice?'🎙️ Voice':'💬 Text'}${room.mapName?` · 🗺️ ${escapeHtml(room.mapName)}`:''}</span></div><div class="room-players compact">${(room.members||[]).slice(0,4).map(member=>`<span class="room-player">${avatar(member.avatarUrl,member.displayName,'mini')}${escapeHtml(member.displayName)}</span>`).join('')}</div><div class="room-progress"><i style="width:${Math.min(100,room.currentPlayers/room.maxPlayers*100)}%"></i></div><div class="room-bottom"><span>${room.currentPlayers}/${room.maxPlayers} لاعبين</span><span>${formatRoomTiming(room)}</span></div></article>`}
+function roomCard(room){return `<article class="room-card" style="--room-accent:${escapeHtml(room.accentColor||'#e50914')}"><div class="room-top"><span class="game-icon">${escapeHtml(room.roomEmoji||room.gameIcon||'🎮')}</span><span class="room-status">${room.status==='SCHEDULED'?'SCHEDULED':room.status==='ACTIVE'?'PLAYING':room.status==='COMPLETED'?'FINISHED':'LIVE'}</span></div><h3>${escapeHtml(room.title||room.gameName)}</h3><span class="platform-badge">${platformLabel(room.platform)}</span><div class="room-meta host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')}<span>Host: ${escapeHtml(room.hostName)} · ${room.needsVoice?'🎙️ Voice':'💬 Text'}${room.mapName?` · 🗺️ ${escapeHtml(room.mapName)}`:''}</span></div><div class="room-players compact">${(room.members||[]).slice(0,4).map(member=>`<span class="room-player">${avatar(member.avatarUrl,member.displayName,'mini')}${escapeHtml(member.displayName)}</span>`).join('')}</div><div class="room-progress"><i style="width:${Math.min(100,room.currentPlayers/room.maxPlayers*100)}%"></i></div><div class="room-bottom"><span>${room.currentPlayers}/${room.maxPlayers} لاعبين</span><span>${formatRoomTiming(room)}</span></div></article>`}
 function rankingRows(rows,key,label){return rows.length?rows.slice(0,10).map((row,index)=>`<div class="rank-row"><span class="rank">${index<3?['🥇','🥈','🥉'][index]:`#${index+1}`}</span><span class="rank-player">${avatar(row.avatarUrl,row.displayName,'rank')}<b>${escapeHtml(row.displayName)}</b></span><span>${formatValue(row[key])} ${label}</span></div>`).join(''):empty('لا توجد بيانات كافية بعد.');}
 function statCards(items){return items.map(([value,label])=>`<article><b>${formatValue(value)}</b><span>${label}</span></article>`).join('')}
 function dataRow(label,value){return `<div class="data-row"><b>${escapeHtml(label)}</b><span>${escapeHtml(value)}</span></div>`}
@@ -736,4 +787,13 @@ function formatFileSize(bytes){return bytes>=1_000_000?`${(bytes/1_000_000).toFi
 
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
 async function api(path,options={}){const response=await fetch(path,{method:options.method||'GET',credentials:'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined,keepalive:Boolean(options.keepalive)});const text=await response.text();let body;try{body=text?JSON.parse(text):null}catch{body={error:text}}if(!response.ok)throw new Error(body?.error||'تعذر تنفيذ الطلب');return body;}
-function showFatal(error){console.error(error);const target=document.querySelector('main');if(target)target.insertAdjacentHTML('afterbegin',`<div class="shell"><div class="empty-state">تعذر الاتصال بـZark API: ${escapeHtml(error.message)}</div></div>`)}
+function showFatal(error){
+  console.error(error);
+  const target=document.querySelector('main');
+  if(!target)return;
+  document.querySelectorAll('.loading-card').forEach(node=>{node.className='empty-state';node.textContent='تعذر تحميل المحتوى حاليًا.';});
+  if($('play-zark'))$('play-zark').disabled=true;
+  if($('game-count'))$('game-count').textContent='غير متصل';
+  target.insertAdjacentHTML('afterbegin','<div class="connection-error" role="alert"><div><b>تعذر تحميل البيانات</b><p>تحقق من اتصالك وحاول مرة ثانية.</p></div><button class="button ghost small" id="retry-page" type="button">إعادة المحاولة ↻</button></div>');
+  $('retry-page').onclick=()=>location.reload();
+}
