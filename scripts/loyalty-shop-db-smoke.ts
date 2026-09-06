@@ -44,11 +44,22 @@ try {
   await assert.rejects(() => purchaseLoyaltyReward(shopperId, "vip"), /تحتاج/);
   assert.equal((await getLoyaltyProfile(shopperId)).points, beforeVip, "failed purchases do not charge points");
 
+  await awardLoyaltyPoints({ userId: shopperId, amount: 100, reason: "VIP balance fixture", referenceKey: `${prefix}:vip-balance` });
+  const firstVip=await purchaseLoyaltyReward(shopperId,"vip");
+  const firstVipExpiry=new Date(firstVip.vipUntil??0).getTime();
+  assert.equal(firstVip.vipUnlocked,true);
+  assert.ok(firstVipExpiry>Date.now()+71*60*60_000,"VIP lasts three days");
+  await awardLoyaltyPoints({userId:shopperId,amount:10,reason:"VIP multiplier check",referenceKey:`${prefix}:vip-award`});
+  assert.equal((await getLoyaltyProfile(shopperId)).points,150,"x2 shop boost and x1.5 VIP combine to x3 loyalty");
+  await db.user.update({where:{id:shopperId},data:{loyaltyPoints:{increment:3_000}}});
+  const extendedVip=await purchaseLoyaltyReward(shopperId,"vip");
+  assert.ok(new Date(extendedVip.vipUntil??0).getTime()>firstVipExpiry+71*60*60_000,"buying VIP again extends it by three days");
+
   const transactionCount = await db.loyaltyTransaction.count({ where: { userId: shopperId, amount: { lt: 0 } } });
-  assert.equal(transactionCount, 4);
-  assert.equal((await db.user.findUniqueOrThrow({ where: { id: shopperId } })).lifetimeLoyaltyPoints, 5_020, "spending does not reduce lifetime rank progress");
+  assert.equal(transactionCount, 6);
+  assert.equal((await db.user.findUniqueOrThrow({ where: { id: shopperId } })).lifetimeLoyaltyPoints, 5_250, "spending does not reduce lifetime rank progress");
 } finally {
   await db.$disconnect();
 }
 
-console.log("PASS: loyalty purchases, timed extension, x2 earning, permanent ownership, room priority, ledger and insufficient balance.");
+console.log("PASS: timed VIP, x1.5 VIP earnings, extensions, shop boosts, permanent ownership, room priority and ledger.");

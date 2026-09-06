@@ -7,7 +7,7 @@ import { selectFreshQuestion, uniqueQuestions, shuffled } from "../../../package
 import type { DailyChallenge, LeaderboardRow, ZarkGameSummary } from "../../../packages/shared/src/index.js";
 import { enforceRateLimit, publish } from "./events.js";
 import { serializable } from "./db-transaction.js";
-import { awardLoyaltyPoints } from "./modules/loyalty/service.js";
+import { applyVipXpMultiplier, awardLoyaltyPoints } from "./modules/loyalty/service.js";
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const splitAnswers = (answer: string) => answer.split("|||");
@@ -86,8 +86,9 @@ export async function answerDaily(input: { userId: string; displayName: string; 
 
       const rank = 1;
       const elapsedMs = Math.max(0, now.getTime() - challenge.startedAt.getTime());
-      const points = calculateWinnerPoints({ basePoints: challenge.basePoints, elapsedMs, durationMs: challenge.durationMs, typoCount: evaluation.typoCount, daily: true });
       await tx.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName }, create: { id: input.userId, displayName: input.displayName } });
+      const member=await tx.user.findUniqueOrThrow({where:{id:input.userId},select:{vipUntil:true}});
+      const points = applyVipXpMultiplier(calculateWinnerPoints({ basePoints: challenge.basePoints, elapsedMs, durationMs: challenge.durationMs, typoCount: evaluation.typoCount, daily: true }),member.vipUntil);
       await tx.dailyAnswer.create({ data: { challengeId: challenge.id, userId: input.userId, rank, elapsedMs, points } });
       await tx.user.update({ where: { id: input.userId }, data: { xp: { increment: points }, wins: { increment: 1 } } });
       await tx.gameProfile.upsert({
@@ -316,8 +317,9 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
     const elapsedMs = Math.max(0, now.getTime() - match.startedAt.getTime());
     const rawPoints = calculateWinnerPoints({ basePoints: match.game.basePoints, elapsedMs, durationMs: match.durationMs, typoCount: evaluation.typoCount });
     const hintUsed = match.hintUserIds.includes(input.userId);
-    const points = hintUsed ? Math.max(3, Math.floor(rawPoints * 0.7)) : rawPoints;
     await tx.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName }, create: { id: input.userId, displayName: input.displayName } });
+    const member=await tx.user.findUniqueOrThrow({where:{id:input.userId},select:{vipUntil:true}});
+    const points = applyVipXpMultiplier(hintUsed ? Math.max(3, Math.floor(rawPoints * 0.7)) : rawPoints,member.vipUntil);
     await tx.zarkMatchResult.create({ data: { matchId, userId: input.userId, rank, elapsedMs, points } });
     await tx.user.update({ where: { id: input.userId }, data: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 } } });
     await tx.gameProfile.upsert({ where: { userId_gameId: { userId: input.userId, gameId: match.gameId } }, update: { xp: { increment: points }, wins: { increment: rank === 1 ? 1 : 0 }, losses: { increment: rank === 1 ? 0 : 1 } }, create: { userId: input.userId, gameId: match.gameId, xp: points, wins: rank === 1 ? 1 : 0, losses: rank === 1 ? 0 : 1 } });

@@ -277,6 +277,7 @@ model User {
   loyaltyPoints             Int                    @default(0)
   lifetimeLoyaltyPoints     Int                    @default(0)
   vipUnlocked               Boolean                @default(false)
+  vipUntil                  DateTime?
   loyaltyDoubleUntil        DateTime?
   lfgPriorityUntil          DateTime?
   loyaltyBadge              String?
@@ -317,6 +318,7 @@ model User {
   tradeAuditEntries         TradeAuditLog[]
 
   @@index([lfgPriorityUntil])
+  @@index([vipUntil])
 }
 
 model LoyaltyTransaction {

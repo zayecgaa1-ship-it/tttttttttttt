@@ -11,7 +11,7 @@ const shop = [
   { key: "double-24h", name: "مضاعف الولاء ×2", description: "ضاعف النقاط التي تكسبها لمدة 24 ساعة.", icon: "⚡", price: 450, kind: "TIMED", owned: false, active: false },
   { key: "lfg-priority-7d", name: "أولوية غرف LFG", description: "ضع غرفك في مقدمة القائمة لمدة أسبوع.", icon: "🚀", price: 700, kind: "TIMED", owned: false, active: false },
   { key: "gold-badge", name: "الشارة الذهبية", description: "شارة دائمة بجانب اسمك.", icon: "🏅", price: 1_000, kind: "PERMANENT", owned: true, active: true },
-  { key: "vip", name: "Zark VIP", description: "رتبة VIP دائمة.", icon: "💎", price: 2_500, kind: "PERMANENT", owned: false, active: false },
+  { key: "vip", name: "Zark VIP · 3 أيام", description: "×1.5 لنقاط الولاء وXP لمدة 3 أيام.", icon: "💎", price: 2_500, kind: "TIMED", owned: false, active: false },
 ];
 const loyalty = () => ({
   points, lifetimePoints: 2_100, vipUnlocked: false, loyaltyBadge: "GOLD",

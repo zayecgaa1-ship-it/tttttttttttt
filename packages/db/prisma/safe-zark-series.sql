@@ -132,8 +132,13 @@ DO $loyalty_shop_migration$
 BEGIN
   IF to_regclass('"User"') IS NOT NULL THEN
     ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "loyaltyDoubleUntil" TIMESTAMP(3);
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "vipUntil" TIMESTAMP(3);
     ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "lfgPriorityUntil" TIMESTAMP(3);
     ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "loyaltyBadge" TEXT;
+    UPDATE "User"
+    SET "vipUntil" = CURRENT_TIMESTAMP + INTERVAL '3 days'
+    WHERE "vipUnlocked" = TRUE AND "vipUntil" IS NULL;
+    CREATE INDEX IF NOT EXISTS "User_vipUntil_idx" ON "User"("vipUntil");
     CREATE INDEX IF NOT EXISTS "User_lfgPriorityUntil_idx" ON "User"("lfgPriorityUntil");
   END IF;
 END

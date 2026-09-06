@@ -9,6 +9,7 @@ import fs from "node:fs";
 import sharp from "sharp";
 import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../packages/shared/src/lfg-platform.js";
 import { raceGames } from "../../../packages/games/src/index.js";
+import { arabicHumor, type ArabicHumorEntry } from "../../../packages/fun/src/arabic-humor.js";
 import { apiGet, apiSend } from "./api/client.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -24,6 +25,7 @@ const disboardBotId = process.env.DISBOARD_BOT_ID?.trim() || "302050872383242240
 const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/zark-room-card-bg.png");
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
+const recentHumorByUser = new Map<string, string[]>();
 const brand = { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل", color: 0xe50914 };
 
 // تضمين خط عربي مباشرة في الكود لضمان العمل على أي سيرفر بدون خطوط نظام
@@ -206,6 +208,8 @@ if (!token) {
         if (interaction.commandName === "lobby") return await createGameLobby(interaction, interaction.options.getString("game", true), interaction.options.getInteger("rounds") ?? 5, interaction.options.getInteger("seconds") ?? 15);
         if (interaction.commandName === "profile") return await profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
         if (interaction.commandName === "loyalty") return await loyalty(interaction);
+        if (["joke","نكت"].includes(interaction.commandName)) return await sendJoke(interaction);
+        if (["memes","ميمز"].includes(interaction.commandName)) return await sendMeme(interaction);
         if (interaction.commandName === "weekly") return await weekly(interaction);
         if (interaction.commandName === "event-hour") return await eventHour(interaction);
         if (interaction.commandName === "pulse") return await pulse(interaction);
@@ -265,7 +269,10 @@ if (!token) {
         } else if (result.expired || result.capped) activeDailyChannels.delete(message.channelId);
         return;
       }
-      const alias = dotAliases.get(message.content.trim().toLocaleLowerCase("ar"));
+      const quickCommand=message.content.trim().toLocaleLowerCase("ar");
+      if([".نكتة",".نكت",".joke"].includes(quickCommand))return void await sendJoke(message);
+      if([".ميمز",".ميم",".memes"].includes(quickCommand))return void await sendMeme(message);
+      const alias = dotAliases.get(quickCommand);
       if (["help+", ".help+", "مساعدة+", ".مساعدة+"].includes(message.content.trim().toLocaleLowerCase("ar"))) await helpPlusForMessage(message);
       else if (alias === "help") await playHelpForMessage(message);
       else if (alias) await startRaceForMessage(message, alias);
@@ -381,6 +388,8 @@ if (!token) {
 
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
+    if(interaction.customId==="fun:joke")return sendJoke(interaction);
+    if(interaction.customId==="fun:meme")return sendMeme(interaction);
     if (parts[0] === "zark" && parts[1] === "lobby") {
       const action = parts[2];
       const lobbyId = parts[3];
@@ -458,7 +467,8 @@ if (!token) {
       const data = await apiSend<LoyaltyProfile>(`/api/users/${interaction.user.id}/loyalty/shop/${encodeURIComponent(parts[2])}`, "POST", {});
       await syncLoyaltyRoles(interaction.user.id);
       const reward = data.shop.find((item) => item.key === parts[2]);
-      return interaction.editReply({ content: `✅ تم تفعيل **${reward?.name ?? "المكافأة"}**. رصيدك الآن: **${data.points}** نقطة.` });
+      const expiry=reward?.activeUntil?` وتنتهي <t:${Math.floor(new Date(reward.activeUntil).getTime()/1000)}:R>`:"";
+      return interaction.editReply({ content: `✅ تم تفعيل **${reward?.name ?? "المكافأة"}**${expiry}. رصيدك الآن: **${data.points}** نقطة.` });
     }
     if (interaction.customId === "loyalty:buy-vip") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -1437,11 +1447,43 @@ if (!token) {
     await interaction.editReply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
   }
 
+  function pickHumor(userId:string,kind:"joke"|"meme"){
+    const historyKey=`${kind}:${userId}`;
+    const recent=recentHumorByUser.get(historyKey)??[];
+    const available=arabicHumor.filter(entry=>!recent.includes(entry.id));
+    const entry=(available.length?available:arabicHumor)[Math.floor(Math.random()*(available.length||arabicHumor.length))];
+    const next=[entry.id,...recent.filter(id=>id!==entry.id)].slice(0,60);
+    recentHumorByUser.set(historyKey,next);
+    return entry;
+  }
+
+  async function sendJoke(target:any){
+    const isInteraction=typeof target.isButton==="function";
+    if(isInteraction){if(target.isButton())await target.deferUpdate();else await target.deferReply();}
+    const userId=isInteraction?target.user.id:target.author.id;
+    const entry=pickHumor(userId,"joke");
+    const payload={embeds:[baseEmbed().setTitle("😂 نكتة عربية").setDescription(entry.text).setFooter({text:"Arabic-Humor (CC BY 4.0) · بدون تكرار آخر 60 نكتة"})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:joke").setLabel("نكتة ثانية").setEmoji("😂").setStyle(ButtonStyle.Primary))]};
+    if(isInteraction)return target.editReply(payload);
+    return target.reply(payload);
+  }
+
+  async function sendMeme(target:any){
+    const isInteraction=typeof target.isButton==="function";
+    if(isInteraction){if(target.isButton())await target.deferUpdate();else await target.deferReply();}
+    const userId=isInteraction?target.user.id:target.author.id;
+    const entry=pickHumor(userId,"meme");
+    const filename=`zark-meme-${entry.id.replace(/[^a-z0-9-]/gi,"")}.png`;
+    const image=await renderMemeVisual(entry);
+    const payload:any={embeds:[baseEmbed().setTitle("🤣 ميم عربي من Zark").setImage(`attachment://${filename}`).setFooter({text:"النص: Arabic-Humor (CC BY 4.0) · تصميم Zark"})],files:[new AttachmentBuilder(image,{name:filename})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:meme").setLabel("ميم ثاني").setEmoji("🤣").setStyle(ButtonStyle.Primary))]};
+    if(isInteraction)return target.editReply({...payload,attachments:[]});
+    return target.reply(payload);
+  }
+
   async function loyalty(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const data = await apiGet<LoyaltyProfile>(`/api/users/${interaction.user.id}/loyalty`, true);
     const next = data.nextTier ? `الرتبة التالية: **${data.nextTier.name}** عند **${data.nextTier.threshold}** نقطة تفاعل.` : "وصلت أعلى رتبة ولاء.";
-    const active = data.shop.filter((reward) => reward.active || reward.owned).map((reward) => `${reward.icon} ${reward.name}`).join(" · ") || "لا توجد مزايا مفعلة بعد";
+    const active = data.shop.filter((reward) => reward.active || reward.owned).map((reward) => `${reward.icon} ${reward.name}${reward.activeUntil?` حتى <t:${Math.floor(new Date(reward.activeUntil).getTime()/1000)}:R>`:""}`).join(" · ") || "لا توجد مزايا مفعلة بعد";
     const catalog = data.shop.map((reward) => `${reward.icon} **${reward.name}** — ${reward.price} نقطة\n${reward.description}`).join("\n\n");
     const embed = baseEmbed()
       .setTitle("💎 متجر ولاء Zark")
@@ -1500,7 +1542,7 @@ if (!token) {
 
   async function help(interaction: any) {
     const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
-      { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع 1–20 جولة و10–60 ثانية\n`/lobby` لوبي جماعي: دخول وجاهز ثم بدء تلقائي\n`/daily` تحدي اليوم\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP" },
+      { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع 1–20 جولة و10–60 ثانية\n`/lobby` لوبي جماعي: دخول وجاهز ثم بدء تلقائي\n`/daily` تحدي اليوم\n`/ميمز` ميمز عربية مصممة\n`/نكت` نكت عربية بلا تكرار\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP" },
       { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
@@ -1517,7 +1559,7 @@ if (!token) {
       { name: "لوبي جماعي", value: "استخدم `/lobby`، اختر اللعبة والإعدادات، ثم يضغط اللاعبون **دخول** و**جاهز**. يبدأ تلقائيًا عند جاهزية لاعبين أو أكثر، والمضيف يستطيع البدء أو الإلغاء." },
       { name: "اختصارات سريعة", value: "`.أعلام` `.ترجم` `.شعارات` `.اختيارات` `.انمي` `.ألغاز` أو `/play help`." },
       { name: "تحدي اليوم", value: "`/daily` ينشر تحديًا يوميًا. أكمله لتربح XP ونقاط ولاء ومكافأة مهمة يومية." },
-      { name: "النقاط والرتب", value: "`/loyalty` يعرض رصيدك. تربح نقاطًا من الفوز والجلسات والتحدي اليومي؛ VIP يمكن شراؤها بالنقاط." },
+      { name: "النقاط والرتب", value: "`/loyalty` يعرض رصيدك. VIP مدته 3 أيام ويضاعف نقاط الولاء وXP بمقدار ×1.5، ويمكن تمديده بشراء جديد." },
     );
     const lfgGuide = baseEmbed().setTitle("👥 غرف LFG والإدارة").addFields(
       { name: "إنشاء أو دخول", value: "`/lfg create` لإنشاء غرفة، و`/lfg rooms` لرؤية الغرف واختيار **دخول**. Roblox يطلب اسم الماب." },
@@ -1813,6 +1855,18 @@ if (!token) {
       layers.push({ input: framed, left: frameX, top: frameY });
     }
     return base.composite(layers).png({ compressionLevel: 8 }).toBuffer();
+  }
+
+  async function renderMemeVisual(entry:ArabicHumorEntry){
+    const palettes=[["#13070a","#e50914"],["#08111e","#1677ff"],["#151006","#f59e0b"],["#10071b","#8b5cf6"]] as const;
+    const palette=palettes[Number(entry.id.replace(/\D/g,"")||0)%palettes.length];
+    const lines=wrapText(entry.text,34).slice(0,7);
+    const fontSize=lines.length>=6?43:lines.length>=4?50:58;
+    const startY=lines.length>=6?165:lines.length>=4?200:245;
+    const lineGap=fontSize+14;
+    const markup=lines.map((line,index)=>`<text x="600" y="${startY+index*lineGap}" text-anchor="middle" class="caption">${escapeXml(line)}</text>`).join("");
+    const svg=Buffer.from(`<svg width="1200" height="675" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-opacity=".65"/></filter></defs><rect width="1200" height="675" fill="url(#bg)"/><circle cx="1080" cy="80" r="210" fill="#fff" opacity=".06"/><circle cx="90" cy="610" r="250" fill="#000" opacity=".18"/><style>${fontFaceStyle}.caption{font:900 ${fontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext;filter:url(#shadow)}.brand{font:900 24px ${arabicFont};fill:#fff;letter-spacing:4px}</style><rect x="442" y="55" width="316" height="58" rx="29" fill="#050505" opacity=".72"/><text x="600" y="94" text-anchor="middle" class="brand">ZARK MEMES</text>${markup}<text x="600" y="620" text-anchor="middle" style="font:800 25px ${arabicFont};fill:#fff;opacity:.78">اضغط «ميم ثاني» وخذ جرعة ضحك جديدة</text></svg>`);
+    return sharp(svg).png({compressionLevel:8}).toBuffer();
   }
 
   async function renderWinnerVisual(name: string, points: number, elapsedMs: number, typoCount: number) {
@@ -2202,6 +2256,10 @@ function buildCommands() {
     new SlashCommandBuilder().setName("dm-test").setDescription("اختبر وصول رسائل Zark الخاصة إلى حسابك"),
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
     new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
+    new SlashCommandBuilder().setName("joke").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
+    new SlashCommandBuilder().setName("memes").setDescription("ميم عربي عشوائي بتصميم Zark"),
+    new SlashCommandBuilder().setName("نكت").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
+    new SlashCommandBuilder().setName("ميمز").setDescription("ميم عربي عشوائي بتصميم Zark"),
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
     new SlashCommandBuilder().setName("pulse").setDescription("لوحتك الشخصية: التفاعل والفرص المتاحة الآن"),
     new SlashCommandBuilder().setName("event-hour").setDescription("بدء فعالية نقاط مضاعفة — للإدارة").addIntegerOption((option) => option.setName("minutes").setDescription("المدة بالدقائق").setMinValue(15).setMaxValue(180)),
@@ -2253,7 +2311,7 @@ type LiveRoom = { platform?: LfgPlatform; id: string; hostId: string; hostPriori
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type TradeView = { id: string; code: string; publicId: number; itemName: string; imageData: string; haveText: string; wantText: string; description?: string; status: string; discordChannelId?: string; discordMessageId?: string; owner: { id: string; displayName: string; avatarUrl?: string }; game: { name: string; icon?: string }; _count?: { interests: number; conversations: number } };
-type LoyaltyProfile = { points: number; lifetimePoints: number; vipUnlocked: boolean; tier: { name: string }; nextTier?: { name: string; threshold: number }; shop: Array<{ key: string; name: string; description: string; icon: string; price: number; kind: string; owned: boolean; active: boolean; activeUntil?: string }> };
+type LoyaltyProfile = { points: number; lifetimePoints: number; vipUnlocked: boolean; vipUntil?:string; tier: { name: string }; nextTier?: { name: string; threshold: number }; shop: Array<{ key: string; name: string; description: string; icon: string; price: number; kind: string; owned: boolean; active: boolean; activeUntil?: string }> };
 type UnifiedProfile = { displayName: string; avatarUrl?: string; loyalty?: { points: number; lifetimePoints: number; vipUnlocked: boolean; badge?: string }; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
 type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";
 type SecurityResult = { suspend: boolean; duplicate?: boolean; counts?: { bans: number; timeouts: number; kicks: number; roles: number; channels: number; webhooks: number }; suspension?: { reason: string }; settings?: { securityLogChannelId?: string | null; ownerDmAlertsEnabled?: boolean } };
