@@ -9,7 +9,8 @@ import fs from "node:fs";
 import sharp from "sharp";
 import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../packages/shared/src/lfg-platform.js";
 import { raceGames } from "../../../packages/games/src/index.js";
-import { arabicHumor, type ArabicHumorEntry } from "../../../packages/fun/src/arabic-humor.js";
+import { arabicHumor } from "../../../packages/fun/src/arabic-humor.js";
+import { memeCaptions,memeTemplates,type MemeCaption,type MemeTemplate } from "../../../packages/fun/src/arabic-memes.js";
 import { apiGet, apiSend } from "./api/client.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -26,6 +27,7 @@ const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/asse
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
 const recentHumorByUser = new Map<string, string[]>();
+const memeTemplateCache=new Map<string,Buffer>();
 const brand = { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل", color: 0xe50914 };
 
 // تضمين خط عربي مباشرة في الكود لضمان العمل على أي سيرفر بدون خطوط نظام
@@ -1447,8 +1449,8 @@ if (!token) {
     await interaction.editReply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
   }
 
-  function pickHumor(userId:string,kind:"joke"|"meme"){
-    const historyKey=`${kind}:${userId}`;
+  function pickHumor(userId:string){
+    const historyKey=`joke:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
     const available=arabicHumor.filter(entry=>!recent.includes(entry.id));
     const entry=(available.length?available:arabicHumor)[Math.floor(Math.random()*(available.length||arabicHumor.length))];
@@ -1457,11 +1459,21 @@ if (!token) {
     return entry;
   }
 
+  function pickMeme(userId:string){
+    const historyKey=`meme:${userId}`;
+    const recent=recentHumorByUser.get(historyKey)??[];
+    const combinations=memeTemplates.flatMap(template=>memeCaptions.map((caption,index)=>({id:`${template.id}:${index}`,template,caption})));
+    const available=combinations.filter(item=>!recent.includes(item.id));
+    const item=(available.length?available:combinations)[Math.floor(Math.random()*(available.length||combinations.length))];
+    recentHumorByUser.set(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,60));
+    return item;
+  }
+
   async function sendJoke(target:any){
     const isInteraction=typeof target.isButton==="function";
     if(isInteraction){if(target.isButton())await target.deferUpdate();else await target.deferReply();}
     const userId=isInteraction?target.user.id:target.author.id;
-    const entry=pickHumor(userId,"joke");
+    const entry=pickHumor(userId);
     const payload={embeds:[baseEmbed().setTitle("😂 نكتة عربية").setDescription(entry.text).setFooter({text:"Arabic-Humor (CC BY 4.0) · بدون تكرار آخر 60 نكتة"})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:joke").setLabel("نكتة ثانية").setEmoji("😂").setStyle(ButtonStyle.Primary))]};
     if(isInteraction)return target.editReply(payload);
     return target.reply(payload);
@@ -1471,10 +1483,10 @@ if (!token) {
     const isInteraction=typeof target.isButton==="function";
     if(isInteraction){if(target.isButton())await target.deferUpdate();else await target.deferReply();}
     const userId=isInteraction?target.user.id:target.author.id;
-    const entry=pickHumor(userId,"meme");
-    const filename=`zark-meme-${entry.id.replace(/[^a-z0-9-]/gi,"")}.png`;
-    const image=await renderMemeVisual(entry);
-    const payload:any={embeds:[baseEmbed().setTitle("🤣 ميم عربي من Zark").setImage(`attachment://${filename}`).setFooter({text:"النص: Arabic-Humor (CC BY 4.0) · تصميم Zark"})],files:[new AttachmentBuilder(image,{name:filename})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:meme").setLabel("ميم ثاني").setEmoji("🤣").setStyle(ButtonStyle.Primary))]};
+    const meme=pickMeme(userId);
+    const filename=`zark-meme-${meme.id.replace(/[^a-z0-9-]/gi,"")}.png`;
+    const image=await renderMemeVisual(meme.template,meme.caption);
+    const payload:any={embeds:[baseEmbed().setTitle("🤣 ميم عربي من Zark").setImage(`attachment://${filename}`).setFooter({text:`قالب ${meme.template.name} من Imgflip · تعليق وتصميم Zark`})],files:[new AttachmentBuilder(image,{name:filename})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:meme").setLabel("ميم ثاني").setEmoji("🤣").setStyle(ButtonStyle.Primary))]};
     if(isInteraction)return target.editReply({...payload,attachments:[]});
     return target.reply(payload);
   }
@@ -1857,16 +1869,19 @@ if (!token) {
     return base.composite(layers).png({ compressionLevel: 8 }).toBuffer();
   }
 
-  async function renderMemeVisual(entry:ArabicHumorEntry){
-    const palettes=[["#13070a","#e50914"],["#08111e","#1677ff"],["#151006","#f59e0b"],["#10071b","#8b5cf6"]] as const;
-    const palette=palettes[Number(entry.id.replace(/\D/g,"")||0)%palettes.length];
-    const lines=wrapText(entry.text,34).slice(0,7);
-    const fontSize=lines.length>=6?43:lines.length>=4?50:58;
-    const startY=lines.length>=6?165:lines.length>=4?200:245;
-    const lineGap=fontSize+14;
-    const markup=lines.map((line,index)=>`<text x="600" y="${startY+index*lineGap}" text-anchor="middle" class="caption">${escapeXml(line)}</text>`).join("");
-    const svg=Buffer.from(`<svg width="1200" height="675" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-opacity=".65"/></filter></defs><rect width="1200" height="675" fill="url(#bg)"/><circle cx="1080" cy="80" r="210" fill="#fff" opacity=".06"/><circle cx="90" cy="610" r="250" fill="#000" opacity=".18"/><style>${fontFaceStyle}.caption{font:900 ${fontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext;filter:url(#shadow)}.brand{font:900 24px ${arabicFont};fill:#fff;letter-spacing:4px}</style><rect x="442" y="55" width="316" height="58" rx="29" fill="#050505" opacity=".72"/><text x="600" y="94" text-anchor="middle" class="brand">ZARK MEMES</text>${markup}<text x="600" y="620" text-anchor="middle" style="font:800 25px ${arabicFont};fill:#fff;opacity:.78">اضغط «ميم ثاني» وخذ جرعة ضحك جديدة</text></svg>`);
-    return sharp(svg).png({compressionLevel:8}).toBuffer();
+  async function renderMemeVisual(template:MemeTemplate,caption:MemeCaption){
+    let templateImage=memeTemplateCache.get(template.id);
+    if(!templateImage){
+      templateImage=await remoteImage(template.url);
+      if(templateImage)memeTemplateCache.set(template.id,templateImage);
+    }
+    const source=templateImage??fs.readFileSync(roomCardBackgroundPath);
+    const foreground=await sharp(source).resize(1200,675,{fit:"contain",background:"#050505"}).png().toBuffer();
+    const topLines=wrapText(caption.top,31).slice(0,2);
+    const bottomLines=wrapText(caption.bottom,31).slice(0,2);
+    const text=(lines:string[],start:number)=>lines.map((line,index)=>`<text x="600" y="${start+index*57}" text-anchor="middle" class="caption">${escapeXml(line)}</text>`).join("");
+    const overlay=Buffer.from(`<svg width="1200" height="675" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="top" x2="0" y2="1"><stop stop-color="#000" stop-opacity=".88"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient><linearGradient id="bottom" x2="0" y2="1"><stop stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".92"/></linearGradient></defs><rect width="1200" height="210" fill="url(#top)"/><rect y="435" width="1200" height="240" fill="url(#bottom)"/><style>${fontFaceStyle}.caption{font:900 46px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext;stroke:#000;stroke-width:8px;paint-order:stroke fill;stroke-linejoin:round}</style>${text(topLines,72)}${text(bottomLines,bottomLines.length>1?545:590)}<rect x="1025" y="620" width="140" height="36" rx="18" fill="#e50914"/><text x="1095" y="646" text-anchor="middle" style="font:900 19px ${arabicFont};fill:#fff">ZARK</text></svg>`);
+    return sharp(source).resize(1200,675,{fit:"cover"}).blur(18).modulate({brightness:.45}).composite([{input:foreground},{input:overlay}]).png({compressionLevel:8}).toBuffer();
   }
 
   async function renderWinnerVisual(name: string, points: number, elapsedMs: number, typoCount: number) {
@@ -2257,9 +2272,9 @@ function buildCommands() {
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
     new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
     new SlashCommandBuilder().setName("joke").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
-    new SlashCommandBuilder().setName("memes").setDescription("ميم عربي عشوائي بتصميم Zark"),
+    new SlashCommandBuilder().setName("memes").setDescription("ميم عربي على قالب صورة حقيقي من الإنترنت"),
     new SlashCommandBuilder().setName("نكت").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
-    new SlashCommandBuilder().setName("ميمز").setDescription("ميم عربي عشوائي بتصميم Zark"),
+    new SlashCommandBuilder().setName("ميمز").setDescription("ميم عربي على قالب صورة حقيقي من الإنترنت"),
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
     new SlashCommandBuilder().setName("pulse").setDescription("لوحتك الشخصية: التفاعل والفرص المتاحة الآن"),
     new SlashCommandBuilder().setName("event-hour").setDescription("بدء فعالية نقاط مضاعفة — للإدارة").addIntegerOption((option) => option.setName("minutes").setDescription("المدة بالدقائق").setMinValue(15).setMaxValue(180)),
