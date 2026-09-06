@@ -9,8 +9,9 @@ import fs from "node:fs";
 import sharp from "sharp";
 import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../packages/shared/src/lfg-platform.js";
 import { raceGames } from "../../../packages/games/src/index.js";
-import { arabicHumor,type ArabicHumorEntry } from "../../../packages/fun/src/arabic-humor.js";
-import { memeCaptions,memeTemplates,type MemeCaption,type MemeTemplate } from "../../../packages/fun/src/arabic-memes.js";
+import type { ArabicHumorEntry } from "../../../packages/fun/src/arabic-humor.js";
+import {curatedJokes,curatedMemes,pickFresh} from "../../../packages/fun/src/curated-fun.js";
+import type { MemeCaption,MemeTemplate } from "../../../packages/fun/src/arabic-memes.js";
 import { apiGet, apiSend } from "./api/client.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -1452,8 +1453,7 @@ if (!token) {
   function pickHumor(userId:string){
     const historyKey=`joke:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
-    const available=arabicHumor.filter(entry=>!recent.includes(entry.id));
-    const entry=(available.length?available:arabicHumor)[Math.floor(Math.random()*(available.length||arabicHumor.length))];
+    const entry=pickFresh(curatedJokes,recent);
     const next=[entry.id,...recent.filter(id=>id!==entry.id)].slice(0,60);
     recentHumorByUser.set(historyKey,next);
     return entry;
@@ -1462,9 +1462,7 @@ if (!token) {
   function pickMeme(userId:string){
     const historyKey=`meme:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
-    const combinations=memeTemplates.flatMap(template=>memeCaptions.map((caption,index)=>({id:`${template.id}:${index}`,template,caption})));
-    const available=combinations.filter(item=>!recent.includes(item.id));
-    const item=(available.length?available:combinations)[Math.floor(Math.random()*(available.length||combinations.length))];
+    const item=pickFresh(curatedMemes,recent);
     recentHumorByUser.set(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,60));
     return item;
   }
@@ -1476,7 +1474,7 @@ if (!token) {
     const entry=pickHumor(userId);
     const filename=`zark-joke-${entry.id.replace(/[^a-z0-9-]/gi,"")}.png`;
     const image=await renderJokeVisual(entry);
-    const payload:any={embeds:[baseEmbed().setTitle("😂 نكتة عربية").setImage(`attachment://${filename}`).setFooter({text:"Arabic-Humor (CC BY 4.0) · تصميم Zark · بدون تكرار آخر 60 نكتة"})],files:[new AttachmentBuilder(image,{name:filename})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:joke").setLabel("نكتة ثانية").setEmoji("😂").setStyle(ButtonStyle.Primary))]};
+    const payload:any={embeds:[baseEmbed().setTitle("😂 نكتة عربية").setImage(`attachment://${filename}`).setFooter({text:"نكت Zark · نكتة جديدة بكل ضغطة حتى نهاية المكتبة"})],files:[new AttachmentBuilder(image,{name:filename})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:joke").setLabel("نكتة ثانية").setEmoji("😂").setStyle(ButtonStyle.Primary))]};
     if(isInteraction)return target.editReply({...payload,attachments:[]});
     return target.reply(payload);
   }
