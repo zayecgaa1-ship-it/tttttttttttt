@@ -11,7 +11,8 @@ import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../p
 import { raceGames } from "../../../packages/games/src/index.js";
 import {arabicHumor,type ArabicHumorEntry} from "../../../packages/fun/src/arabic-humor.js";
 import {pickFresh} from "../../../packages/fun/src/curated-fun.js";
-import {sourceMemes,memeSource} from "../../../packages/fun/src/source-memes.js";
+import {trustedSourceMemes,memeSource} from "../../../packages/fun/src/source-memes.js";
+import {prop2HateMemes,prop2HateSource,type Prop2HateMeme} from "../../../packages/fun/src/prop2hate-memes.js";
 import { apiGet, apiSend } from "./api/client.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -1461,9 +1462,20 @@ if (!token) {
   function pickMeme(userId:string){
     const historyKey=`meme:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
-    const item=pickFresh(sourceMemes,recent);
-    recentHumorByUser.set(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,sourceMemes.length));
+    const item=pickFresh(prop2HateMemes,recent);
+    recentHumorByUser.set(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,prop2HateMemes.length));
     return item;
+  }
+
+  async function resolveProp2HateImage(meme:Prop2HateMeme){
+    const query=new URLSearchParams({dataset:"QCRI/Prop2Hate-Meme",config:"default",split:meme.split,offset:String(meme.rowIndex),length:"1"});
+    const response=await fetch(`https://datasets-server.huggingface.co/rows?${query}`,{signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw new Error(`Prop2Hate image lookup failed: ${response.status}`);
+    const payload:any=await response.json();
+    const row=payload.rows?.[0];
+    const imageUrl=row?.row_idx===meme.rowIndex?row.row?.image?.src:undefined;
+    if(typeof imageUrl!=="string"||new URL(imageUrl).hostname!=="datasets-server.huggingface.co")throw new Error("Prop2Hate returned an invalid image URL");
+    return imageUrl;
   }
 
   async function sendJoke(target:any){
@@ -1483,8 +1495,20 @@ if (!token) {
     if(isInteraction){if(target.isButton())await target.deferUpdate();else await target.deferReply();}
     const userId=isInteraction?target.user.id:target.author.id;
     const meme=pickMeme(userId);
-    const embed=baseEmbed().setTitle("🤣 ميم عربي").setURL(memeSource).setImage(meme.url).setFooter({text:"المصدر: AHA-MEMES sample · حقوق الصور لأصحابها"});
-    if(meme.sensitive)embed.setDescription("⚠️ صنّف المصدر هذه الصورة كمحتوى كراهية أو إساءة.");
+    let imageUrl:string;
+    let sourceUrl=prop2HateSource;
+    let sourceLabel="QCRI Prop2Hate-Meme · فكاهي وغير كاره";
+    try{imageUrl=await resolveProp2HateImage(meme);}
+    catch{
+      const fallback=pickFresh(trustedSourceMemes,recentHumorByUser.get(`meme-fallback:${userId}`)??[]);
+      imageUrl=fallback.url;
+      sourceUrl=memeSource;
+      sourceLabel="AHA-MEMES sample · مصدر احتياطي";
+      const fallbackKey=`meme-fallback:${userId}`;
+      const fallbackRecent=recentHumorByUser.get(fallbackKey)??[];
+      recentHumorByUser.set(fallbackKey,[fallback.id,...fallbackRecent.filter(id=>id!==fallback.id)].slice(0,trustedSourceMemes.length));
+    }
+    const embed=baseEmbed().setTitle("🤣 ميم عربي").setURL(sourceUrl).setImage(imageUrl).setFooter({text:`المصدر: ${sourceLabel} · حقوق الصور لأصحابها`});
     const payload:any={embeds:[embed],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:meme").setLabel("ميم ثاني").setEmoji("🤣").setStyle(ButtonStyle.Primary))]};
     if(isInteraction)return target.editReply({...payload,attachments:[]});
     return target.reply(payload);
@@ -1553,7 +1577,7 @@ if (!token) {
 
   async function help(interaction: any) {
     const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
-      { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع 1–20 جولة و10–60 ثانية\n`/lobby` لوبي جماعي: دخول وجاهز ثم بدء تلقائي\n`/daily` تحدي اليوم\n`/ميمز` ميمز عربية مصممة\n`/نكت` نكت عربية بلا تكرار\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP" },
+      { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع 1–20 جولة و10–60 ثانية\n`/lobby` لوبي جماعي: دخول وجاهز ثم بدء تلقائي\n`/daily` تحدي اليوم\n`/ميمز` ميمز عربية فكاهية وآمنة\n`/نكت` نكت عربية بلا تكرار\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP" },
       { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
@@ -2270,9 +2294,9 @@ function buildCommands() {
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
     new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
     new SlashCommandBuilder().setName("joke").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
-    new SlashCommandBuilder().setName("memes").setDescription("ميم عربي على قالب صورة حقيقي من الإنترنت"),
+    new SlashCommandBuilder().setName("memes").setDescription("ميم عربي فكاهي وغير كاره من مكتبة موثقة"),
     new SlashCommandBuilder().setName("نكت").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
-    new SlashCommandBuilder().setName("ميمز").setDescription("ميم عربي على قالب صورة حقيقي من الإنترنت"),
+    new SlashCommandBuilder().setName("ميمز").setDescription("ميم عربي فكاهي وغير كاره من مكتبة موثقة"),
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
     new SlashCommandBuilder().setName("pulse").setDescription("لوحتك الشخصية: التفاعل والفرص المتاحة الآن"),
     new SlashCommandBuilder().setName("event-hour").setDescription("بدء فعالية نقاط مضاعفة — للإدارة").addIntegerOption((option) => option.setName("minutes").setDescription("المدة بالدقائق").setMinValue(15).setMaxValue(180)),
