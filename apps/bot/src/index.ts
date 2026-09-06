@@ -13,6 +13,7 @@ import {arabicHumor,type ArabicHumorEntry} from "../../../packages/fun/src/arabi
 import {pickFresh} from "../../../packages/fun/src/curated-fun.js";
 import {trustedSourceMemes,memeSource} from "../../../packages/fun/src/source-memes.js";
 import {prop2HateMemes,prop2HateSource,type Prop2HateMeme} from "../../../packages/fun/src/prop2hate-memes.js";
+import {renderJokeCard} from "../../../packages/fun/src/joke-card.js";
 import { apiGet, apiSend } from "./api/client.js";
 
 const token = process.env.DISCORD_TOKEN;
@@ -1893,17 +1894,7 @@ if (!token) {
   }
 
   async function renderJokeVisual(entry:ArabicHumorEntry){
-    const palettes=[["#18070a","#e50914"],["#071529","#1677ff"],["#1d1202","#f59e0b"],["#170725","#8b5cf6"],["#03201b","#10b981"]] as const;
-    const palette=palettes[Number(entry.id.replace(/\D/g,"")||0)%palettes.length];
-    const lines=wrapText(entry.text,46);
-    const fontSize=lines.length>30?27:lines.length>20?30:lines.length>12?34:lines.length>7?39:lines.length>4?44:52;
-    const lineGap=fontSize+10;
-    const textHeight=(lines.length-1)*lineGap;
-    const height=Math.max(675,Math.min(3000,textHeight+330));
-    const startY=lines.length<=7?Math.max(190,height/2-textHeight/2):180;
-    const markup=lines.map((line,index)=>`<text x="600" y="${startY+index*lineGap}" text-anchor="middle" class="joke">${escapeXml(line)}</text>`).join("");
-    const svg=Buffer.from(`<svg width="1200" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-opacity=".55"/></filter></defs><rect width="1200" height="${height}" fill="url(#bg)"/><circle cx="1080" cy="80" r="230" fill="#fff" opacity=".06"/><circle cx="90" cy="${height-25}" r="260" fill="#000" opacity=".16"/><rect x="54" y="135" width="1092" height="${height-245}" rx="42" fill="#050505" opacity=".42" stroke="#fff" stroke-opacity=".13" stroke-width="2"/><style>${fontFaceStyle}.joke{font:900 ${fontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext;filter:url(#shadow)}.brand{font:900 23px ${arabicFont};fill:#fff;letter-spacing:4px}</style><rect x="435" y="48" width="330" height="58" rx="29" fill="#050505" opacity=".72"/><text x="600" y="88" text-anchor="middle" class="brand">ZARK JOKES</text>${markup}<text x="600" y="${height-48}" text-anchor="middle" style="font:800 23px ${arabicFont};fill:#fff;opacity:.8">اضغط «نكتة ثانية» للمزيد</text></svg>`);
-    return sharp(svg).png({compressionLevel:8}).toBuffer();
+    return renderJokeCard(entry.text,Number(entry.id.replace(/\D/g,"")||0),arabicFontPath);
   }
 
   async function renderWinnerVisual(name: string, points: number, elapsedMs: number, typoCount: number) {

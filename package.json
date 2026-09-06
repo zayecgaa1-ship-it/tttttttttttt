@@ -10,6 +10,8 @@
     "dev:bot": "tsx apps/bot/src/index.ts",
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test packages/**/*.test.ts",
+    "test:joke-cards": "tsx --test packages/fun/src/joke-card.test.ts",
+    "preview:joke-cards": "tsx scripts/render-joke-card-samples.mjs",
     "verify": "npm run build && npm test",
     "test:reports": "tsx scripts/report-ticket-smoke.ts",
     "test:ai-actions": "tsx scripts/ai-actions-smoke.ts",
