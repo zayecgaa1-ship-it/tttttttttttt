@@ -14,3 +14,9 @@ test('every meme has an explicit image pairing and every joke fits the card bank
  for(const joke of curatedJokes)assert.ok(joke.text.length<230);
  assert.equal(new Set(curatedJokes.map(j=>j.text)).size,curatedJokes.length);
 });
+test('AHA meme library contains the complete public sample and its sensitive labels',()=>{
+ assert.equal(sourceMemes.length,100);
+ assert.equal(sourceMemes.filter(meme=>meme.sensitive).length,35);
+ assert.equal(new Set(sourceMemes.map(meme=>meme.id)).size,100);
+ for(const meme of sourceMemes)assert.match(meme.url,/^https:\/\/raw\.githubusercontent\.com\/MohamedBayan\/AHA-MEMES-sample\/main\/data\/img\//u);
+});

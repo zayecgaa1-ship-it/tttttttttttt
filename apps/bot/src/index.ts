@@ -1483,7 +1483,9 @@ if (!token) {
     if(isInteraction){if(target.isButton())await target.deferUpdate();else await target.deferReply();}
     const userId=isInteraction?target.user.id:target.author.id;
     const meme=pickMeme(userId);
-    const payload:any={embeds:[baseEmbed().setTitle("🤣 ميم عربي").setURL(memeSource).setImage(meme.url).setFooter({text:"المصدر: AHA-MEMES sample · حقوق الصور لأصحابها"})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:meme").setLabel("ميم ثاني").setEmoji("🤣").setStyle(ButtonStyle.Primary))]};
+    const embed=baseEmbed().setTitle("🤣 ميم عربي").setURL(memeSource).setImage(meme.url).setFooter({text:"المصدر: AHA-MEMES sample · حقوق الصور لأصحابها"});
+    if(meme.sensitive)embed.setDescription("⚠️ صنّف المصدر هذه الصورة كمحتوى كراهية أو إساءة.");
+    const payload:any={embeds:[embed],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:meme").setLabel("ميم ثاني").setEmoji("🤣").setStyle(ButtonStyle.Primary))]};
     if(isInteraction)return target.editReply({...payload,attachments:[]});
     return target.reply(payload);
   }
