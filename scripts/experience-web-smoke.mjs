@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const browser=await chromium.launch({channel:'msedge',headless:true});
 try{
  const context=await browser.newContext({reducedMotion:'reduce',permissions:['clipboard-read','clipboard-write']});
- await context.addInitScript(()=>{localStorage.setItem('zark-tutorial-v4',JSON.stringify({pausedVersion:4}));window.EventSource=class{close(){}};});
+ await context.addInitScript(()=>{if(!localStorage.getItem('zark-tutorial-v4'))localStorage.setItem('zark-tutorial-v4',JSON.stringify({pausedVersion:4}));window.EventSource=class{close(){}};});
  await context.route('**/*',route=>{
   const url=new URL(route.request().url());
   if(url.pathname.startsWith('/api/'))return route.fulfill({json:url.pathname==='/api/me'?{user:null}:{rooms:[],lfgGames:[],zarkGames:[],leaderboard:[]}});
@@ -39,5 +39,23 @@ try{
   }
   await page.setViewportSize({width:1440,height:960});await page.screenshot({path:'artifacts/experience-'+(route==='/'?'home':route.slice(1,-5))+'.png',fullPage:true});
  }
- assert.deepEqual(errors,[]);console.log('PASS: home, games and command hub at 1440/390/320; search, categories, clipboard and JavaScript.');
+ await context.route('**/api/me',route=>route.fulfill({json:{user:{userId:'test-member',displayName:'عضو الاختبار'}}}));
+ await context.route('**/api/me/tutorial',route=>route.fulfill({json:{tutorialCompleted:true,tutorialVersion:4}}));
+ await page.goto('https://zark.local/commands.html');
+ await page.waitForFunction(()=>document.querySelector('.nav-user')?.textContent.includes('عضو الاختبار'));
+ assert.equal(await page.locator('.nav-user a[href="/auth/discord"]').count(),0);
+ await page.goto('https://zark.local/');
+ await page.waitForSelector('.cta a[href="/lfg.html"]');
+ assert.equal(await page.locator('.cta a[href="/auth/discord"]').count(),0);
+ await page.locator('#tutorial-help-fab').click();await page.locator('[data-section="commands"]').click();
+ await page.waitForURL('**/commands.html');await page.waitForSelector('.tour-tooltip');
+ assert.match(await page.locator('.tour-tooltip').innerText(),/ابحث عن أمر/);
+ await page.keyboard.press('Escape');
+ await page.setViewportSize({width:390,height:960});
+ await page.locator('#tutorial-help-fab').click();await page.locator('[data-section="basics"]').click();
+ await page.waitForURL('https://zark.local/');await page.waitForSelector('.tour-tooltip');
+ await page.locator('[data-next]').click();await page.waitForFunction(()=>document.querySelector('.tour-tooltip h2')?.textContent==='التنقل');
+ assert.equal(await page.locator('#mobile-menu').getAttribute('aria-expanded'),'true');
+ await page.keyboard.press('Escape');assert.equal(await page.locator('.tour-tooltip').count(),0);
+ assert.deepEqual(errors,[]);console.log('PASS: responsive pages, signed-in commands/home CTA, completed-user tutorial restart across pages, mobile navigation and Escape.');
 }finally{await browser.close();}
