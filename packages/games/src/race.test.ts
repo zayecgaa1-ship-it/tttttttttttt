@@ -59,7 +59,8 @@ test("quick choice prompts expose three distinct options including the right ans
 test("catalogue counts real questions, including all restored games", () => {
   for(const slug of ['emoji-guess','movies','series','music','car-logos','company-logos'])assert.ok(raceGames.has(slug));
   for (const game of raceGames.values()) {
-    assert.ok((game.questionCount ?? 0) >= minimumRaceQuestionsPerGame);
+    assert.ok((game.questionCount ?? 0) >= 151,`${game.slug}: ${game.questionCount} questions; every game needs more than 150`);
+    assert.equal(minimumRaceQuestionsPerGame,151);
     assert.equal(game.questionCount,game.questions?.length);
     assert.equal(new Set(game.questions?.map(question=>questionIdentity(question,game.slug))).size,game.questionCount);
     for(const question of game.questions || []){
@@ -78,11 +79,23 @@ test("every Zark game gives exactly fifteen seconds to answer", () => {
 test('all games draw unseen questions before recycling, even with a stuck RNG',()=>{
   for(const game of raceGames.values()){
     const history: Array<(NonNullable<typeof game.questions>)[number]>=[];
-    for(let index=0;index<Math.min(25,game.questionCount!);index++){
+    for(let index=0;index<151;index++){
       const question=selectFreshQuestion(game.questions!,history,game.slug,()=>0);
       assert.ok(!history.some(item=>questionIdentity(item,game.slug)===questionIdentity(question,game.slug)),game.slug);
       history.unshift(question);
     }
+  }
+});
+
+test('legacy and expanded flags, translations and capitals share a semantic identity',()=>{
+  const cases=[
+    ['flags','🚩 لأي دولة هذا العلم؟ 🇯🇵','🚩 لأي دولة أو إقليم هذا العلم؟ 🇯🇵','اليابان'],
+    ['emoji-guess','😀 ما معنى هذا الإيموجي؟ 🦊','😀 ما الذي يمثله الرمز 🦊؟','ثعلب'],
+    ['translate','🌍 ترجم كلمة: Apple','🌍 ترجم إلى العربية: apple','تفاحة'],
+    ['capitals','🌐 ما عاصمة اليابان؟','ما عاصمة دولة «اليابان»؟','طوكيو'],
+  ];
+  for(const [slug,oldPrompt,newPrompt,answer] of cases){
+    assert.equal(uniqueQuestions([{prompt:oldPrompt,answers:[answer]},{prompt:newPrompt,answers:[answer]}],slug).length,1,slug);
   }
 });
 

@@ -6,6 +6,22 @@ export function questionIdentity(question: PoolQuestion, slug = ''): string {
   while(lines.length>1 && /^[^\p{L}\p{N}]*(?:تحدي|جولة|سؤال المنافسة|اختبار سريع|سباق|انطلق|وقت الحسم|قبل الجميع|فرصة الفوز|اختبر سرعتك|فكّر بسرعة|من يسبق|لحظة الحسم|ركّز الآن|لا تكرر الإجابة|وضع السرعة|انتبه للسؤال|سؤال مباشر|لا تتأخر|طريق الفوز|رحلة المعرفة|إصابة مباشرة)/u.test(lines[0]) && lines[0].includes(':'))lines.shift();
   const text=lines.join('\n');
   const normalize = (value: string) => value.normalize('NFKC').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\*\*/g,'').replace(/[أإآ]/g,'ا').replace(/\s+/g,' ').trim().toLowerCase();
+  if(slug==='flags'){
+    const flag=text.match(/[\u{1F1E6}-\u{1F1FF}]{2}/u)?.[0];
+    if(flag)return 'flag:'+flag;
+  }
+  if(slug==='emoji-guess'){
+    const symbols=text.match(/((?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\uFE0F|\u200D|[\u{1F3FB}-\u{1F3FF}])+)\s*[؟?]?$/u)?.[1];
+    if(symbols)return 'emoji:'+symbols.replace(/\uFE0F/g,'');
+  }
+  if(slug==='translate'){
+    const word=text.match(/:\s*([a-z][a-z '-]*)\s*$/i)?.[1];
+    if(word)return 'translate:'+word.trim().toLowerCase();
+  }
+  if(slug==='capitals'||slug==='countries'){
+    const country=text.match(/ما عاصمة(?: دولة)?\s+[«"]?([^؟?»"]+)[»"]?[؟?]?/)?.[1];
+    if(country)return 'capital:'+normalize(country);
+  }
   const content = ['letter-order','word-order'].includes(slug) ? normalize(question.answers[0] || text) : normalize(text);
   return `${content}|${question.mediaUrl || ''}`;
 }

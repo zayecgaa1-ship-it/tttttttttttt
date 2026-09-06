@@ -1,4 +1,7 @@
 import { uniqueQuestions, shuffled } from "./question-pool.js";
+import { expandedFactBank } from "./expanded-fact-bank.js";
+import { expandedWordBank } from "./expanded-word-bank.js";
+import { expandedPuzzleBank } from "./expanded-puzzle-bank.js";
 export type RacePrompt = {
   prompt: string;
   answers: string[];
@@ -357,7 +360,7 @@ function sampleModuleQuestions(game: RaceGame): RacePrompt[] {
 function withImportedQuestions(game: RaceGame): RaceGame {
   const sourceSlugs=game.slug==='logos'?['car-logos','company-logos']:[game.slug];
   const imported=sourceSlugs.flatMap(slug=>[...(visualLogoQuestionBank[slug] || []),...(importedQuestionBank[slug] || [])]);
-  const questions=uniqueQuestions<RacePrompt>([...imported,...(imported.length?[]:sampleModuleQuestions(game)),...extraQuestions(game)],game.slug);
+  const questions=uniqueQuestions<RacePrompt>([...imported,...(imported.length?[]:sampleModuleQuestions(game)),...extraQuestions(game),...(expandedFactBank[game.slug]||[]),...(expandedWordBank[game.slug]||[]),...(expandedPuzzleBank[game.slug]||[])],game.slug);
   if(!questions.length)throw new Error('لا يوجد بنك أسئلة للعبة '+game.slug);
   const category=['fast-type','word-order','letter-order','complete-word','translate','synonyms','antonyms','languages'].includes(game.slug)?'كلمات ولغات':['logos','car-logos','company-logos','game-logos','anime-silhouette','emoji-guess'].includes(game.slug)?'صور وتخمين':['math','logic','quick-choice','true-false','riddles'].includes(game.slug)?'سرعة وتفكير':['movies','music','series','gaming-quiz','sports','football','books'].includes(game.slug)?'ترفيه وثقافة':'معرفة وعلوم';
   const icons: Record<string,string> = {translate:'🌍',flags:'🚩',capitals:'🌐',math:'🧮','fast-type':'⌨️','quick-choice':'🔘','true-false':'✅','car-logos':'🚘','company-logos':'🏢',logos:'🎯','anime-silhouette':'🎭','game-logos':'🎮','emoji-guess':'😎',music:'🎵',movies:'🎬',series:'📺'};
@@ -366,7 +369,7 @@ function withImportedQuestions(game: RaceGame): RaceGame {
 }
 
 // Counts represent distinct playable questions; decorative variants are never padding.
-export const minimumRaceQuestionsPerGame = 1;
+export const minimumRaceQuestionsPerGame = 151;
 export const raceAnswerDurationMs = 15_000;
 export const retiredRaceGameSlugs: readonly string[] = [];
 const restoredLogoGames: RaceGame[] = [
