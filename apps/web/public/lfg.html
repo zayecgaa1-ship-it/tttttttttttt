@@ -11,8 +11,11 @@
   <header id="site-nav"></header>
   <main class="shell page-main">
     <section class="page-hero"><span class="eyebrow">LOOKING FOR GROUP</span><h1>لاقِ فريقك <em>الآن.</em></h1><p>اختر اللعبة والمدة، وZark ينشئ مساحة Text وVoice ويتابع الجلسة حتى تنتهي.</p></section>
+    <section class="lfg-actions-bar"><div><span class="live-dot"></span><b>التجمعات تتحدث مباشرة</b><small>اختر منصتك ثم ادخل فريقًا مناسبًا لك</small></div><button id="open-create-room" class="button primary" type="button">＋ أنشئ غرفة</button></section>
     <section class="lfg-layout">
-      <aside class="create-panel">
+      <div id="create-room-backdrop" class="create-room-backdrop" hidden></div>
+      <aside class="create-panel" id="create-room-panel" aria-label="إنشاء غرفة">
+        <button id="close-create-room" class="panel-close" type="button" aria-label="إغلاق">×</button>
         <div class="panel-title"><span>⚡</span><div><h2>أنشئ تجمعًا</h2><p>خطوات قليلة، فريق أسرع.</p></div></div>
         <form id="create-room-form">
           <label>اللعبة<select id="room-game" required><option>جارِ التحميل...</option></select></label>
@@ -37,7 +40,7 @@
       <section class="rooms-area">
         <div class="section-heading"><div><span class="eyebrow">LIVE ROOMS</span><h2>الغرف المباشرة</h2></div><span id="room-count" class="live-chip">0 LIVE</span></div>
         <label class="smart-search"><span>⌕</span><input id="room-search" type="search" maxlength="100" placeholder="بحث ذكي بأي لغة: ماينكرافت، Minecraft، माइनक्राफ्ट..."></label>
-        <label class="platform-filter">منصة اللعب<select id="room-platform-filter"><option value="all">كل المنصات</option><option value="unknown">غير محددة</option><option value="MOBILE">📱 جوال</option><option value="PC">💻 كمبيوتر</option><option value="PLAYSTATION">🎮 بلايستيشن</option></select></label><div id="lfg-filters" class="filter-row"></div><div id="rooms" class="room-list"></div>
+        <div class="lfg-filter-grid"><label class="platform-filter">المنصة<select id="room-platform-filter"><option value="all">كل المنصات</option><option value="unknown">غير محددة</option><option value="MOBILE">📱 جوال</option><option value="PC">💻 كمبيوتر</option><option value="PLAYSTATION">🎮 بلايستيشن</option></select></label><label>المنطقة<select id="room-region-filter"><option value="all">كل المناطق</option><option value="mena">الشرق الأوسط</option><option value="eu">أوروبا</option></select></label><label>التواصل<select id="room-mic-filter"><option value="all">الكل</option><option value="voice">Voice</option><option value="text">Text</option></select></label></div><div id="lfg-filters" class="filter-row"></div><div id="rooms" class="room-list"></div>
       </section>
     </section>
     <section id="room-manager" class="section" hidden>

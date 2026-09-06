@@ -42,7 +42,8 @@ try {
     for (const route of process.argv.includes('--games-hub') ? ['/', '/games.html'] : ['/', '/games.html','/lfg.html','/leaderboard.html','/profile.html','/reports.html','/trade.html','/admin.html','/security.html','/status.html']) {
       await page.goto('https://zark.local'+route,{waitUntil:'domcontentloaded'});
       await page.waitForTimeout(120);
-      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Overflow: ${route} at ${width}`);
+      const layout=await page.evaluate(()=>({fits:document.documentElement.scrollWidth<=innerWidth+1,scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth,offenders:[...document.querySelectorAll('body *')].filter(node=>{const rect=node.getBoundingClientRect();return rect.right>innerWidth+1||rect.left< -1}).slice(0,8).map(node=>`${node.tagName.toLowerCase()}${node.id?'#'+node.id:''}${node.className&&typeof node.className==='string'?'.'+node.className.trim().replace(/\s+/g,'.'):''}`)}));
+      assert.ok(layout.fits,`Overflow: ${route} at ${width} (${layout.scrollWidth}px): ${layout.offenders.join(', ')}`);
       if (['/','/games.html'].includes(route) && [1440,390].includes(width)) await page.screenshot({path:`artifacts/design/${route==='/'?'home':'games'}-${width}.png`,fullPage:true});
     }
     console.log(`Layout passed: ${width}px`);
@@ -73,12 +74,19 @@ try {
   await page.locator('#play-zark').click();
   const pageCommand = await page.locator('#race-command').innerText();
   assert.ok(games.some(game=>'.'+game.aliases[0]===pageCommand));
-  await page.locator('#mobile-menu').click();
-  assert.equal(await page.locator('#mobile-menu').getAttribute('aria-expanded'),'true');
+  await page.locator('#mobile-more').click();
+  assert.equal(await page.locator('#mobile-more').getAttribute('aria-expanded'),'true');
+  assert.ok(await page.locator('#mobile-more-drawer section').isVisible());
   await page.keyboard.press('Escape');
-  assert.equal(await page.locator('#mobile-menu').getAttribute('aria-expanded'),'false');
+  assert.equal(await page.locator('#mobile-more').getAttribute('aria-expanded'),'false');
+  await page.goto('https://zark.local/lfg.html',{waitUntil:'domcontentloaded'});
+  await page.locator('#tutorial-help-fab').click();
+  await page.locator('[data-section="lfg"]').click();
+  await page.waitForSelector('#zark-tutorial-v4 .tour-tooltip');
+  assert.ok(await page.locator('#create-room-panel').evaluate(node=>node.classList.contains('open')),'LFG tutorial opens the create-room drawer');
+  await page.locator('#zark-tutorial-v4 [data-pause]').click();
   catalog = [];
-  await page.reload();
+  await page.goto('https://zark.local/games.html',{waitUntil:'domcontentloaded'});
   await page.waitForTimeout(150);
   assert.ok(await page.locator('#play-zark').isDisabled());
   assert.ok(await page.locator('#zark-games .empty-state').isVisible());

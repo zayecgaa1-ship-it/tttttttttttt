@@ -49,6 +49,7 @@ try{
   await page.locator('#room-platform').selectOption('');
   assert.equal(await page.locator('#room-platform').evaluate(node=>node.checkValidity()),false);
   await page.locator('#room-platform').selectOption('MOBILE');
+  await page.locator('#open-create-room').click();
   await page.locator('#create-room-form button[type=submit]').click();
   await page.waitForFunction(()=>document.querySelector('#create-room-result').textContent.includes('بنجاح'));
   assert.equal(writes.at(-1).body.platform,'MOBILE');
