@@ -9,8 +9,8 @@ import fs from "node:fs";
 import sharp from "sharp";
 import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../packages/shared/src/lfg-platform.js";
 import { raceGames } from "../../../packages/games/src/index.js";
-import type { ArabicHumorEntry } from "../../../packages/fun/src/arabic-humor.js";
-import {curatedJokes,pickFresh} from "../../../packages/fun/src/curated-fun.js";
+import {arabicHumor,type ArabicHumorEntry} from "../../../packages/fun/src/arabic-humor.js";
+import {pickFresh} from "../../../packages/fun/src/curated-fun.js";
 import {sourceMemes,memeSource} from "../../../packages/fun/src/source-memes.js";
 import { apiGet, apiSend } from "./api/client.js";
 
@@ -1452,8 +1452,8 @@ if (!token) {
   function pickHumor(userId:string){
     const historyKey=`joke:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
-    const entry=pickFresh(curatedJokes,recent);
-    const next=[entry.id,...recent.filter(id=>id!==entry.id)].slice(0,curatedJokes.length);
+    const entry=pickFresh(arabicHumor,recent);
+    const next=[entry.id,...recent.filter(id=>id!==entry.id)].slice(0,arabicHumor.length);
     recentHumorByUser.set(historyKey,next);
     return entry;
   }
@@ -1473,7 +1473,7 @@ if (!token) {
     const entry=pickHumor(userId);
     const filename=`zark-joke-${entry.id.replace(/[^a-z0-9-]/gi,"")}.png`;
     const image=await renderJokeVisual(entry);
-    const payload:any={embeds:[baseEmbed().setTitle("😂 نكتة عربية").setImage(`attachment://${filename}`).setFooter({text:"نكت Zark · نكتة جديدة بكل ضغطة حتى نهاية المكتبة"})],files:[new AttachmentBuilder(image,{name:filename})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:joke").setLabel("نكتة ثانية").setEmoji("😂").setStyle(ButtonStyle.Primary))]};
+    const payload:any={embeds:[baseEmbed().setTitle("😂 نكتة عربية").setURL("https://github.com/iwan-rg/Arabic-Humor").setImage(`attachment://${filename}`).setFooter({text:"المصدر: Arabic-Humor · CC BY 4.0 · بدون تكرار حتى نهاية المكتبة"})],files:[new AttachmentBuilder(image,{name:filename})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:joke").setLabel("نكتة ثانية").setEmoji("😂").setStyle(ButtonStyle.Primary))]};
     if(isInteraction)return target.editReply({...payload,attachments:[]});
     return target.reply(payload);
   }
@@ -1869,13 +1869,14 @@ if (!token) {
   async function renderJokeVisual(entry:ArabicHumorEntry){
     const palettes=[["#18070a","#e50914"],["#071529","#1677ff"],["#1d1202","#f59e0b"],["#170725","#8b5cf6"],["#03201b","#10b981"]] as const;
     const palette=palettes[Number(entry.id.replace(/\D/g,"")||0)%palettes.length];
-    const lines=wrapText(entry.text,35).slice(0,7);
-    const fontSize=lines.length>=7?38:lines.length>=5?43:lines.length>=3?49:56;
-    const lineGap=fontSize+13;
+    const lines=wrapText(entry.text,46);
+    const fontSize=lines.length>30?27:lines.length>20?30:lines.length>12?34:lines.length>7?39:lines.length>4?44:52;
+    const lineGap=fontSize+10;
     const textHeight=(lines.length-1)*lineGap;
-    const startY=Math.max(180,350-textHeight/2);
+    const height=Math.max(675,Math.min(3000,textHeight+330));
+    const startY=lines.length<=7?Math.max(190,height/2-textHeight/2):180;
     const markup=lines.map((line,index)=>`<text x="600" y="${startY+index*lineGap}" text-anchor="middle" class="joke">${escapeXml(line)}</text>`).join("");
-    const svg=Buffer.from(`<svg width="1200" height="675" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-opacity=".55"/></filter></defs><rect width="1200" height="675" fill="url(#bg)"/><circle cx="1080" cy="80" r="230" fill="#fff" opacity=".06"/><circle cx="90" cy="650" r="260" fill="#000" opacity=".16"/><rect x="54" y="135" width="1092" height="430" rx="42" fill="#050505" opacity=".42" stroke="#fff" stroke-opacity=".13" stroke-width="2"/><style>${fontFaceStyle}.joke{font:900 ${fontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext;filter:url(#shadow)}.brand{font:900 23px ${arabicFont};fill:#fff;letter-spacing:4px}</style><rect x="435" y="48" width="330" height="58" rx="29" fill="#050505" opacity=".72"/><text x="600" y="88" text-anchor="middle" class="brand">ZARK JOKES</text><text x="110" y="215" style="font-size:82px">😂</text>${markup}<text x="600" y="625" text-anchor="middle" style="font:800 23px ${arabicFont};fill:#fff;opacity:.8">اضغط «نكتة ثانية» للمزيد</text></svg>`);
+    const svg=Buffer.from(`<svg width="1200" height="${height}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${palette[0]}"/><stop offset="1" stop-color="${palette[1]}"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="6" stdDeviation="8" flood-opacity=".55"/></filter></defs><rect width="1200" height="${height}" fill="url(#bg)"/><circle cx="1080" cy="80" r="230" fill="#fff" opacity=".06"/><circle cx="90" cy="${height-25}" r="260" fill="#000" opacity=".16"/><rect x="54" y="135" width="1092" height="${height-245}" rx="42" fill="#050505" opacity=".42" stroke="#fff" stroke-opacity=".13" stroke-width="2"/><style>${fontFaceStyle}.joke{font:900 ${fontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext;filter:url(#shadow)}.brand{font:900 23px ${arabicFont};fill:#fff;letter-spacing:4px}</style><rect x="435" y="48" width="330" height="58" rx="29" fill="#050505" opacity=".72"/><text x="600" y="88" text-anchor="middle" class="brand">ZARK JOKES</text>${markup}<text x="600" y="${height-48}" text-anchor="middle" style="font:800 23px ${arabicFont};fill:#fff;opacity:.8">اضغط «نكتة ثانية» للمزيد</text></svg>`);
     return sharp(svg).png({compressionLevel:8}).toBuffer();
   }
 
