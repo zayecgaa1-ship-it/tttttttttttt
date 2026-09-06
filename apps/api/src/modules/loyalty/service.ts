@@ -60,7 +60,8 @@ export async function getLoyaltyProfile(userId: string) {
   const next = loyaltyTiers.find((item) => item.threshold > user.lifetimeLoyaltyPoints);
   const now=Date.now();
   const vipActive=isVipActive(user.vipUntil,now);
-  if(user.vipUnlocked&&!vipActive)void db.user.updateMany({where:{id:userId,vipUnlocked:true},data:{vipUnlocked:false}}).catch(()=>undefined);
+  // Keep expired purchasers eligible for role reconciliation, including retries
+  // after Discord permission/network failures. vipUntil controls all benefits.
   const shop=loyaltyShop.map(reward=>({...reward,owned:reward.key==='gold-badge'?user.loyaltyBadge==='GOLD':false,activeUntil:reward.key==='vip'?user.vipUntil?.toISOString():reward.key==='double-24h'?user.loyaltyDoubleUntil?.toISOString():reward.key==='lfg-priority-7d'?user.lfgPriorityUntil?.toISOString():undefined,active:reward.key==='vip'?vipActive:reward.key==='gold-badge'?user.loyaltyBadge==='GOLD':reward.key==='double-24h'?Boolean(user.loyaltyDoubleUntil&&user.loyaltyDoubleUntil.getTime()>now):Boolean(user.lfgPriorityUntil&&user.lfgPriorityUntil.getTime()>now)}));
   return { points: user.loyaltyPoints, lifetimePoints: user.lifetimeLoyaltyPoints, vipUnlocked: vipActive, vipUntil:user.vipUntil?.toISOString(), loyaltyBadge:user.loyaltyBadge, tier, nextTier: next, vipPrice: VIP_PRICE, shop, recent: user.loyaltyTransactions.map((item) => ({ amount: item.amount, reason: item.reason, referenceKey:item.referenceKey, createdAt: item.createdAt.toISOString() })) };
 }

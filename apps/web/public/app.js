@@ -33,6 +33,7 @@ boot().catch(showFatal);
 
 async function boot() {
   renderShell();
+  if (page === "commands") return;
   me = (await api('/api/me')).user;
   renderShell();
   state = await api('/api/state');
@@ -55,7 +56,7 @@ async function boot() {
 }
 
 function renderShell() {
-  const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['trade','/trade.html','Trade'],['games','/games.html','الألعاب'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','ملفي'],['reports','/reports.html','الدعم']];
+const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['trade','/trade.html','Trade'],['games','/games.html','الألعاب'],['commands','/commands.html','البوت'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','ملفي'],['reports','/reports.html','الدعم']];
   if (me?.isAdmin) links.push(['admin','/admin.html','الإدارة']);
   if (me?.isOwner) links.push(['security','/security.html','الحماية']);
   $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark LFG System"><span>ZARK LFG SYSTEM<small>PLAY. CONNECT. COMPETE.</small></span></a><div class="nav-links" id="nav-links">${links.map(([key,href,label]) => `<a data-tour-id="${key==='lfg'?'lfg-button':key==='profile'?'profile-link':''}" class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user">${me ? `<a href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:''}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="القائمة">☰</button></div></nav>`;
