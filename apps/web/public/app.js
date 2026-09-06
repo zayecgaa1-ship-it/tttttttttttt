@@ -1,4 +1,3 @@
-const platformStylesheet=document.createElement('link');platformStylesheet.rel='stylesheet';platformStylesheet.href='/platform.css?v=20260906-redesign';document.head.appendChild(platformStylesheet);
 const page = document.body.dataset.page;
 const $ = (id) => document.getElementById(id);
 let state;
@@ -41,19 +40,36 @@ async function boot() {
   await renderPage();
   await tutorialManager.autoStart();
   const stream = new EventSource('/api/stream');
-  let timer;
+  let timer,refreshRunning=false,refreshPending=false;
+  const refresh=async()=>{
+    if(document.hidden)return;
+    if(refreshRunning){refreshPending=true;return;}
+    refreshRunning=true;
+    try{
+      if(page==='reports'){if(me)await loadMyReports();return;}
+      // Editing a profile must never lose unsaved fields to a background event.
+      if(['profile','games','status','admin','security'].includes(page))return;
+      if(page==='trade'&&activeTradeConversationId){
+        await loadTradeInbox();
+        if(!document.querySelector('#trade-conversation input:focus, #trade-conversation textarea:focus'))await openTradeConversation(activeTradeConversationId);
+        return;
+      }
+      state=await api('/api/state');await renderPage(true);
+    }catch(error){console.error('Realtime refresh failed',error)}
+    finally{refreshRunning=false;if(refreshPending){refreshPending=false;clearTimeout(timer);timer=setTimeout(refresh,1000)}}
+  };
   stream.onopen=()=>setRealtimeStatus(true);
   stream.onerror=()=>setRealtimeStatus(false);
   stream.onmessage = (message) => {
     let event;try{event=JSON.parse(message.data)}catch{}
     // Do not rebuild the whole Trade page while a desktop user is typing.
     // Re-rendering was sending them back to the market after every message.
-    if(page==='trade'&&activeTradeConversationId&&String(event?.eventType||'').startsWith('trade.')){
-      clearTimeout(timer);timer=setTimeout(async()=>{try{await loadTradeInbox();showTradeTab('inbox');await openTradeConversation(activeTradeConversationId);}catch(error){console.error('Trade realtime refresh failed',error)}},180);return;
-    }
+    if(!event||['profile','games','status','admin','security'].includes(page))return;
     clearTimeout(timer);
-    timer = setTimeout(async () => { try{state = await api('/api/state');await renderPage(true);}catch(error){console.error('Realtime refresh failed',error)} }, 500);
+    timer = setTimeout(refresh,1000);
   };
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+  window.addEventListener('pagehide',()=>{clearTimeout(timer);stream.close()},{once:true});
 }
 
 function renderShell() {
@@ -64,6 +80,8 @@ const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games
   const moreLinks=links.filter(([key])=>['commands','reports','leaderboard','admin','security'].includes(key));
   const mobileLinks=[['home','/','⌂','الرئيسية'],['lfg','/lfg.html','⚔','LFG'],['games','/games.html','◈','الألعاب'],['trade','/trade.html','⇄','Trade'],['profile','/profile.html','●','ملفي']];
   $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" data-tour-id="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark"><span>ZARK<small>PLAY · CONNECT · COMPETE</small></span></a><div class="nav-links" id="nav-links">${desktopLinks.map(([key,href,label]) => `<a data-tour-id="${key==='lfg'?'lfg-button':key==='profile'?'profile-link':''}" class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user"><button class="nav-alerts" type="button" aria-label="الإشعارات" title="الإشعارات">●</button>${me ? `<a class="nav-account" href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:'<span class="avatar-fallback">Z</span>'}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small logout-link" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="المزيد">•••</button></div></nav><nav class="mobile-bottom-nav" aria-label="التنقل المحمول">${mobileLinks.map(([key,href,icon,label])=>`<a class="${page===key?'active':''}" href="${href}" ${page===key?'aria-current="page"':''}><i>${icon}</i><span>${label}</span></a>`).join('')}<button id="mobile-more" type="button" aria-label="المزيد" aria-expanded="false"><i>•••</i><span>المزيد</span></button></nav><div id="mobile-more-drawer" class="mobile-more-drawer" hidden><button class="drawer-backdrop" type="button" aria-label="إغلاق"></button><section role="dialog" aria-modal="true" aria-label="روابط إضافية"><header><b>استكشف Zark</b><button type="button" data-close-more aria-label="إغلاق">×</button></header>${moreLinks.map(([key,href,label])=>`<a class="${page===key?'active':''}" href="${href}">${label}<span>←</span></a>`).join('')}<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">مجتمع Discord <span>↗</span></a></section></div>`;
+  document.querySelectorAll('body > .mobile-bottom-nav, body > .mobile-more-drawer').forEach(node=>node.remove());
+  document.body.append(document.querySelector('.mobile-bottom-nav'),$('mobile-more-drawer'));
   $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><div><span class="footer-brand">ZARK</span><p>مساحتك العربية للعب والتنافس وتكوين الفريق.</p></div><div class="footer-links"><a href="/">الرئيسية</a><a href="/lfg.html">LFG</a><a href="/games.html">الألعاب</a><a href="/trade.html">Trade</a><a href="/leaderboard.html">التصنيف</a><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div><div class="footer-community"><b>PLAY · CONNECT · COMPETE</b><a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a></div></div></div>`;
   $('nav-links').insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
   $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
@@ -208,7 +226,7 @@ async function renderPage(realtime = false) {
   if (page === 'lfg') await renderLfg(realtime);
   if (page === 'games') renderGames();
   if (page === 'profile') await renderProfile();
-  if (page === 'leaderboard') await renderLeaderboard('game');
+  if (page === 'leaderboard') await renderLeaderboard(document.querySelector('[data-board].active')?.dataset.board||'game');
   if (page === 'reports') await renderReports();
   if (page === 'trade') await renderTrade(realtime);
   if (page === 'status') await renderStatus();
@@ -267,7 +285,7 @@ async function renderLfg(realtime) {
     $('room-game').innerHTML = games.map(game => `<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||'🎮')} ${escapeHtml(game.name)}</option>`).join('');
     $('room-game').onchange=()=>{updateRobloxMapField();$('room-platform').value=userGamePlatforms.get($('room-game').value)||'';};updateRobloxMapField();
     $('room-platform-filter').onchange=renderRoomList;
-    $('room-region-filter').onchange=renderRoomList;
+
     $('room-mic-filter').onchange=renderRoomList;
     $('lfg-filters').innerHTML = `<button class="active" data-filter="all">الكل</button>${catalog.map(category => `<button data-filter="${escapeHtml(category.slug)}">${escapeHtml(category.icon||'🎮')} ${escapeHtml(category.name)}</button>`).join('')}`;
     document.querySelectorAll('[data-filter]').forEach(button => button.onclick = () => { roomFilter=button.dataset.filter; document.querySelectorAll('[data-filter]').forEach(item=>item.classList.toggle('active',item===button)); renderRoomList(); });
@@ -292,8 +310,6 @@ function renderRoomList() {
     if (roomFilter!=='all' && categories.get(room.gameSlug)!==roomFilter) return false;
     const platformFilter=$('room-platform-filter').value;
     if(platformFilter!=='all' && (room.platform||'unknown')!==platformFilter)return false;
-    const regionFilter=$('room-region-filter')?.value||'all';
-    if(regionFilter!=='all' && room.region && room.region!==regionFilter)return false;
     const micFilter=$('room-mic-filter')?.value||'all';
     if(micFilter==='voice'&&!room.needsVoice)return false;
     if(micFilter==='text'&&room.needsVoice)return false;
@@ -791,6 +807,7 @@ async function renderTrade(realtime=false){
   await Promise.all([loadTradeMarket(),loadTradeInbox(),loadTradeNotifications()]);
   if(me)await loadMyTrades();
   if(realtime&&activeTradeConversationId){showTradeTab('inbox');await openTradeConversation(activeTradeConversationId).catch(error=>{console.warn('trade_conversation_refresh_failed',error);activeTradeConversationId=undefined;});}
+  if(!realtime){const requestedTab=new URLSearchParams(location.search).get('tab');if(['market','mine','inbox','notifications','create'].includes(requestedTab))showTradeTab(requestedTab);}
   const pathMatch=location.pathname.match(/^\/trade\/([^/]+)$/);const queryId=new URLSearchParams(location.search).get('id');const identifier=pathMatch?.[1]||queryId;if(identifier)await openTrade(identifier);
 }
 

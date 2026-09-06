@@ -19,6 +19,7 @@ const games = [
 let failApi = false;
 let catalog = games;
 await context.addInitScript(() => localStorage.setItem('zark-tutorial-v4',JSON.stringify({pausedVersion:4})));
+await context.addInitScript(()=>{window.EventSource=class{constructor(){window.testStream=this;}close(){}}});
 await context.route('**/*', async route => {
   const url = new URL(route.request().url());
   if (url.pathname.startsWith('/api/')) {
@@ -37,7 +38,7 @@ const errors = [];
 page.on('pageerror',error=>errors.push(error.message));
 mkdirSync('artifacts/design',{recursive:true});
 try {
-  for (const width of process.argv.includes('--interactions-only') ? [] : process.argv.includes('--games-hub') ? [1440,768,390,320] : [1440,1024,768,390,320]) {
+  for (const width of process.argv.includes('--interactions-only') ? [] : process.argv.includes('--extra-mobile') ? [360,375,412,430] : process.argv.includes('--games-hub') ? [1440,768,390,320] : [1440,1024,768,390,320]) {
     await page.setViewportSize({width,height:960});
     for (const route of process.argv.includes('--games-hub') ? ['/', '/games.html'] : ['/', '/games.html','/lfg.html','/leaderboard.html','/profile.html','/reports.html','/trade.html','/admin.html','/security.html','/status.html']) {
       await page.goto('https://zark.local'+route,{waitUntil:'domcontentloaded'});
@@ -52,6 +53,9 @@ try {
   await page.goto('https://zark.local/games.html',{waitUntil:'domcontentloaded'});
   await page.waitForSelector('.game-tile');
   assert.equal(await page.locator('.game-tile').count(),8);
+  await page.evaluate(()=>{window.originalTile=document.querySelector('.game-tile');for(let i=0;i<20;i++)window.testStream.onmessage({data:JSON.stringify({eventType:'lfg.updated'})})});
+  await page.waitForTimeout(1200);
+  assert.ok(await page.evaluate(()=>window.originalTile===document.querySelector('.game-tile')),'Background event burst does not rebuild the game catalogue');
   await page.locator('#game-search').fill('اعلام');
   assert.equal(await page.locator('.game-tile').count(),1);
   await page.locator('.game-tile').click();
@@ -75,6 +79,8 @@ try {
   const pageCommand = await page.locator('#race-command').innerText();
   assert.ok(games.some(game=>'.'+game.aliases[0]===pageCommand));
   await page.locator('#mobile-more').click();
+  const navBounds=await page.locator('.mobile-bottom-nav').boundingBox();
+  assert.ok(navBounds.y>800&&navBounds.y+navBounds.height<=960,'Mobile navigation stays at viewport bottom');
   assert.equal(await page.locator('#mobile-more').getAttribute('aria-expanded'),'true');
   assert.ok(await page.locator('#mobile-more-drawer section').isVisible());
   await page.keyboard.press('Escape');

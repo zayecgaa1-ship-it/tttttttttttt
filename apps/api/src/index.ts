@@ -64,7 +64,9 @@ app.addHook("preHandler", async (request) => {
 await app.register(fastifyStatic, {
   root: path.resolve(process.cwd(), "apps/web/public"),
   setHeaders(response, filePath) {
-    if (/\.(?:html|js|css)$/i.test(filePath)) response.header("cache-control", "no-cache, no-store, must-revalidate");
+    // Retain assets locally and revalidate using ETag, instead of downloading
+    // every stylesheet and script again on every page navigation.
+    if (/\.(?:html|js|css)$/i.test(filePath)) response.header("cache-control", "no-cache, must-revalidate");
   },
 });
 await registerDiscordAuth(app);
