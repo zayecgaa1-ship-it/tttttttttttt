@@ -1454,7 +1454,7 @@ if (!token) {
     const historyKey=`joke:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
     const entry=pickFresh(curatedJokes,recent);
-    const next=[entry.id,...recent.filter(id=>id!==entry.id)].slice(0,60);
+    const next=[entry.id,...recent.filter(id=>id!==entry.id)].slice(0,curatedJokes.length);
     recentHumorByUser.set(historyKey,next);
     return entry;
   }
@@ -1463,7 +1463,7 @@ if (!token) {
     const historyKey=`meme:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
     const item=pickFresh(curatedMemes,recent);
-    recentHumorByUser.set(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,60));
+    recentHumorByUser.set(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,curatedMemes.length));
     return item;
   }
 

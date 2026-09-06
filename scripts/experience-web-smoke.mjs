@@ -27,6 +27,15 @@ try{
    await page.locator('.command-card button').click();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'/ميمز');
    await page.locator('#command-search').fill('zzzz');assert.equal(await page.locator('.command-card').count(),0);
    await page.locator('#command-search').fill('');await page.locator('#command-category').selectOption('fun');assert.equal(await page.locator('.command-card').count(),2);
+   await page.locator('#tutorial-help-fab').click();
+   assert.equal(await page.locator('.tutorial-section-grid [data-section]').count(),8);
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+   await page.screenshot({path:'artifacts/tutorial-mobile.png',fullPage:true});
+   await page.keyboard.press('Escape');assert.equal(await page.locator('.tutorial-v4-center').count(),0);
+   await page.locator('#tutorial-help-fab').click();await page.locator('[data-section="commands"]').click();
+   await page.waitForSelector('.tour-tooltip');assert.match(await page.locator('.tour-tooltip').innerText(),/ابحث عن أمر/);
+   await page.locator('[data-center]').focus();await page.keyboard.press('Enter');
+   await page.waitForSelector('.tutorial-v4-center');await page.keyboard.press('Escape');
   }
   await page.setViewportSize({width:1440,height:960});await page.screenshot({path:'artifacts/experience-'+(route==='/'?'home':route.slice(1,-5))+'.png',fullPage:true});
  }
