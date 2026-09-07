@@ -115,6 +115,10 @@ BEGIN
     CREATE INDEX IF NOT EXISTS "UserGamePreference_lfgGameId_platform_interestStatus_notifi_idx"
       ON "UserGamePreference"("lfgGameId", "platform", "interestStatus", "notificationsEnabled");
   END IF;
+  IF to_regclass('"LfgGameCatalog"') IS NOT NULL THEN
+    ALTER TABLE "LfgGameCatalog" ADD COLUMN IF NOT EXISTS "platforms" "LfgPlatform"[] NOT NULL DEFAULT ARRAY[]::"LfgPlatform"[];
+    UPDATE "LfgGameCatalog" SET "name" = 'PUBG Steam' WHERE "slug" = 'pubg' AND "name" = 'PUBG: Battlegrounds';
+  END IF;
 END
 $lfg_platform_migration$;
 

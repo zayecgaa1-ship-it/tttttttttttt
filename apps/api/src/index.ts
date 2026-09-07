@@ -30,7 +30,6 @@ const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansA
 const arabicFont = fs.existsSync(arabicFontPath) ? fs.readFileSync(arabicFontPath) : undefined;
 const lfgPlatformSchema = z.enum(["MOBILE", "PC", "PLAYSTATION"]);
 const roomUpdateSchema = z.object({
-  platform: lfgPlatformSchema.optional(),
   title: z.string().max(80).nullable().optional(),
   description: z.string().max(500).nullable().optional(),
   gameMode: z.string().max(80).nullable().optional(),
@@ -223,7 +222,7 @@ app.get("/api/me/lfg-preferences", async (request) => getUserPreferences((await 
 app.put("/api/me/lfg-preferences/:game", async (request) => {
   const user = await requireWebUser(request);
   const params = z.object({ game: z.string() }).parse(request.params);
-  const body = z.object({ interested: z.boolean(), notificationsEnabled: z.boolean(), autoInvitesEnabled: z.boolean().optional(), platform: lfgPlatformSchema.optional() }).parse(request.body);
+  const body = z.object({ interested: z.boolean(), notificationsEnabled: z.boolean(), autoInvitesEnabled: z.boolean().optional() }).parse(request.body);
   return updateUserPreference({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, gameSlug: params.game, ...body });
 });
 app.post("/api/me/lfg-preferences/:game/snooze", async (request) => {
@@ -234,7 +233,7 @@ app.post("/api/me/lfg-preferences/:game/snooze", async (request) => {
 });
 app.post("/api/me/lfg/rooms", async (request) => {
   const user = await requireWebUser(request);
-  const body = z.object({ gameSlug: z.string(), maxPlayers: z.number().int().min(2).max(50), durationMinutes: z.number().int().min(15).max(360).optional(), scheduledFor: z.coerce.date().optional(), title: z.string().max(80).optional(), description: z.string().max(500).optional(), gameMode: z.string().max(80).optional(), mapName: z.string().max(100).optional(), needsVoice: z.boolean().optional(), platform: lfgPlatformSchema.optional(), roomEmoji: z.string().max(12).optional(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).parse(request.body);
+  const body = z.object({ gameSlug: z.string(), maxPlayers: z.number().int().min(2).max(50), durationMinutes: z.number().int().min(15).max(360).optional(), scheduledFor: z.coerce.date().optional(), title: z.string().max(80).optional(), description: z.string().max(500).optional(), gameMode: z.string().max(80).optional(), mapName: z.string().max(100).optional(), needsVoice: z.boolean().optional(), roomEmoji: z.string().max(12).optional(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).parse(request.body);
   return createLfgRoom({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, ...body });
 });
 app.put("/api/me/lfg/:id", async (request) => {
@@ -453,7 +452,7 @@ app.post("/api/web-admin/lfg/categories", async (request) => {
 app.put("/api/web-admin/lfg/games/:slug", async (request) => {
   await requireWebAdmin(request);
   const params = z.object({ slug: z.string() }).parse(request.params);
-  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), autoMinAvailable: z.number().int().min(2).max(100).nullable().optional(), enabled: z.boolean().optional() }).parse(request.body);
+  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), platforms: z.array(lfgPlatformSchema).min(1).max(3).optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), autoMinAvailable: z.number().int().min(2).max(100).nullable().optional(), enabled: z.boolean().optional() }).parse(request.body);
   return upsertLfgGame({ slug: params.slug, ...body });
 });
 app.post("/api/web-admin/zark-games/:slug/questions", async (request) => {
@@ -643,7 +642,7 @@ app.post("/api/lfg/:id/join", { preHandler: requireServiceKey }, async (request)
   return joinLfgRoom(params.id, body);
 });
 app.post("/api/lfg/rooms", { preHandler: requireServiceKey }, async (request) => {
-  const body = z.object({ userId: z.string().min(1), displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), gameSlug: z.string().min(1), maxPlayers: z.number().int().min(2).max(50), durationMinutes: z.number().int().min(15).max(360).optional(), scheduledFor: z.coerce.date().optional(), title: z.string().max(80).optional(), description: z.string().max(500).optional(), gameMode: z.string().max(80).optional(), mapName: z.string().max(100).optional(), needsVoice: z.boolean().optional(), platform: lfgPlatformSchema.optional(), roomEmoji: z.string().max(12).optional(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).parse(request.body);
+  const body = z.object({ userId: z.string().min(1), displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), gameSlug: z.string().min(1), maxPlayers: z.number().int().min(2).max(50), durationMinutes: z.number().int().min(15).max(360).optional(), scheduledFor: z.coerce.date().optional(), title: z.string().max(80).optional(), description: z.string().max(500).optional(), gameMode: z.string().max(80).optional(), mapName: z.string().max(100).optional(), needsVoice: z.boolean().optional(), roomEmoji: z.string().max(12).optional(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).parse(request.body);
   return createLfgRoom(body);
 });
 app.post("/api/lfg/:id/leave", { preHandler: requireServiceKey }, async (request) => {
@@ -698,7 +697,7 @@ app.put("/api/users/:id/identity", { preHandler: requireServiceKey }, async (req
 });
 app.put("/api/users/:id/lfg-preferences/:game", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string(), game: z.string() }).parse(request.params);
-  const body = z.object({ displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), interested: z.boolean(), notificationsEnabled: z.boolean(), autoInvitesEnabled: z.boolean().optional(), platform: lfgPlatformSchema.optional() }).parse(request.body);
+  const body = z.object({ displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), interested: z.boolean(), notificationsEnabled: z.boolean(), autoInvitesEnabled: z.boolean().optional() }).parse(request.body);
   return updateUserPreference({ userId: params.id, gameSlug: params.game, ...body });
 });
 app.post("/api/users/:id/lfg-preferences/:game/mute", { preHandler: requireServiceKey }, async (request) => {
@@ -764,7 +763,7 @@ app.post("/api/admin/lfg/categories", { preHandler: requireServiceKey }, async (
 });
 app.put("/api/admin/lfg/games/:slug", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ slug: z.string() }).parse(request.params);
-  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), autoMinAvailable: z.number().int().min(2).max(100).nullable().optional(), enabled: z.boolean().optional() }).parse(request.body);
+  const body = z.object({ name: z.string().min(2).max(100), description: z.string().max(500).optional(), icon: z.string().max(10).optional(), categorySlug: z.string().optional(), platforms: z.array(lfgPlatformSchema).min(1).max(3).optional(), minPlayers: z.number().int().min(2).optional(), maxPlayers: z.number().int().min(2).max(100).optional(), autoMinAvailable: z.number().int().min(2).max(100).nullable().optional(), enabled: z.boolean().optional() }).parse(request.body);
   return upsertLfgGame({ slug: params.slug, ...body });
 });
 app.post("/api/admin/zark-games/:slug/questions", { preHandler: requireServiceKey }, async (request) => {

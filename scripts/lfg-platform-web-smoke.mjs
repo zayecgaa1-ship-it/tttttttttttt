@@ -6,12 +6,11 @@ import assert from 'node:assert/strict';
 // Local fixtures only. All requests are intercepted, including writes.
 const browser=await chromium.launch({channel:'msedge',headless:true});
 const context=await browser.newContext({reducedMotion:'reduce'});
-const game={id:'minecraft',slug:'minecraft',name:'ماينكرافت',icon:'🧱'};
+const game={id:'gta-v',slug:'gta-v',name:'GTA V',icon:'🚗',platforms:['PC','PLAYSTATION']};
 const actor={userId:'fixture-user',displayName:'لاعب التجربة'};
-const platforms=['MOBILE','PC','PLAYSTATION'];
-let prefs=[{game,platform:'PC',interestStatus:'INTERESTED',notificationsEnabled:true,autoInvitesEnabled:true}];
-const makeRoom=(platform,id=platform)=>({id,platform,gameSlug:game.slug,gameName:game.name,gameIcon:game.icon,hostId:actor.userId,hostName:actor.displayName,status:'OPEN',currentPlayers:1,maxPlayers:4,durationMinutes:60,createdAt:new Date().toISOString(),accentColor:'#ff5964',needsVoice:true,members:[{id:actor.userId,displayName:actor.displayName}],source:'MANUAL'});
-const rooms=platforms.map(value=>makeRoom(value));
+let prefs=[{game,platform:null,interestStatus:'INTERESTED',notificationsEnabled:true,autoInvitesEnabled:true}];
+const makeRoom=(id)=>({id,platform:null,gamePlatforms:game.platforms,gameSlug:game.slug,gameName:game.name,gameIcon:game.icon,hostId:actor.userId,hostName:actor.displayName,status:'OPEN',currentPlayers:1,maxPlayers:4,durationMinutes:60,createdAt:new Date().toISOString(),accentColor:'#ff5964',needsVoice:true,members:[{id:actor.userId,displayName:actor.displayName}],source:'MANUAL'});
+const rooms=[makeRoom('one'),makeRoom('two')];
 const writes=[];
 await context.addInitScript(()=>{localStorage.setItem('zark-tutorial-v4',JSON.stringify({pausedVersion:4}));window.EventSource=class {close(){}};});
 await context.route('**/*',async route=>{
@@ -20,8 +19,8 @@ await context.route('**/*',async route=>{
     let data={};
     if(req.method()!=='GET'){
       const body=req.postDataJSON();writes.push({path:url.pathname,body});
-      if(url.pathname==='/api/me/lfg-preferences/minecraft'){prefs=[{...prefs[0],...body}];data=prefs[0];}
-      if(url.pathname==='/api/me/lfg/rooms'){data=makeRoom(body.platform,'created');rooms.unshift(data);}
+      if(url.pathname==='/api/me/lfg-preferences/gta-v'){prefs=[{...prefs[0],...body}];data=prefs[0];}
+      if(url.pathname==='/api/me/lfg/rooms'){data=makeRoom('created');rooms.unshift(data);}
       if(url.pathname==='/api/me/lfg/created'){Object.assign(rooms[0],body);data=rooms[0];}
     }else if(url.pathname==='/api/me')data={user:actor};
     else if(url.pathname==='/api/state')data={rooms:[...rooms],lfgGames:[game],lfgCatalog:[{slug:'sandbox',name:'بناء',games:[game]}]};
@@ -35,31 +34,28 @@ await context.route('**/*',async route=>{
 const page=await context.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));
 try{
   await page.goto('https://zark.local/lfg.html');
-  await page.waitForSelector('[data-preference-platform]');
-  assert.equal(await page.locator('#room-platform').inputValue(),'PC');
-  assert.equal(await page.locator('#rooms .room-card').count(),3);
-  for(const platform of platforms){await page.locator('#room-platform-filter').selectOption(platform);assert.equal(await page.locator('#rooms .room-card').count(),1);}
+  await page.waitForSelector('[data-interest="gta-v"]');
+  assert.equal(await page.locator('#room-platform').count(),0);
+  assert.equal(await page.locator('#manage-room-platform').count(),0);
+  assert.equal(await page.locator('[data-preference-platform]').count(),0);
+  assert.equal(await page.locator('#rooms .room-card').count(),2);
+  await page.locator('#room-platform-filter').selectOption('MOBILE');assert.equal(await page.locator('#rooms .room-card').count(),0);
+  for(const platform of ['PC','PLAYSTATION']){await page.locator('#room-platform-filter').selectOption(platform);assert.equal(await page.locator('#rooms .room-card').count(),2);}
   await page.locator('#room-platform-filter').selectOption('all');
-  await page.locator('[data-preference-platform]').selectOption('PLAYSTATION');
-  await page.waitForFunction(()=>!document.querySelector('[data-preference-platform]').disabled);
-  assert.equal(writes.at(-1).body.platform,'PLAYSTATION');
-  assert.equal(writes.at(-1).body.notificationsEnabled,true);
-  await page.reload();await page.waitForSelector('[data-preference-platform]');
-  assert.equal(await page.locator('[data-preference-platform]').inputValue(),'PLAYSTATION');
+  assert.match(await page.locator('#rooms .platform-badge').first().textContent(),/كمبيوتر.*بلايستيشن/);
+  await page.locator('[data-notify="gta-v"]').click();
+  await page.waitForFunction(()=>!document.querySelector('[data-notify="gta-v"]').disabled);
+  assert.equal('platform' in writes.at(-1).body,false);
   await page.locator('#open-create-room').click();
-  await page.locator('#room-platform').selectOption('');
-  assert.equal(await page.locator('#room-platform').evaluate(node=>node.checkValidity()),false);
-  await page.locator('#room-platform').selectOption('MOBILE');
+  assert.match(await page.locator('#room-game-platforms').textContent(),/كمبيوتر.*بلايستيشن/);
   await page.locator('#create-room-form button[type=submit]').click();
   await page.waitForFunction(()=>document.querySelector('#create-room-result').textContent.includes('بنجاح'));
-  assert.equal(writes.at(-1).body.platform,'MOBILE');
-  assert.equal(writes.at(-1).body.gameSlug,'minecraft');
+  assert.equal('platform' in writes.at(-1).body,false);
+  assert.equal(writes.at(-1).body.gameSlug,'gta-v');
   await page.locator('[data-manage=created]').click();
-  assert.equal(await page.locator('#manage-room-platform').inputValue(),'MOBILE');
-  await page.locator('#manage-room-platform').selectOption('PC');
   await page.locator('#room-manager-form button[type=submit]').click();
   await page.waitForFunction(()=>document.querySelector('#room-manager-result').textContent.includes('تم تحديث'));
-  assert.equal(writes.at(-1).body.platform,'PC');
+  assert.equal('platform' in writes.at(-1).body,false);
   await page.locator('#close-room-manager').click();
   mkdirSync('artifacts/lfg-platform',{recursive:true});
   for(const width of [1440,390,320]){
@@ -68,5 +64,5 @@ try{
     if(width!==320)await page.screenshot({path:`artifacts/lfg-platform/lfg-${width}.png`,fullPage:true});
   }
   assert.deepEqual(errors,[]);
-  console.log('PASS: platform filter, saved preferences, required room platform, creation payload, room edits, desktop/mobile layout.');
+  console.log('PASS: game-owned device classification, filters, no room/preference selector, payloads, desktop/mobile layout.');
 }finally{await browser.close();}

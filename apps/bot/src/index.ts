@@ -32,6 +32,7 @@ const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
 const recentHumorByUser = new Map<string, string[]>();
 const brand = { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل", color: 0xe50914 };
+function gamePlatformsLabel(platforms?: LfgPlatform[]) { return (platforms?.length ? platforms : LFG_PLATFORMS).map((platform) => LFG_PLATFORM_LABELS[platform]).join(" · "); }
 
 // تضمين خط عربي مباشرة في الكود لضمان العمل على أي سيرفر بدون خطوط نظام
 const arabicFontPath = path.resolve(process.cwd(), "apps/bot/src/fonts/NotoSansArabic.ttf");
@@ -218,7 +219,7 @@ if (!token) {
         }
         if (interaction.commandName === "setup") {
           if(!interaction.inGuild()||!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return interaction.reply({content:"هذا الأمر لإدارة السيرفر فقط.",flags:MessageFlags.Ephemeral});
-          return interaction.reply({embeds:[baseEmbed().setTitle("🎮 اختر ألعابك وإشعاراتك").setDescription("اضغط الزر واختر نسخة اللعبة مباشرة، مثل PUBG Mobile أو PUBG Steam. إعدادات كل لاعب تظهر له وحده.")],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('lfg:setup-interests').setLabel('اختيار الألعاب والإشعارات').setStyle(ButtonStyle.Primary))]});
+          return interaction.reply({embeds:[baseEmbed().setTitle("🎮 اختر ألعابك وإشعاراتك").setDescription("اضغط الزر واختر اللعبة التي تحبها. أجهزة اللعبة محددة مسبقًا من الإدارة وتظهر مع اسمها.")],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('lfg:setup-interests').setLabel('اختيار الألعاب والإشعارات').setStyle(ButtonStyle.Primary))]});
         }
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1, interaction.options.getInteger("seconds") ?? undefined);
         if (interaction.commandName === "lobby") return await createGameLobby(interaction, interaction.options.getString("game", true), interaction.options.getInteger("rounds") ?? 5, interaction.options.getInteger("seconds") ?? 15);
@@ -360,7 +361,8 @@ if (!token) {
     }
     if (interaction.customId === "lfg:create:game") {
       const slug = interaction.values[0];
-      return interaction.update({ embeds: [baseEmbed().setTitle("اختر منصة الغرفة").setDescription("الدعوات تصل فقط للمهتمين بنفس اللعبة والمنصة.")], components: [platformMenu(`lfg:platform:${slug}`)] });
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:players:${slug}:AUTO`).setPlaceholder("كم لاعب تحتاج؟").addOptions([2, 3, 4, 5, 6, 8, 10].map((count) => ({ label: `${count} لاعبين`, value: String(count), emoji: "👥" }))));
+      return interaction.update({ embeds: [baseEmbed().setTitle("👥 اختر حجم الفريق").setDescription("الجهاز مصنّف مسبقًا ضمن اللعبة. اختر عدد اللاعبين فقط.")], components: [row] });
     }
     if (interaction.customId.startsWith("lfg:interest-platform:")) {
       return setInterest(interaction, interaction.customId.split(":")[2], true, true, interaction.values[0]);
@@ -397,10 +399,7 @@ if (!token) {
       return interaction.update({ embeds: [baseEmbed().setTitle("⚡ جاهز للإنشاء").setDescription(`الفريق: **${count} لاعبين** · المدة: **${duration} دقيقة**\nأنشئ بسرعة أو أضف وصفًا وGame Mode.`)], components: [row] });
     }
     if (interaction.customId.startsWith("lfg:interest:select")) {
-      const [slug, selectedPlatform] = interaction.values[0].split("|");
-      const allDevices = selectedPlatform === "ALL";
-      const platform = allDevices ? undefined : selectedPlatform as LfgPlatform;
-      return setInterest(interaction, slug, true, true, platform, allDevices);
+      return setInterest(interaction, interaction.values[0], true, true);
     }
   }
 
@@ -666,14 +665,14 @@ if (!token) {
   async function showLfgGamePicker(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const [catalog, insights] = await Promise.all([
-      apiGet<Array<{ name: string; icon?: string; games: Array<{ slug: string; name: string; icon?: string; description?: string }> }>>("/api/lfg/catalog"),
+      apiGet<Array<{ name: string; icon?: string; games: Array<{ slug: string; name: string; icon?: string; description?: string; platforms?: LfgPlatform[] }> }>>("/api/lfg/catalog"),
       apiGet<LfgInterestInsight[]>("/api/lfg/insights", true).catch(() => []),
     ]);
     const insightByGame = new Map(insights.map((item) => [item.gameSlug, item]));
     const games = catalog.flatMap((category) => category.games).slice(0, 25);
     const menu = new StringSelectMenuBuilder().setCustomId("lfg:create:game").setPlaceholder("اختر اللعبة الخارجية").addOptions(games.map((game) => {
       const insight = insightByGame.get(game.slug);
-      return { label: game.name, value: game.slug, emoji: game.icon, description: insight ? `${insight.interestPercent}% مهتمون · ${insight.availableNowCount} فاضي الآن` : game.description?.slice(0, 100) };
+      return { label: game.name, value: game.slug, emoji: game.icon, description: `${gamePlatformsLabel(game.platforms)}${insight ? ` · ${insight.interestPercent}% مهتمون` : ""}`.slice(0, 100) };
     }));
     await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل رسالة خاصة لكل المهتمين الذين فعّلوا إشعارات اللعبة. استخدم `/lfg smart` ليختار Zark أفضل لعبة تلقائيًا.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
   }
@@ -705,7 +704,7 @@ if (!token) {
 
   async function createRoomFromInteraction(interaction: any, gameSlug: string, maxPlayers: number, durationMinutes: number, needsVoice: boolean, description?: string, gameMode?: string, scheduledFor?: string, mapName?: string, platform?: LfgPlatform) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const room = await apiSend<LiveRoom>("/api/lfg/rooms", "POST", { ...actor(interaction), gameSlug, maxPlayers, durationMinutes, needsVoice, description, gameMode, scheduledFor, mapName, platform: LFG_PLATFORMS.includes(platform as LfgPlatform) ? platform : undefined });
+    const room = await apiSend<LiveRoom>("/api/lfg/rooms", "POST", { ...actor(interaction), gameSlug, maxPlayers, durationMinutes, needsVoice, description, gameMode, scheduledFor, mapName });
     const listedRoom = await publishRoomListing(room);
     await ensureRoomSpace(listedRoom ?? room);
     await notifyInterestedPlayers(listedRoom ?? room);
@@ -1323,7 +1322,7 @@ if (!token) {
     return /\bbump(?:ed)? done\b|\bserver (?:was )?bumped\b|تم\s+(?:الرفع|رفع(?:\s+السيرفر)?|تحديث\s+السيرفر)/.test(text);
   }
 
-  async function notifyInterestedPlayers(room: LiveRoom) {
+  async function notifyInterestedPlayers(room: LiveRoom & { gamePlatforms?: LfgPlatform[] }) {
     // The database owns deduplication. Running this during the recovery cycle
     // lets newly interested members and transiently failed DMs receive an
     // invitation without ever re-sending successful or ignored deliveries.
@@ -1355,7 +1354,7 @@ if (!token) {
         const user = await client.users.fetch(candidate.user.id);
         const scheduleText = room.scheduledFor ? `\n🕐 الموعد: <t:${Math.floor(new Date(room.scheduledFor).getTime() / 1000)}:F>` : "";
         const mapText = room.mapName ? `\n🗺️ الماب: **${room.mapName}**` : "";
-        const delivery = await sendDirectMessage(user, { embeds: [baseEmbed().setTitle(`${room.gameIcon ?? "🎮"} تجمع ${room.gameName}${room.scheduledFor ? " مجدول" : " الآن"}!`).setDescription(`👥 ${room.currentPlayers}/${room.maxPlayers} لاعبين\n${room.platform ? LFG_PLATFORM_LABELS[room.platform] : "المنصة غير محددة"}\n🎙️ Voice: ${room.needsVoice ? "متاح" : "غير مطلوب"}${mapText}${scheduleText}\n\nوصلتك الدعوة لأنك مهتم بهذه اللعبة على نفس المنصة وإشعاراتها مفعلة.`)], components: [buttons] }, `LFG room ${room.id}`);
+        const delivery = await sendDirectMessage(user, { embeds: [baseEmbed().setTitle(`${room.gameIcon ?? "🎮"} تجمع ${room.gameName}${room.scheduledFor ? " مجدول" : " الآن"}!`).setDescription(`👥 ${room.currentPlayers}/${room.maxPlayers} لاعبين\n${gamePlatformsLabel(room.gamePlatforms)}\n🎙️ Voice: ${room.needsVoice ? "متاح" : "غير مطلوب"}${mapText}${scheduleText}\n\nوصلتك الدعوة لأنك مهتم بهذه اللعبة وإشعاراتها مفعلة.`)], components: [buttons] }, `LFG room ${room.id}`);
         if (!delivery.sent) {
           failedCount += 1;
           if (delivery.quarantined) break;
@@ -1664,36 +1663,25 @@ if (!token) {
 
   async function showInterests(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const catalog = await apiGet<Array<{ games: Array<{ slug: string; name: string; icon?: string }> }>>("/api/lfg/catalog");
+    const catalog = await apiGet<Array<{ games: Array<{ slug: string; name: string; icon?: string; platforms?: LfgPlatform[] }> }>>("/api/lfg/catalog");
     const games = catalog.flatMap((category) => category.games);
-    const options = games.flatMap(game => {
-      if(game.slug==='gta-v')return [
-        {label:`${game.name} — كمبيوتر`,value:`${game.slug}|PC`,emoji:'💻',description:'نسخة الكمبيوتر'},
-        {label:`${game.name} — بلايستيشن`,value:`${game.slug}|PLAYSTATION`,emoji:'🎮',description:'نسخة PlayStation'},
-      ];
-      if(game.slug==='pubg')return [
-        {label:'PUBG Mobile — جوال',value:`${game.slug}|MOBILE`,emoji:'📱',description:'نسخة الهاتف'},
-        {label:'PUBG Steam — كمبيوتر',value:`${game.slug}|PC`,emoji:'💻',description:'نسخة Steam'},
-      ];
-      return [{label:`${game.name} — كل الأجهزة`,value:`${game.slug}|ALL`,emoji:game.icon,description:'جوال، كمبيوتر وبلايستيشن'}];
-    });
+    const options = games.map(game => ({label:game.name,value:game.slug,emoji:game.icon,description:gamePlatformsLabel(game.platforms)}));
     const rows=[];
     for(let index=0;index<options.length;index+=25){
-      const menu=new StringSelectMenuBuilder().setCustomId(`lfg:interest:select:${index/25}`).setPlaceholder(index?'المزيد من الألعاب والنسخ':'اختر اللعبة أو نسختها — بدون اختيار جهاز لاحق').addOptions(options.slice(index,index+25));
+      const menu=new StringSelectMenuBuilder().setCustomId(`lfg:interest:select:${index/25}`).setPlaceholder(index?'المزيد من الألعاب':'اختر اللعبة التي تحبها').addOptions(options.slice(index,index+25));
       rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
     }
-    await interaction.editReply({ embeds: [baseEmbed().setTitle("❤️ اختر اللعبة التي تحبها").setDescription("اختَر اللعبة أو نسختها مباشرة. مثال: **PUBG Mobile** أو **PUBG Steam**. الألعاب المكتوب عليها «كل الأجهزة» ترسل لك فرص الجوال والكمبيوتر والبلايستيشن.")], components: rows });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("❤️ اختر اللعبة التي تحبها").setDescription("اختَر اللعبة فقط. أجهزتها مصنفة مسبقًا وتظهر تحت اسمها، وستصلك إشعارات غرف هذه اللعبة.")], components: rows });
   }
 
   function platformMenu(customId: string) {
     return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(customId).setPlaceholder("اختر المنصة: جوال، كمبيوتر، بلايستيشن").addOptions(LFG_PLATFORMS.map(value => ({label:LFG_PLATFORM_LABELS[value],value}))));
   }
 
-  async function setInterest(interaction: any, gameSlug: string, interested: boolean, notificationsEnabled: boolean, platform?: LfgPlatform, allDevices=false) {
-    if (interested && !platform && !allDevices) return interaction.update({ content: "اختر منصتك لهذه اللعبة. لن تصلك دعوات المنصات الأخرى.", embeds: [], components: [platformMenu(`lfg:interest-platform:${gameSlug}`)] });
+  async function setInterest(interaction: any, gameSlug: string, interested: boolean, notificationsEnabled: boolean, _platform?: LfgPlatform, _allDevices=false) {
     await interaction.deferUpdate();
-    await apiSend(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}`, "PUT", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), interested, notificationsEnabled, platform });
-    const message = interested ? `❤️ تم حفظ اهتمامك: ${platform ? LFG_PLATFORM_LABELS[platform] : "🌐 كل الأجهزة"}.${platform ? " الإشعارات لنفس النسخة فقط." : " ستصلك فرص اللعبة على أي جهاز."}` : "🚫 لن تصلك اقتراحات أو إشعارات لهذه اللعبة.";
+    await apiSend(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}`, "PUT", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), interested, notificationsEnabled });
+    const message = interested ? "❤️ تم حفظ اهتمامك باللعبة. ستصلك إشعارات غرفها حسب تصنيف اللعبة." : "🚫 لن تصلك اقتراحات أو إشعارات لهذه اللعبة.";
     return interaction.editReply({ content: message, embeds: [], components: [] });
   }
 
@@ -2061,7 +2049,7 @@ if (!token) {
     } catch { return undefined; }
   }
 
-  function roomEmbed(room: LiveRoom, detailed = false) {
+  function roomEmbed(room: LiveRoom & { gamePlatforms?: LfgPlatform[] }, detailed = false) {
     const status = room.status === "SCHEDULED" ? "🕐 موعد مسجل" : room.status === "ACTIVE" ? "🔴 يلعبون الآن" : room.status === "COMPLETED" ? "✅ انتهت الجلسة" : room.status === "CLOSED" ? "⚫ أُغلقت" : room.status === "FULL" ? "🟠 مكتملة العدد" : "🟢 تجمع لاعبين";
     const players = room.members.length ? room.members.map((member, index) => `${member.id === room.hostId ? "👑" : member.voiceActive ? "🎙️" : "•"} ${member.displayName}`).join("\n") : "لا يوجد لاعبون";
     const timing = room.scheduledFor && room.status === "SCHEDULED"
@@ -2070,7 +2058,7 @@ if (!token) {
     const embed = baseEmbed()
       .setColor(Number.parseInt(room.accentColor.replace("#", ""), 16) || brand.color)
       .setTitle(`${room.roomEmoji ?? room.gameIcon ?? "🎮"} ${room.title ?? room.gameName} | LFG`)
-      .setDescription(`${status}\n${room.platform ? LFG_PLATFORM_LABELS[room.platform] : "المنصة غير محددة"}\n👑 **${room.hostName}** · 👥 **${room.currentPlayers}/${room.maxPlayers}**\n🕐 ${timing}${room.mapName ? `\n🗺️ **الماب:** ${room.mapName}` : ""}${room.gameMode ? `\n🎯 **النمط:** ${room.gameMode}` : ""}${room.description ? `\n${room.description}` : ""}`);
+      .setDescription(`${status}\n${gamePlatformsLabel(room.gamePlatforms)}\n👑 **${room.hostName}** · 👥 **${room.currentPlayers}/${room.maxPlayers}**\n🕐 ${timing}${room.mapName ? `\n🗺️ **الماب:** ${room.mapName}` : ""}${room.gameMode ? `\n🎯 **النمط:** ${room.gameMode}` : ""}${room.description ? `\n${room.description}` : ""}`);
     if (room.hostPriority) embed.addFields({ name: "🚀 أولوية المتجر", value: "هذه الغرفة مميزة وتظهر أولًا ضمن غرف LFG." });
     if (detailed) embed.addFields({ name: "أعضاء الغرفة", value: players.slice(0, 1024) });
     return embed;
@@ -2367,7 +2355,7 @@ type RaceProgress = { completed: true; seriesId: string; totalRounds: number; st
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
-type LiveRoom = { platform?: LfgPlatform; id: string; hostId: string; hostPriority?: boolean; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
+type LiveRoom = { platform?: LfgPlatform; gamePlatforms?: LfgPlatform[]; id: string; hostId: string; hostPriority?: boolean; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };
 type TradeView = { id: string; code: string; publicId: number; itemName: string; imageData: string; haveText: string; wantText: string; description?: string; status: string; discordChannelId?: string; discordMessageId?: string; owner: { id: string; displayName: string; avatarUrl?: string }; game: { name: string; icon?: string }; _count?: { interests: number; conversations: number } };

@@ -292,15 +292,17 @@ export async function createLfgCategory(input: { slug: string; name: string; ico
   return db.lfgGameCategory.create({ data: { slug: input.slug, name: input.name, icon: input.icon, sortOrder: input.sortOrder ?? 0 } });
 }
 
-export async function upsertLfgGame(input: { slug: string; name: string; description?: string; icon?: string; categorySlug?: string; minPlayers?: number; maxPlayers?: number; autoMinAvailable?: number | null; enabled?: boolean }) {
+export async function upsertLfgGame(input: { slug: string; name: string; description?: string; icon?: string; categorySlug?: string; platforms?: Array<"MOBILE" | "PC" | "PLAYSTATION">; minPlayers?: number; maxPlayers?: number; autoMinAvailable?: number | null; enabled?: boolean }) {
   const category = input.categorySlug ? await db.lfgGameCategory.findUnique({ where: { slug: input.categorySlug } }) : null;
   if (input.categorySlug && !category) throw new Error("تصنيف LFG غير موجود");
+  const platforms: Array<"MOBILE" | "PC" | "PLAYSTATION"> = input.platforms?.length ? [...new Set(input.platforms)] : ["MOBILE", "PC", "PLAYSTATION"];
   const data = {
     name: input.name,
     description: input.description,
     icon: input.icon,
     category: category?.name,
     categoryId: category?.id,
+    platforms,
     minPlayers: Math.max(2, input.minPlayers ?? 2),
     maxPlayers: Math.max(input.minPlayers ?? 2, input.maxPlayers ?? 10),
     autoMinAvailable: input.autoMinAvailable ? Math.max(input.minPlayers ?? 2, Math.min(input.maxPlayers ?? 10, input.autoMinAvailable)) : null,

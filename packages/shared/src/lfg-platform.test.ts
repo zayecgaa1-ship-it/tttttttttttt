@@ -23,33 +23,30 @@ test('platform compatibility supports explicit platforms and all-device games', 
 });
 
 for (const source of ['MANUAL', 'AUTO']) {
-  for (const platform of LFG_PLATFORMS) {
-    test(`${source} ${platform} room sends DMs to matching and all-device interests`, async t => {
+    test(`${source} room sends DMs to every interest for the classified game`, async t => {
       stub(t, db.botIdentity, 'upsert', async () => ({ name:'Test',tagline:'Test' }));
       stub(t, db.guildSettings, 'upsert', async () => ({ dmNotificationsEnabled:true,maxDmPerDay:10,autoRoomDmInterestedUsers:true }));
-      stub(t, db.lfgRoom, 'findUniqueOrThrow', async () => ({ id:'room',lfgGameId:'minecraft',platform,hostId:'host',source }));
+      stub(t, db.lfgRoom, 'findUniqueOrThrow', async () => ({ id:'room',lfgGameId:'minecraft',platform:null,hostId:'host',source }));
       stub(t, db.userGamePreference, 'findMany', async (args: any) => {
         assert.equal(args.where.lfgGameId, 'minecraft');
-        assert.ok(args.where.AND.some((entry: any) => entry.OR?.some((part: any) => part.platform === platform)&&entry.OR?.some((part: any) => part.platform === null)), 'include exact and all-device preferences before the candidate limit');
+        assert.equal(JSON.stringify(args.where).includes('platform'), false, 'device is classified on the game, not the player preference');
         assert.equal(args.where.interestStatus, 'INTERESTED');
         assert.equal(args.where.notificationsEnabled, true);
         assert.equal(args.where.userId.not, 'host');
         assert.equal(args.where.autoInvitesEnabled, source==='AUTO'?true:undefined);
         assert.ok(args.where.AND.some((entry: any) => entry.OR?.some((part: any) => part.mutedUntil === null)));
-        // Also exercise the defensive guard if an overbroad result is returned.
         return [...LFG_PLATFORMS,null].map(value => ({ userId:String(value),platform:value }));
       });
       stub(t, db.notificationDelivery, 'findUnique', async () => null);
       const reservations: string[] = [];
       stub(t, db.notificationDelivery, 'create', async (args: any) => {reservations.push(args.data.userId);return {};});
       const recipients = await getNotificationCandidates('room');
-      assert.deepEqual(recipients.map(item=>item.userId), [platform,'null']);
-      assert.deepEqual(reservations, [platform,'null'], 'exact and all-device subscribers receive the room');
+      assert.deepEqual(recipients.map(item=>item.userId), [...LFG_PLATFORMS.map(String),'null']);
+      assert.deepEqual(reservations, [...LFG_PLATFORMS.map(String),'null'], 'all subscribers to the game receive the room');
     });
-  }
 }
 
-test('a successful platform-matched invitation remains deduplicated', async t => {
+test('a successful game invitation remains deduplicated', async t => {
   stub(t, db.botIdentity, 'upsert', async () => ({name:'Test',tagline:'Test'}));
   stub(t, db.guildSettings, 'upsert', async () => ({dmNotificationsEnabled:true,maxDmPerDay:10}));
   stub(t, db.lfgRoom, 'findUniqueOrThrow', async () => ({id:'room',lfgGameId:'minecraft',platform:'PC',hostId:'host',source:'MANUAL'}));

@@ -613,6 +613,7 @@ model LfgGameCatalog {
   icon             String?
   category         String?
   categoryId       String?
+  platforms        LfgPlatform[]        @default([])
   minPlayers       Int                  @default(2)
   maxPlayers       Int                  @default(10)
   autoMinAvailable Int?

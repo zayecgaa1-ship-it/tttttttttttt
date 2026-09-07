@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>لوحة تحكم Zark — Zark LFG System</title>
   <meta name="description" content="إدارة إعدادات بوت Zark والألعاب والمحتوى.">
-  <link rel="stylesheet" href="/styles.css?v=20260906-red-fix">
-<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260906-red-fix"><link rel="stylesheet" href="/experience.css?v=20260906-red-fix"><link rel="stylesheet" href="/platform.css?v=20260906-red-fix"></head>
+  <link rel="stylesheet" href="/styles.css?v=20260907-game-platforms">
+<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260907-game-platforms"><link rel="stylesheet" href="/experience.css?v=20260907-game-platforms"><link rel="stylesheet" href="/platform.css?v=20260907-game-platforms"></head>
 <body data-page="admin">
   <header id="site-nav"></header>
   <main class="shell page-main">
@@ -170,6 +170,7 @@
             <label>Slug<input id="admin-game-slug" required pattern="[a-z0-9-]+"></label>
             <label>الاسم<input id="admin-game-name" required></label>
             <div class="form-row"><label>الأيقونة<input id="admin-game-icon"></label><label>التصنيف<input id="admin-game-category" placeholder="sandbox"></label></div>
+            <fieldset class="game-platform-fieldset"><legend>الأجهزة التي تدعمها اللعبة</legend><div class="game-platform-options"><label><input type="checkbox" data-admin-game-platform value="MOBILE" checked><span>📱 جوال</span></label><label><input type="checkbox" data-admin-game-platform value="PC" checked><span>💻 كمبيوتر</span></label><label><input type="checkbox" data-admin-game-platform value="PLAYSTATION" checked><span>🎮 بلايستيشن</span></label></div><small>يظهر هذا التصنيف تلقائيًا للاعب عند اختيار اللعبة.</small></fieldset>
             <div class="form-row"><label>أقل عدد<input id="admin-game-min" type="number" min="2" value="2"></label><label>أعلى عدد<input id="admin-game-max" type="number" min="2" value="10"></label></div>
             <label>حد التجمع التلقائي<input id="admin-game-auto-min" type="number" min="2" placeholder="استخدم الحد الأدنى للعبة"><small>لن ينشئ Zark تجمعًا لهذه اللعبة إلا عند توفر هذا العدد من المهتمين الفاضيين.</small></label>
             <label>الوصف<textarea id="admin-game-description"></textarea></label>
@@ -205,6 +206,6 @@
     </div>
   </main>
   <footer id="site-footer"></footer>
-  <script src="/app.js?v=20260906-red-fix"></script>
+  <script src="/app.js?v=20260907-game-platforms"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@ export const ZARK_IDENTITY = {
 
 export type LiveRoom = {
   platform?: import('./lfg-platform.js').LfgPlatform;
+  gamePlatforms?: import('./lfg-platform.js').LfgPlatform[];
   id: string;
   hostId: string;
   hostName: string;
