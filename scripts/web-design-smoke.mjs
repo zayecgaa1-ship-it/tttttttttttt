@@ -83,6 +83,9 @@ try {
   assert.ok(navBounds.y>800&&navBounds.y+navBounds.height<=960,'Mobile navigation stays at viewport bottom');
   assert.equal(await page.locator('#mobile-more').getAttribute('aria-expanded'),'true');
   assert.ok(await page.locator('#mobile-more-drawer section').isVisible());
+  await page.locator('#mobile-more-drawer section a').last().focus();
+  await page.keyboard.press('Tab');
+  assert.ok(await page.locator('[data-close-more]').evaluate(node=>node===document.activeElement),'More drawer retains keyboard focus');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#mobile-more').getAttribute('aria-expanded'),'false');
   await page.goto('https://zark.local/lfg.html',{waitUntil:'domcontentloaded'});

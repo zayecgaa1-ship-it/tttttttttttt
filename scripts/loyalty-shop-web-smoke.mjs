@@ -28,7 +28,7 @@ const availability = { currentActivity: "AWAY", mentionPolicy: "EVERYONE", weekl
 
 await context.addInitScript(() => {
   localStorage.setItem("zark-tutorial-v4", JSON.stringify({ pausedVersion: 4 }));
-  window.EventSource = class { close() {} };
+  window.EventSource = class { constructor(){window.testStream=this} close() {} };
 });
 await context.route("**/*", async (route) => {
   const request = route.request();
@@ -58,6 +58,10 @@ try {
   await page.goto("https://zark.local/profile.html");
   await page.waitForSelector(".loyalty-reward");
   assert.equal(await page.locator(".loyalty-reward").count(), 4);
+  await page.locator('#profile-setting-bio').fill('Unsaved profile edit');
+  await page.evaluate(()=>{for(let i=0;i<20;i++)window.testStream.onmessage({data:JSON.stringify({eventType:'lfg.updated'})})});
+  await page.waitForTimeout(1200);
+  assert.equal(await page.locator('#profile-setting-bio').inputValue(),'Unsaved profile edit','Realtime preserves unsaved profile changes');
   assert.match(await page.locator("#profile-name").innerText(), /🏅/);
   assert.equal(await page.locator('[data-loyalty-reward="gold-badge"]').isDisabled(), true);
   assert.equal(await page.locator('[data-loyalty-reward="vip"]').isDisabled(), true);

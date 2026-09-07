@@ -98,7 +98,7 @@ const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games
   const closeMore=()=>{moreDrawer.hidden=true;mobileMore?.setAttribute('aria-expanded','false');document.body.classList.remove('drawer-open')};
   mobileMore.onclick=()=>{moreDrawer.hidden=false;mobileMore.setAttribute('aria-expanded','true');document.body.classList.add('drawer-open');moreDrawer.querySelector('[data-close-more]')?.focus()};
   moreDrawer.querySelector('[data-close-more]').onclick=closeMore;moreDrawer.querySelector('.drawer-backdrop').onclick=closeMore;
-  moreDrawer.onkeydown=event=>{if(event.key==='Escape'){closeMore();mobileMore.focus()}};
+  moreDrawer.onkeydown=event=>{if(event.key==='Escape'){closeMore();mobileMore.focus()}else trapDialogFocus(event,moreDrawer.querySelector('section'))};
   $('site-nav').onkeydown = event => { if (event.key === 'Escape') { closeMenu(); closeMore(); menu.focus(); } };
   document.querySelector('main').onclick = closeMenu;
   document.querySelector('.nav-links a.active')?.setAttribute('aria-current', 'page');
@@ -297,7 +297,8 @@ async function renderLfg(realtime) {
     $('open-create-room').setAttribute('aria-controls','create-room-panel');$('open-create-room').setAttribute('aria-expanded','false');
     $('open-create-room').onclick=()=>{createPanel.classList.add('open');createBackdrop.hidden=false;document.body.classList.add('drawer-open');$('open-create-room').setAttribute('aria-expanded','true');createPanel.querySelector('select,input,button')?.focus()};
     $('close-create-room').onclick=closeCreate;createBackdrop.onclick=closeCreate;
-    createPanel.onkeydown=event=>{if(event.key==='Escape'){closeCreate();$('open-create-room').focus()}};
+    createPanel.setAttribute('role','dialog');createPanel.setAttribute('aria-modal','true');
+    createPanel.onkeydown=event=>{if(event.key==='Escape'){closeCreate();$('open-create-room').focus()}else trapDialogFocus(event,createPanel)};
     bindCreateRoom();
   }
   renderRoomList();
@@ -778,6 +779,13 @@ function auditActionLabel(action){return({
 function auditTargetLabel(action){return action?.startsWith('loyalty.')||action?.startsWith('report.')?'معرّف العضو أو البلاغ':action?.startsWith('lfg.')?'معرّف الغرفة':action?.startsWith('trade.')?'معرّف العرض':'المعرّف المرتبط'}
 function supportTokenLabel(status){const names={GEMINI:'Gemini',GROQ:'Groq',OPENROUTER:'OpenRouter'},provider=names[status.provider]||'مساعد Zark',remaining=Number.isFinite(status.remainingMessages)?` · ${formatValue(status.remainingMessages)} رسالة متبقية اليوم`:'';if(status.mode==='AI')return`${provider} متصل${remaining}`;if(status.mode==='ACTION')return`نفّذ Zark الطلب${remaining}`;if(status.aiError)return`تحويل تلقائي للمساعد المحلي${remaining}`;if(status.setupRequired||!status.provider)return`المساعد المحلي متاح${remaining}`;return`${provider} جاهز${remaining}`}
 function empty(message){return `<div class="empty-state"><span aria-hidden="true">✦</span><b>${escapeHtml(message)}</b><small>جرّب تغيير الفلاتر أو ارجع بعد قليل.</small></div>`}
+function trapDialogFocus(event,container){
+  if(event.key!=='Tab')return;
+  const controls=[...container.querySelectorAll('a[href],button,input,select,textarea,[tabindex="0"]')].filter(node=>!node.disabled&&node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden');
+  const first=controls[0],last=controls.at(-1);if(!first)return;
+  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+}
 function showToast(title,message='',type='info'){
   let region=$('toast-region');if(!region){document.body.insertAdjacentHTML('beforeend','<div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>');region=$('toast-region')}
   const toast=document.createElement('article');toast.className=`toast ${type}`;toast.innerHTML=`<span>${type==='success'?'✓':'✦'}</span><div><b>${escapeHtml(title)}</b>${message?`<small>${escapeHtml(message)}</small>`:''}</div><button type="button" aria-label="إغلاق">×</button>`;toast.querySelector('button').onclick=()=>toast.remove();region.appendChild(toast);setTimeout(()=>toast.remove(),4200);
