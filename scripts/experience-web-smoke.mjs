@@ -22,11 +22,11 @@ try{
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`${route} overflow ${width}`);
   }
   if(route==='/commands.html'){
-   assert.equal(await page.locator('.command-card').count(),15);
+   assert.equal(await page.locator('.command-card').count(),16);
    await page.locator('#command-search').fill('ميمز');assert.equal(await page.locator('.command-card').count(),1);
    await page.locator('.command-card button').click();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'/ميمز');
    await page.locator('#command-search').fill('zzzz');assert.equal(await page.locator('.command-card').count(),0);
-   await page.locator('#command-search').fill('');await page.locator('#command-category').selectOption('fun');assert.equal(await page.locator('.command-card').count(),2);
+   await page.locator('#command-search').fill('');await page.locator('#command-category').selectOption('fun');assert.equal(await page.locator('.command-card').count(),3);
    await page.locator('#tutorial-help-fab').click();
    assert.equal(await page.locator('.tutorial-section-grid [data-section]').count(),8);
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));

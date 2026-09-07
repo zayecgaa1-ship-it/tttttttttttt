@@ -11,6 +11,7 @@ import { LFG_PLATFORMS, LFG_PLATFORM_LABELS, type LfgPlatform } from "../../../p
 import { raceGames } from "../../../packages/games/src/index.js";
 import {arabicHumor,type ArabicHumorEntry} from "../../../packages/fun/src/arabic-humor.js";
 import {pickFresh} from "../../../packages/fun/src/curated-fun.js";
+import {zarkRoasts} from "../../../packages/fun/src/roasts.js";
 import {trustedSourceMemes,memeSource} from "../../../packages/fun/src/source-memes.js";
 import {prop2HateMemes,prop2HateSource,type Prop2HateMeme} from "../../../packages/fun/src/prop2hate-memes.js";
 import {renderJokeCard} from "../../../packages/fun/src/joke-card.js";
@@ -208,6 +209,13 @@ if (!token) {
       if (interaction.isChatInputCommand()) {
         if (await isSuspendedAdmin(interaction.user.id)) throw new Error("تم تعليق صلاحيات هذا الحساب من نظام Zark Admin Protection. تواصل مع المالك.");
         if (interaction.commandName === "daily") return await daily(interaction);
+        if (interaction.commandName === "zark-noob") {
+          const key=`roast:${interaction.user.id}`;
+          const recent=recentHumorByUser.get(key)??[];
+          const roast=pickFresh(zarkRoasts,recent);
+          recentHumorByUser.set(key,[...recent.filter(id=>id!==roast.id),roast.id].slice(-(zarkRoasts.length-1)));
+          return interaction.reply({content:`<@${interaction.user.id}>`,allowedMentions:{users:[interaction.user.id]},embeds:[baseEmbed().setTitle('🔥 ZARK NOOB').setDescription(roast.text).setFooter({text:'إنت طلبت القصف 😂'})]});
+        }
         if (interaction.commandName === "setup") {
           if(!interaction.inGuild()||!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return interaction.reply({content:"هذا الأمر لإدارة السيرفر فقط.",flags:MessageFlags.Ephemeral});
           return interaction.reply({embeds:[baseEmbed().setTitle("🎮 اختر ألعابك وإشعاراتك").setDescription("اضغط الزر لتحديد ألعابك ومنصتك. تصلك دعوات الألعاب التي تحبها على نفس المنصة فقط. إعداداتك تظهر لك وحدك.")],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('lfg:setup-interests').setLabel('اختيار الألعاب والمنصة والإشعارات').setStyle(ButtonStyle.Primary))]});
@@ -2285,6 +2293,7 @@ if (!token) {
 function buildCommands() {
   return [
     new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
+    new SlashCommandBuilder().setName("zark-noob").setDescription("جاهز للقصف؟ Zark يقصف جبهتك بمزحة عربية 🔥"),
     new SlashCommandBuilder().setName("setup").setDescription("نشر لوحة اختيارات الألعاب والمنصات والإشعارات في هذا الروم").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setDMPermission(false),
     new SlashCommandBuilder().setName("help-plus").setDescription("شرح كامل ومبسط لكل أنظمة Zark"),
     new SlashCommandBuilder().setName("dm-test").setDescription("اختبر وصول رسائل Zark الخاصة إلى حسابك"),
