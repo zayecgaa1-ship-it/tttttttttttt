@@ -168,8 +168,8 @@ export async function updateUserPreference(input: { userId: string; displayName:
   await upsertActor(input);
   const preference = await db.userGamePreference.upsert({
     where: { userId_lfgGameId: { userId: input.userId, lfgGameId: game.id } },
-    update: { platform: input.platform, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, mutedUntil: null, ...(input.autoInvitesEnabled === undefined ? {} : { autoInvitesEnabled: input.interested && input.autoInvitesEnabled }) },
-    create: { platform: input.platform, userId: input.userId, lfgGameId: game.id, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, autoInvitesEnabled: input.interested && (input.autoInvitesEnabled ?? true) },
+    update: { platform: input.platform ?? null, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, mutedUntil: null, ...(input.autoInvitesEnabled === undefined ? {} : { autoInvitesEnabled: input.interested && input.autoInvitesEnabled }) },
+    create: { platform: input.platform ?? null, userId: input.userId, lfgGameId: game.id, interestStatus: input.interested ? "INTERESTED" : "NOT_INTERESTED", notificationsEnabled: input.interested && input.notificationsEnabled, autoInvitesEnabled: input.interested && (input.autoInvitesEnabled ?? true) },
     include: { game: true },
   });
   publish({ type: "user.interest_changed", userId: input.userId, gameSlug: game.slug, interested: input.interested, notificationsEnabled: preference.notificationsEnabled });
@@ -783,11 +783,13 @@ export async function getNotificationCandidates(roomId: string) {
   const candidates = await db.userGamePreference.findMany({
     where: {
       lfgGameId: room.lfgGameId,
-      platform: room.platform,
       interestStatus: "INTERESTED",
       notificationsEnabled: true,
       ...(isAutomaticRoom ? { autoInvitesEnabled: true } : {}),
-      OR: [{ mutedUntil: null }, { mutedUntil: { lt: new Date() } }],
+      AND: [
+        { OR: [{ mutedUntil: null }, { mutedUntil: { lt: new Date() } }] },
+        ...(room.platform ? [{ OR: [{ platform: room.platform }, { platform: null }] }] : []),
+      ],
       userId: { not: room.hostId },
     },
     include: { user: { include: { weeklyAvailability: true } }, game: true },

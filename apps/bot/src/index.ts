@@ -218,7 +218,7 @@ if (!token) {
         }
         if (interaction.commandName === "setup") {
           if(!interaction.inGuild()||!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return interaction.reply({content:"هذا الأمر لإدارة السيرفر فقط.",flags:MessageFlags.Ephemeral});
-          return interaction.reply({embeds:[baseEmbed().setTitle("🎮 اختر ألعابك وإشعاراتك").setDescription("اضغط الزر لتحديد ألعابك ومنصتك. تصلك دعوات الألعاب التي تحبها على نفس المنصة فقط. إعداداتك تظهر لك وحدك.")],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('lfg:setup-interests').setLabel('اختيار الألعاب والمنصة والإشعارات').setStyle(ButtonStyle.Primary))]});
+          return interaction.reply({embeds:[baseEmbed().setTitle("🎮 اختر ألعابك وإشعاراتك").setDescription("اضغط الزر واختر نسخة اللعبة مباشرة، مثل PUBG Mobile أو PUBG Steam. إعدادات كل لاعب تظهر له وحده.")],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('lfg:setup-interests').setLabel('اختيار الألعاب والإشعارات').setStyle(ButtonStyle.Primary))]});
         }
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1, interaction.options.getInteger("seconds") ?? undefined);
         if (interaction.commandName === "lobby") return await createGameLobby(interaction, interaction.options.getString("game", true), interaction.options.getInteger("rounds") ?? 5, interaction.options.getInteger("seconds") ?? 15);
@@ -396,9 +396,11 @@ if (!token) {
       );
       return interaction.update({ embeds: [baseEmbed().setTitle("⚡ جاهز للإنشاء").setDescription(`الفريق: **${count} لاعبين** · المدة: **${duration} دقيقة**\nأنشئ بسرعة أو أضف وصفًا وGame Mode.`)], components: [row] });
     }
-    if (interaction.customId === "lfg:interest:select") {
-      const slug = interaction.values[0];
-      return interaction.update({ embeds: [baseEmbed().setTitle("❤️ إعداد اهتمام اللعبة").setDescription("اختر كيف تريد أن يتعامل Zark مع هذه اللعبة.")], components: [interestButtons(slug)] });
+    if (interaction.customId.startsWith("lfg:interest:select")) {
+      const [slug, selectedPlatform] = interaction.values[0].split("|");
+      const allDevices = selectedPlatform === "ALL";
+      const platform = allDevices ? undefined : selectedPlatform as LfgPlatform;
+      return setInterest(interaction, slug, true, true, platform, allDevices);
     }
   }
 
@@ -1663,20 +1665,35 @@ if (!token) {
   async function showInterests(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const catalog = await apiGet<Array<{ games: Array<{ slug: string; name: string; icon?: string }> }>>("/api/lfg/catalog");
-    const games = catalog.flatMap((category) => category.games).slice(0, 25);
-    const menu = new StringSelectMenuBuilder().setCustomId("lfg:interest:select").setPlaceholder("اختر لعبة لتعديل اهتمامك").addOptions(games.map((game) => ({ label: game.name, value: game.slug, emoji: game.icon })));
-    await interaction.editReply({ embeds: [baseEmbed().setTitle("❤️ اهتمامات LFG").setDescription("Zark يرسل لك فقط عندما توجد فرصة لعب حقيقية للعبة مهتم بها.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+    const games = catalog.flatMap((category) => category.games);
+    const options = games.flatMap(game => {
+      if(game.slug==='gta-v')return [
+        {label:`${game.name} — كمبيوتر`,value:`${game.slug}|PC`,emoji:'💻',description:'نسخة الكمبيوتر'},
+        {label:`${game.name} — بلايستيشن`,value:`${game.slug}|PLAYSTATION`,emoji:'🎮',description:'نسخة PlayStation'},
+      ];
+      if(game.slug==='pubg')return [
+        {label:'PUBG Mobile — جوال',value:`${game.slug}|MOBILE`,emoji:'📱',description:'نسخة الهاتف'},
+        {label:'PUBG Steam — كمبيوتر',value:`${game.slug}|PC`,emoji:'💻',description:'نسخة Steam'},
+      ];
+      return [{label:`${game.name} — كل الأجهزة`,value:`${game.slug}|ALL`,emoji:game.icon,description:'جوال، كمبيوتر وبلايستيشن'}];
+    });
+    const rows=[];
+    for(let index=0;index<options.length;index+=25){
+      const menu=new StringSelectMenuBuilder().setCustomId(`lfg:interest:select:${index/25}`).setPlaceholder(index?'المزيد من الألعاب والنسخ':'اختر اللعبة أو نسختها — بدون اختيار جهاز لاحق').addOptions(options.slice(index,index+25));
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
+    }
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("❤️ اختر اللعبة التي تحبها").setDescription("اختَر اللعبة أو نسختها مباشرة. مثال: **PUBG Mobile** أو **PUBG Steam**. الألعاب المكتوب عليها «كل الأجهزة» ترسل لك فرص الجوال والكمبيوتر والبلايستيشن.")], components: rows });
   }
 
   function platformMenu(customId: string) {
     return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(customId).setPlaceholder("اختر المنصة: جوال، كمبيوتر، بلايستيشن").addOptions(LFG_PLATFORMS.map(value => ({label:LFG_PLATFORM_LABELS[value],value}))));
   }
 
-  async function setInterest(interaction: any, gameSlug: string, interested: boolean, notificationsEnabled: boolean, platform?: LfgPlatform) {
-    if (interested && !platform) return interaction.update({ content: "اختر منصتك لهذه اللعبة. لن تصلك دعوات المنصات الأخرى.", embeds: [], components: [platformMenu(`lfg:interest-platform:${gameSlug}`)] });
+  async function setInterest(interaction: any, gameSlug: string, interested: boolean, notificationsEnabled: boolean, platform?: LfgPlatform, allDevices=false) {
+    if (interested && !platform && !allDevices) return interaction.update({ content: "اختر منصتك لهذه اللعبة. لن تصلك دعوات المنصات الأخرى.", embeds: [], components: [platformMenu(`lfg:interest-platform:${gameSlug}`)] });
     await interaction.deferUpdate();
     await apiSend(`/api/users/${interaction.user.id}/lfg-preferences/${gameSlug}`, "PUT", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), interested, notificationsEnabled, platform });
-    const message = interested ? `❤️ تم حفظ اهتمامك على ${platform ? LFG_PLATFORM_LABELS[platform] : "منصتك"}. الإشعارات لنفس المنصة فقط.` : "🚫 لن تصلك اقتراحات أو إشعارات لهذه اللعبة.";
+    const message = interested ? `❤️ تم حفظ اهتمامك: ${platform ? LFG_PLATFORM_LABELS[platform] : "🌐 كل الأجهزة"}.${platform ? " الإشعارات لنفس النسخة فقط." : " ستصلك فرص اللعبة على أي جهاز."}` : "🚫 لن تصلك اقتراحات أو إشعارات لهذه اللعبة.";
     return interaction.editReply({ content: message, embeds: [], components: [] });
   }
 
@@ -2294,7 +2311,7 @@ function buildCommands() {
   return [
     new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
     new SlashCommandBuilder().setName("zark-noob").setDescription("جاهز للقصف؟ Zark يقصف جبهتك بمزحة عربية 🔥"),
-    new SlashCommandBuilder().setName("setup").setDescription("نشر لوحة اختيارات الألعاب والمنصات والإشعارات في هذا الروم").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setDMPermission(false),
+    new SlashCommandBuilder().setName("setup").setDescription("نشر لوحة اختيار الألعاب ونسخها والإشعارات في هذا الروم").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setDMPermission(false),
     new SlashCommandBuilder().setName("help-plus").setDescription("شرح كامل ومبسط لكل أنظمة Zark"),
     new SlashCommandBuilder().setName("dm-test").setDescription("اختبر وصول رسائل Zark الخاصة إلى حسابك"),
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),

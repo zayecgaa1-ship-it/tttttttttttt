@@ -13,29 +13,29 @@ function stub(t: TestContext, target: object, name: string, implementation: (...
   t.after(() => { delegate[name] = original; });
 }
 
-test('platform compatibility is exact, including Minecraft and unknown preferences', () => {
+test('platform compatibility supports explicit platforms and all-device games', () => {
   for (const room of LFG_PLATFORMS) {
     for (const player of LFG_PLATFORMS) assert.equal(matchesLfgPlatform(room, player), room === player);
-    assert.equal(matchesLfgPlatform(room, null), false);
-    assert.equal(matchesLfgPlatform(undefined, room), false);
+    assert.equal(matchesLfgPlatform(room, null), true);
+    assert.equal(matchesLfgPlatform(undefined, room), true);
   }
-  assert.equal(matchesLfgPlatform(null, undefined), true); // legacy, unclassified only
+  assert.equal(matchesLfgPlatform(null, undefined), true);
 });
 
 for (const source of ['MANUAL', 'AUTO']) {
   for (const platform of LFG_PLATFORMS) {
-    test(`${source} ${platform} room only reserves DMs for the same platform`, async t => {
+    test(`${source} ${platform} room sends DMs to matching and all-device interests`, async t => {
       stub(t, db.botIdentity, 'upsert', async () => ({ name:'Test',tagline:'Test' }));
       stub(t, db.guildSettings, 'upsert', async () => ({ dmNotificationsEnabled:true,maxDmPerDay:10,autoRoomDmInterestedUsers:true }));
       stub(t, db.lfgRoom, 'findUniqueOrThrow', async () => ({ id:'room',lfgGameId:'minecraft',platform,hostId:'host',source }));
       stub(t, db.userGamePreference, 'findMany', async (args: any) => {
         assert.equal(args.where.lfgGameId, 'minecraft');
-        assert.equal(args.where.platform, platform, 'filter before the candidate limit');
+        assert.ok(args.where.AND.some((entry: any) => entry.OR?.some((part: any) => part.platform === platform)&&entry.OR?.some((part: any) => part.platform === null)), 'include exact and all-device preferences before the candidate limit');
         assert.equal(args.where.interestStatus, 'INTERESTED');
         assert.equal(args.where.notificationsEnabled, true);
         assert.equal(args.where.userId.not, 'host');
         assert.equal(args.where.autoInvitesEnabled, source==='AUTO'?true:undefined);
-        assert.ok(args.where.OR.some((entry: any) => entry.mutedUntil === null));
+        assert.ok(args.where.AND.some((entry: any) => entry.OR?.some((part: any) => part.mutedUntil === null)));
         // Also exercise the defensive guard if an overbroad result is returned.
         return [...LFG_PLATFORMS,null].map(value => ({ userId:String(value),platform:value }));
       });
@@ -43,8 +43,8 @@ for (const source of ['MANUAL', 'AUTO']) {
       const reservations: string[] = [];
       stub(t, db.notificationDelivery, 'create', async (args: any) => {reservations.push(args.data.userId);return {};});
       const recipients = await getNotificationCandidates('room');
-      assert.deepEqual(recipients.map(item=>item.userId), [platform]);
-      assert.deepEqual(reservations, [platform], 'no mismatched reservation or send');
+      assert.deepEqual(recipients.map(item=>item.userId), [platform,'null']);
+      assert.deepEqual(reservations, [platform,'null'], 'exact and all-device subscribers receive the room');
     });
   }
 }

@@ -4,7 +4,9 @@ export const LFG_PLATFORM_LABELS: Record<LfgPlatform, string> = {
   MOBILE: '📱 جوال', PC: '💻 كمبيوتر', PLAYSTATION: '🎮 بلايستيشن',
 };
 
-// Unknown platforms never act as a wildcard for a classified room.
+// A null preference means the game supports all devices (for example Minecraft).
+// A null room is an all-device room and can notify every interested player.
 export function matchesLfgPlatform(room: LfgPlatform | null | undefined, player: LfgPlatform | null | undefined) {
-  return (room ?? null) === (player ?? null);
+  if (!room || !player) return true;
+  return room === player;
 }
