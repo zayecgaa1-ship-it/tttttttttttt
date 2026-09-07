@@ -1,6 +1,7 @@
 DO $zark_series_migration$
 BEGIN
   IF to_regclass('"ZarkMatch"') IS NOT NULL THEN
+    ALTER TABLE "ZarkMatch" ADD COLUMN IF NOT EXISTS "attemptedUserIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
     ALTER TABLE "ZarkMatch" ADD COLUMN IF NOT EXISTS "seriesId" TEXT;
     ALTER TABLE "ZarkMatch" ADD COLUMN IF NOT EXISTS "channelId" TEXT;
     ALTER TABLE "ZarkMatch" ADD COLUMN IF NOT EXISTS "activeChannelKey" TEXT;

@@ -208,6 +208,10 @@ if (!token) {
       if (interaction.isChatInputCommand()) {
         if (await isSuspendedAdmin(interaction.user.id)) throw new Error("تم تعليق صلاحيات هذا الحساب من نظام Zark Admin Protection. تواصل مع المالك.");
         if (interaction.commandName === "daily") return await daily(interaction);
+        if (interaction.commandName === "setup") {
+          if(!interaction.inGuild()||!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return interaction.reply({content:"هذا الأمر لإدارة السيرفر فقط.",flags:MessageFlags.Ephemeral});
+          return interaction.reply({embeds:[baseEmbed().setTitle("🎮 اختر ألعابك وإشعاراتك").setDescription("اضغط الزر لتحديد ألعابك ومنصتك. تصلك دعوات الألعاب التي تحبها على نفس المنصة فقط. إعداداتك تظهر لك وحدك.")],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('lfg:setup-interests').setLabel('اختيار الألعاب والمنصة والإشعارات').setStyle(ButtonStyle.Primary))]});
+        }
         if (interaction.commandName === "play") return await play(interaction, interaction.options.getString("game") ?? undefined, interaction.options.getInteger("rounds") ?? 1, interaction.options.getInteger("seconds") ?? undefined);
         if (interaction.commandName === "lobby") return await createGameLobby(interaction, interaction.options.getString("game", true), interaction.options.getInteger("rounds") ?? 5, interaction.options.getInteger("seconds") ?? 15);
         if (interaction.commandName === "profile") return await profile(interaction, interaction.options.getUser("user")?.id ?? interaction.user.id);
@@ -445,7 +449,7 @@ if (!token) {
       if (result.correct && result.points > 0) return finishRaceWithWinner(interaction.channel, race, player.displayName, result);
       if (result.expired) return expireActiveRace(interaction.channelId, matchId, interaction.channel);
       if (result.capped) return interaction.followUp({ content: "انتهت هذه الجولة أو سُجلت إجابتك مسبقًا.", flags: MessageFlags.Ephemeral });
-      return interaction.followUp({ content: "إجابة غير صحيحة، جرّب الإجابة النصية إن احتجت.", flags: MessageFlags.Ephemeral });
+      return interaction.followUp({ content: result.alreadyAnswered ? "سجّلت إجابتك بالفعل. لديك محاولة واحدة لكل سؤال؛ انتظر السؤال التالي." : "إجابة خاطئة. انتهت محاولتك لهذا السؤال؛ شارك في السؤال التالي.", flags: MessageFlags.Ephemeral });
     }
     if (parts[0] === "zark" && parts[1] === "choice") {
       const matchId = parts[2];
@@ -463,6 +467,7 @@ if (!token) {
       return interaction.followUp({ content: "إجابة غير صحيحة — حاول في الجولة القادمة.", flags: MessageFlags.Ephemeral });
     }
     if (interaction.customId === "zark_play_now") return play(interaction);
+    if (interaction.customId === "lfg:setup-interests") return showInterests(interaction);
     if (interaction.customId === "pulse:smart") return smartLfg(interaction);
     if (interaction.customId === "pulse:availability") return availability(interaction);
     if (interaction.customId === "pulse:loyalty") return loyalty(interaction);
@@ -2280,6 +2285,7 @@ if (!token) {
 function buildCommands() {
   return [
     new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
+    new SlashCommandBuilder().setName("setup").setDescription("نشر لوحة اختيارات الألعاب والمنصات والإشعارات في هذا الروم").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setDMPermission(false),
     new SlashCommandBuilder().setName("help-plus").setDescription("شرح كامل ومبسط لكل أنظمة Zark"),
     new SlashCommandBuilder().setName("dm-test").setDescription("اختبر وصول رسائل Zark الخاصة إلى حسابك"),
     new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
@@ -2325,7 +2331,7 @@ function availabilityCommand(name: string) {
   return new SlashCommandBuilder().setName(name).setDescription("غيّر حالتك بضغطة واحدة");
 }
 
-type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; typoCount?: number; elapsedMs?: number; hintUsed?: boolean };
+type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; alreadyAnswered?: boolean; typoCount?: number; elapsedMs?: number; hintUsed?: boolean };
 type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; durationMs?: number; prompt: string; choices?: string[]; mediaUrl?: string; endsAt: string };
 type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; choices: string[]; gameSlug: string; totalRounds: number; durationSeconds: number };
 type GameLobby = { id: string; gameSlug: string; gameName: string; channelId: string; hostId: string; status: string; totalRounds: number; durationSeconds: number; minPlayers: number; maxPlayers: number; members: Array<{ userId: string; displayName: string; ready: boolean }>; allReady: boolean; autoStart?: boolean };

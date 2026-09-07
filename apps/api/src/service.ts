@@ -305,6 +305,10 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
   const match = await db.zarkMatch.findUnique({ where: { id: matchId }, include: { game: true } });
   if (!match || new Date() > match.endsAt) return { correct: false as const, expired: true as const, points: 0 };
   if (match.status !== "OPEN") return { correct: false as const, capped: true as const, points: 0 };
+  if(match.game.slug==='true-false'){
+    const attempt=await db.zarkMatch.updateMany({where:{id:matchId,status:'OPEN',endsAt:{gte:new Date()},NOT:{attemptedUserIds:{has:input.userId}}},data:{attemptedUserIds:{push:input.userId}}});
+    if(!attempt.count)return {correct:false as const,alreadyAnswered:true as const,points:0};
+  }
   const evaluation = evaluateAnswer(input.answer, splitAnswers(match.answer), {fuzzy:match.game.slug!=='fast-type'});
   if (!evaluation.correct) return { correct: false as const, points: 0 };
   const now = new Date();
