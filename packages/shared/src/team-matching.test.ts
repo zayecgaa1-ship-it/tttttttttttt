@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { calculateSmartRoomScore, calculateTeamScore } from "./team-matching.js";
+import { calculateSmartRoomScore, calculateTeamScore, rankSmartRooms } from "./team-matching.js";
 
 test("team score rewards XP, wins and completed LFG sessions", () => {
   assert.equal(calculateTeamScore({ xp: 1200, wins: 4, sessions: 9 }), 2050);
@@ -16,4 +16,19 @@ test("smart matching still prioritizes a nearly full room without teammates", ()
   const nearlyFull = calculateSmartRoomScore({ memberCount: 9, maxPlayers: 10, teammates: 0, ageMs: 0 });
   const emptyWithFriend = calculateSmartRoomScore({ memberCount: 1, maxPlayers: 10, teammates: 1, ageMs: 0 });
   assert.ok(nearlyFull > emptyWithFriend);
+});
+
+test('smart matching skips locked, full and closed rooms even when teammates are inside',()=>{
+  const base={status:'OPEN',locked:false,memberCount:3,maxPlayers:4,createdAt:new Date(0),members:[{userId:'friend'}]};
+  const rooms=[
+    {...base,id:'locked',locked:true},
+    {...base,id:'full',memberCount:4},
+    {...base,id:'closed',status:'CLOSED'},
+    {...base,id:'available',memberCount:1,members:[]},
+  ];
+  assert.deepEqual(rankSmartRooms(rooms,new Set(['friend']),60_000).map(item=>item.room.id),['available']);
+});
+
+test('smart matching returns no candidate when every room is unavailable',()=>{
+  assert.deepEqual(rankSmartRooms([{status:'OPEN',locked:true,memberCount:1,maxPlayers:4,createdAt:new Date(),members:[]}],new Set()),[]);
 });

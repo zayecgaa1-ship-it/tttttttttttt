@@ -147,10 +147,11 @@ export async function listMyTeamInvites(userId: string) {
 }
 
 export async function respondToTeamInvite(inviteId: string, userId: string, accept: boolean) {
-  await serializable(async (tx) => {
+  const expired = await serializable(async (tx) => {
     const invite = await tx.teamInvite.findUnique({ where: { id: inviteId }, include: { team: { include: { _count: { select: { members: true } } } } } });
     if (!invite || invite.invitedUserId !== userId || invite.status !== TeamInviteStatus.PENDING) throw new Error("الدعوة غير متاحة");
-    if (invite.expiresAt <= new Date()) { await tx.teamInvite.update({ where: { id: invite.id }, data: { status: "EXPIRED" } }); throw new Error("انتهت صلاحية الدعوة"); }
+    // Throw after commit: throwing here rolls the EXPIRED update back.
+    if (invite.expiresAt <= new Date()) { await tx.teamInvite.update({ where: { id: invite.id }, data: { status: "EXPIRED" } }); return true; }
     if (!accept) { await tx.teamInvite.update({ where: { id: invite.id }, data: { status: "DECLINED" } }); return; }
     if (invite.team._count.members >= invite.team.maxMembers) throw new Error("الفريق ممتلئ");
     if (await tx.teamMember.findUnique({ where: { userId } })) throw new Error("أنت عضو في فريق بالفعل");
@@ -158,7 +159,8 @@ export async function respondToTeamInvite(inviteId: string, userId: string, acce
     await tx.teamInvite.update({ where: { id: invite.id }, data: { status: "ACCEPTED" } });
     await tx.teamInvite.updateMany({ where: { invitedUserId: userId, id: { not: invite.id }, status: "PENDING" }, data: { status: "DECLINED" } });
   });
-  return getMyTeam(userId);
+  if (expired) throw new Error("انتهت صلاحية الدعوة");
+  return accept ? getMyTeam(userId) : null;
 }
 
 export async function setTeamMemberRole(teamId: string, actorId: string, memberId: string, role: "CAPTAIN" | "MEMBER") {

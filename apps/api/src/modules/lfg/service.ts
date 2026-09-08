@@ -8,7 +8,7 @@ import { getGuildRuntimeSettings } from "../admin/service.js";
 import { awardLoyaltyPoints } from "../loyalty/service.js";
 import { LFG_GATHER_WINDOW_MINUTES, lfgWarningCloseAt } from "../../../../../packages/shared/src/lfg-lifecycle.js";
 import { resolveAvailability, shouldSuppressLfg, type SchedulePeriod } from "../../../../../packages/shared/src/availability.js";
-import { calculateSmartRoomScore } from "../../../../../packages/shared/src/team-matching.js";
+import { rankSmartRooms } from "../../../../../packages/shared/src/team-matching.js";
 
 const categories = [
   { slug: "sandbox", name: "عالم مفتوح وبناء", icon: "🧱", sortOrder: 1 },
@@ -289,14 +289,11 @@ export async function smartMatchLfg(input: { userId: string; displayName: string
   if (!insight) throw new Error("لا توجد لعبة متاحة للتجميع الذكي الآن");
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: insight.gameSlug } });
   const [rooms, teamMembership] = await Promise.all([db.lfgRoom.findMany({
-    where: { lfgGameId: game.id, status: "OPEN", hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
-    include: { members: { where: { status: "ACTIVE" }, select: { userId: true } } }, take: 25,
+    where: { lfgGameId: game.id, status: "OPEN", locked: false, memberCount: { lt: db.lfgRoom.fields.maxPlayers }, hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
+    include: { members: { where: { status: "ACTIVE" }, select: { userId: true } } }, orderBy: [{ memberCount: "desc" }, { createdAt: "asc" }], take: 25,
   }), db.teamMember.findUnique({ where: { userId: input.userId }, include: { team: { select: { members: { select: { userId: true } } } } } })]);
   const teammateIds = new Set(teamMembership?.team.members.map((member) => member.userId) ?? []);
-  const rankedRooms = rooms.map((room) => {
-    const teammates = room.members.filter((member) => teammateIds.has(member.userId)).length;
-    return { room, teammates, score: calculateSmartRoomScore({ memberCount: room.memberCount, maxPlayers: room.maxPlayers, teammates, ageMs: Date.now() - room.createdAt.getTime() }) };
-  }).sort((a, b) => b.score - a.score);
+  const rankedRooms = rankSmartRooms(rooms, teammateIds);
   const existing = rankedRooms[0];
   if (existing) {
     const spots = Math.max(0, existing.room.maxPlayers - existing.room.memberCount - 1);

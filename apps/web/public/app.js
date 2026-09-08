@@ -38,7 +38,7 @@ async function boot() {
   if(me)void api('/api/me/activity',{method:'POST'}).catch(()=>undefined);
   renderShell();
   if (page === "commands") { $('realtime-status').hidden=true; await tutorialManager.autoStart(); return; }
-  state = await api('/api/state');
+  state = ['profile','teams'].includes(page) ? {} : await api('/api/state');
   await renderPage();
   await tutorialManager.autoStart();
   const stream = new EventSource('/api/stream');
@@ -50,7 +50,7 @@ async function boot() {
     try{
       if(page==='reports'){if(me)await loadMyReports();return;}
       // Editing a profile must never lose unsaved fields to a background event.
-      if(['profile','games','status','admin','security'].includes(page))return;
+      if(['profile','games','status','admin','security','teams'].includes(page))return;
       if(page==='trade'&&activeTradeConversationId){
         await loadTradeInbox();
         if(!document.querySelector('#trade-conversation input:focus, #trade-conversation textarea:focus'))await openTradeConversation(activeTradeConversationId);
@@ -66,7 +66,7 @@ async function boot() {
     let event;try{event=JSON.parse(message.data)}catch{}
     // Do not rebuild the whole Trade page while a desktop user is typing.
     // Re-rendering was sending them back to the market after every message.
-    if(!event||['profile','games','status','admin','security'].includes(page))return;
+    if(!event||['profile','games','status','admin','security','teams'].includes(page))return;
     clearTimeout(timer);
     timer = setTimeout(refresh,1000);
   };
@@ -484,23 +484,30 @@ function renderLoyaltyShop(loyalty){
 
 async function renderProfile(){
   if(!me)return;
-  const [data,availability,team]=await Promise.all([api('/api/me/profile'),api('/api/me/availability'),api('/api/me/team')]);
+  const [profileResult,availabilityResult,teamResult,loyaltyResult]=await Promise.allSettled([api('/api/me/profile'),api('/api/me/availability'),api('/api/me/team'),api('/api/me/loyalty')]);
+  if(profileResult.status==='rejected')throw profileResult.reason;
+  const data=profileResult.value,availability=availabilityResult.value,team=teamResult.value;
   $('profile-guest').hidden=true;$('profile-content').hidden=false;
   $('profile-name').textContent=data.displayName+(data.loyalty?.badge==='GOLD'?' 🏅':'');$('profile-level').textContent=`LV ${data.zark.level}`;$('profile-rating').textContent=data.lfg.rating.average?`${data.lfg.rating.average} ⭐ من ${data.lfg.rating.count} تقييم`:'لا يوجد تقييم بعد';$('profile-bio').textContent=data.settings.bio||'أضف نبذة قصيرة عن أسلوب لعبك.';
   $('profile-avatar').src=data.avatarUrl||'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23222"/%3E%3C/svg%3E';$('profile-head').style.setProperty('--profile-accent',data.settings.profileAccent);
   $('profile-stats').innerHTML=statCards([[data.zark.xp,'Zark XP'],[data.loyalty?.points||0,'نقاط الولاء'],[formatDuration(data.lfg.voiceSeconds),'وقت Voice'],[data.lfg.completedSessions,'جلسة مكتملة']]);
-  const loyalty=await api('/api/me/loyalty');
-  renderLoyaltyShop(loyalty);
+  if(loyaltyResult.status==='fulfilled')renderLoyaltyShop(loyaltyResult.value);
+  else $('profile-loyalty').innerHTML=empty('تعذر تحميل متجر الولاء مؤقتاً. أعد تحميل الصفحة للمحاولة.');
   $('profile-zark-games').innerHTML=data.zark.games.length?data.zark.games.slice(0,8).map(game=>dataRow(game.name,`${game.xp} XP · ${game.wins}W`)).join(''):empty('لا توجد مباريات بعد');
   $('profile-favorites').innerHTML=data.lfg.favoriteGames.length?data.lfg.favoriteGames.map(game=>dataRow(`${game.icon||'🎮'} ${game.name}`,`${game.sessions} جلسة`)).join(''):empty('لا توجد جلسات بعد');
   $('profile-active-rooms').innerHTML=data.lfg.activeRooms.length?data.lfg.activeRooms.map(room=>dataRow(`${room.gameIcon||'🎮'} ${room.gameName}`,`${room.isHost?'Host · ':''}${room.status}`)).join(''):empty('لست داخل غرفة الآن');
   $('profile-interests').innerHTML=data.lfg.interests.length?data.lfg.interests.map(game=>`<span class="chip">${escapeHtml(game.icon||'🎮')} ${escapeHtml(game.name)} ${game.notificationsEnabled?'🔔':'🔕'}</span>`).join(''):empty('لم تحدد اهتماماتك بعد');
   $('profile-team').innerHTML=team?`<div class="profile-team-summary" style="--team-accent:${escapeHtml(team.accentColor)}"><b>${escapeHtml(team.name)}</b><span>${team.memberCount} عضو · ${formatValue(team.score)} نقطة</span><a href="/teams.html">فتح الفريق ←</a></div>`:'<div class="profile-team-summary empty-team"><b>لا يوجد فريق بعد</b><span>أنشئ فريقاً أو اقبل دعوة من لاعب.</span><a href="/teams.html">استكشف الفرق ←</a></div>';
+  if(teamResult.status==='rejected')$('profile-team').innerHTML=empty('تعذر تحميل بيانات الفريق مؤقتاً.');
   $('profile-setting-bio').value=data.settings.bio||'';$('profile-setting-accent').value=data.settings.profileAccent;$('profile-setting-visible').checked=data.settings.activityVisible;$('profile-setting-rival').checked=data.settings.rivalNotificationsEnabled;
   $('profile-settings-form').onsubmit=async event=>{event.preventDefault();const result=$('profile-settings-result');result.textContent='جارِ الحفظ...';try{const saved=await api('/api/me/profile/settings',{method:'PUT',body:{bio:$('profile-setting-bio').value||null,profileAccent:$('profile-setting-accent').value,activityVisible:$('profile-setting-visible').checked,rivalNotificationsEnabled:$('profile-setting-rival').checked}});$('profile-head').style.setProperty('--profile-accent',saved.profileAccent);$('profile-bio').textContent=saved.bio||'أضف نبذة قصيرة عن أسلوب لعبك.';result.textContent='✅ تم حفظ ملفك وخصوصيتك.';}catch(error){result.textContent=`❌ ${error.message}`;}};
   if(!$('restart-product-tour'))$('profile-settings-form').insertAdjacentHTML('beforeend','<button id="restart-product-tour" class="button ghost" type="button">✨ إعادة تشغيل الجولة التعليمية</button>');
   $('restart-product-tour').onclick=()=>tutorialManager.restart();
-  bindAvailability(availability);
+  if(availabilityResult.status==='fulfilled')bindAvailability(availability);
+  else{
+    $('availability-result').textContent='تعذر تحميل جدولك. أعد تحميل الصفحة قبل تعديل الحالة أو الجدول.';
+    document.querySelectorAll('#availability-form input, #availability-form select, #availability-form button, [data-availability-quick]').forEach(control=>control.disabled=true);
+  }
 }
 
 function bindAvailability(availability){
@@ -522,10 +529,20 @@ function bindPeriodRemoveButtons(){document.querySelectorAll('[data-remove-perio
 function relativeTime(value){const minutes=Math.round((new Date(value).getTime()-Date.now())/60000);if(Math.abs(minutes)<1)return'الآن';const formatter=new Intl.RelativeTimeFormat('ar',{numeric:'auto'});return Math.abs(minutes)<60?formatter.format(minutes,'minute'):formatter.format(Math.round(minutes/60),'hour')}
 function channelIdList(value){return [...new Set(String(value||'').split(/[\s,]+/).map(item=>item.trim()).filter(item=>/^\d{17,20}$/.test(item)))]}
 
-async function renderTeams(){
+let teamSearchVersion=0;
+async function renderTeamList(){
+  const version=++teamSearchVersion;
   const query=$('team-search')?.value.trim()||'';
-  const [teams,myTeam,invites]=await Promise.all([api(`/api/teams${query?`?search=${encodeURIComponent(query)}`:''}`),me?api('/api/me/team'):null,me?api('/api/me/team-invites'):[]]);
-  $('team-list').innerHTML=teams.length?teams.map((team,index)=>teamCard(team,index+1)).join(''):empty('لا توجد فرق مطابقة. أنشئ أول فريق في Zark.');
+  try{
+    const teams=await api(`/api/teams${query?`?search=${encodeURIComponent(query)}`:''}`);
+    if(version!==teamSearchVersion)return;
+    $('team-list').innerHTML=teams.length?teams.map((team,index)=>teamCard(team,index+1)).join(''):empty('لا توجد فرق مطابقة. أنشئ أول فريق في Zark.');
+  }catch(error){
+    if(version===teamSearchVersion)$('team-list').innerHTML=empty(`تعذر تحميل الفرق: ${error.message}`);
+  }
+}
+async function renderTeams(){
+  const [,myTeam,invites]=await Promise.all([renderTeamList(),me?api('/api/me/team'):null,me?api('/api/me/team-invites'):[]]);
   const account=$('team-account');
   if(!me){account.innerHTML='<div class="auth-gate compact"><span>👥</span><h2>ادخل إلى مجتمع الفرق</h2><p>سجّل بحساب Discord لإنشاء فريق أو قبول دعوة.</p><a class="button primary" href="/auth/discord">دخول Discord</a></div>';}
   else if(myTeam){account.innerHTML=teamDashboard(myTeam);bindTeamDashboard(myTeam);}
@@ -534,7 +551,7 @@ async function renderTeams(){
     $('team-create-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{await api('/api/me/teams',{method:'POST',body:{name:$('team-name').value,description:$('team-description').value||undefined,accentColor:$('team-accent').value}});showToast('تم إنشاء الفريق','أصبحت مالك الفريق ويمكنك دعوة اللاعبين.','success');await renderTeams();}catch(error){$('team-action-result').textContent=`❌ ${error.message}`;button.disabled=false;}};
     document.querySelectorAll('[data-team-invite-response]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{await api(`/api/me/team-invites/${button.dataset.inviteId}/respond`,{method:'POST',body:{accept:button.dataset.teamInviteResponse==='accept'}});await renderTeams();}catch(error){$('team-action-result').textContent=`❌ ${error.message}`;button.disabled=false;}});
   }
-  if($('team-search')&&!$('team-search').dataset.bound){$('team-search').dataset.bound='true';let timer;$('team-search').oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>renderTeams().catch(showFatal),280)}}
+  if($('team-search')&&!$('team-search').dataset.bound){$('team-search').dataset.bound='true';let timer;$('team-search').oninput=()=>{++teamSearchVersion;clearTimeout(timer);timer=setTimeout(renderTeamList,280)}}
 }
 
 function teamCard(team,rank){return `<article class="team-card" style="--team-accent:${escapeHtml(team.accentColor)}"><header><span class="team-rank">#${rank}</span>${team.logoUrl?`<img src="${escapeHtml(team.logoUrl)}" alt="">`:`<i>${escapeHtml(team.name.slice(0,2).toUpperCase())}</i>`}<div><h3>${escapeHtml(team.name)}</h3><small>بقيادة ${escapeHtml(team.owner.displayName)}</small></div></header><p>${escapeHtml(team.description||'فريق جديد يستعد للمنافسة في Zark.')}</p><div class="team-numbers"><span><b>${formatValue(team.memberCount)}</b> عضو</span><span><b>${formatValue(team.totals.wins)}</b> فوز</span><span><b>${formatValue(team.totals.sessions)}</b> جلسة</span><span><b>${formatValue(team.score)}</b> نقطة فريق</span></div><footer>${team.members.slice(0,5).map(member=>avatar(member.avatarUrl,member.displayName,'mini')).join('')}<span>${team.memberCount}/${team.maxMembers}</span></footer></article>`}
@@ -545,8 +562,15 @@ function bindTeamDashboard(team){
   if($('team-invite-form'))$('team-invite-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{await api(`/api/me/teams/${team.id}/invites`,{method:'POST',body:{userId:$('team-invite-user').value.trim()}});$('team-action-result').textContent='✅ تم إرسال الدعوة لمدة 7 أيام.';event.target.reset();}catch(error){$('team-action-result').textContent=`❌ ${error.message}`;}finally{button.disabled=false;}};
   document.querySelectorAll('[data-team-role]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{await api(`/api/me/teams/${team.id}/members/${button.dataset.teamRole}`,{method:'PATCH',body:{role:button.dataset.nextRole}});await renderTeams();}catch(error){$('team-action-result').textContent=`❌ ${error.message}`;button.disabled=false;}});
   document.querySelectorAll('[data-team-remove]').forEach(button=>button.onclick=async()=>{if(!confirm('إزالة هذا اللاعب من الفريق؟'))return;button.disabled=true;try{await api(`/api/me/teams/${team.id}/members/${button.dataset.teamRemove}`,{method:'DELETE'});await renderTeams();}catch(error){$('team-action-result').textContent=`❌ ${error.message}`;button.disabled=false;}});
-  if($('team-leave'))$('team-leave').onclick=async()=>{if(!confirm('مغادرة الفريق؟'))return;await api('/api/me/team/leave',{method:'POST'});await renderTeams();};
-  if($('team-delete'))$('team-delete').onclick=async()=>{if(!confirm(`حذف فريق ${team.name} نهائياً؟`))return;await api(`/api/me/teams/${team.id}`,{method:'DELETE'});await renderTeams();};
+  if($('team-leave'))$('team-leave').onclick=()=>runTeamAction($('team-leave'),'مغادرة الفريق؟','/api/me/team/leave','POST');
+  if($('team-delete'))$('team-delete').onclick=()=>runTeamAction($('team-delete'),`حذف فريق ${team.name} نهائياً؟`,`/api/me/teams/${team.id}`,'DELETE');
+}
+async function runTeamAction(button,message,path,method){
+  if(button.disabled||!confirm(message))return;
+  button.disabled=true;
+  try{await api(path,{method});await renderTeams();}
+  catch(error){$('team-action-result').textContent=`❌ ${error.message}`;}
+  finally{button.disabled=false;}
 }
 
 async function renderLeaderboard(board){document.querySelectorAll('[data-board]').forEach(button=>{button.classList.toggle('active',button.dataset.board===board);button.onclick=()=>renderLeaderboard(button.dataset.board)});let rows,key,label;if(board==='game'||board==='engagement'){rows=await api(`/api/leaderboard?period=all&metric=${board}`);key=board==='game'?'gamePoints':'engagementPoints';label=board==='game'?'XP':'نقطة';}else{rows=await api(`/api/lfg/top?metric=${board}`);key=board==='sessions'?'completedSessions':'rating';label=board==='sessions'?'جلسة':'⭐';}const top=rows.slice(0,3);$('podium').innerHTML=[top[1],top[0],top[2]].map((row,index)=>row?`<article class="podium-card ${index===1?'first':''}">${avatar(row.avatarUrl,row.displayName,'podium')}<span>${index===1?'🥇':index===0?'🥈':'🥉'}</span><b>${escapeHtml(row.displayName)}</b><small>${formatValue(row[key])} ${label}</small></article>`:'').join('');$('full-leaderboard').innerHTML=rankingRows(rows,key,label);}
@@ -945,7 +969,14 @@ function canvasToBlob(canvas,type,quality){return new Promise(resolve=>canvas.to
 function formatFileSize(bytes){return bytes>=1_000_000?`${(bytes/1_000_000).toFixed(1)}MB`:`${Math.max(1,Math.round(bytes/1000))}KB`;}
 
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
-async function api(path,options={}){const response=await fetch(path,{method:options.method||'GET',credentials:'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined,keepalive:Boolean(options.keepalive)});const text=await response.text();let body;try{body=text?JSON.parse(text):null}catch{body={error:text}}if(!response.ok)throw new Error(body?.error||'تعذر تنفيذ الطلب');return body;}
+async function api(path,options={}){
+  const response=await fetch(path,{method:options.method||'GET',credentials:'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined,keepalive:Boolean(options.keepalive)});
+  const text=await response.text();let body;
+  try{body=text?JSON.parse(text):undefined}catch{}
+  if(!response.ok)throw new Error(typeof body?.error==='string'?body.error:`تعذر تنفيذ الطلب (${response.status})`);
+  if(response.status!==204&&(body===undefined||(body!==null&&typeof body!=='object')))throw new Error('وصلت استجابة غير صالحة من الخادم. حاول مجدداً بعد قليل.');
+  return body;
+}
 function showFatal(error){
   console.error(error);
   const target=document.querySelector('main');

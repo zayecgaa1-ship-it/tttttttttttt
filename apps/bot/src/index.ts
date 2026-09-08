@@ -412,7 +412,9 @@ if (!token) {
     if(interaction.customId==="fun:joke")return sendJoke(interaction);
     if(interaction.customId==="fun:meme")return sendMeme(interaction);
     if(parts[0]==="team"&&parts[1]==="invite"&&["accept","decline"].includes(parts[2])){
-      await interaction.deferUpdate();
+      // Respond separately so a failed or declined invitation never erases
+      // the other invitations or replaces their original message with an error.
+      await interaction.deferReply({flags:MessageFlags.Ephemeral});
       const team=await apiSend<TeamView|null>(`/api/users/${interaction.user.id}/team-invites/${parts[3]}/respond`,"POST",{accept:parts[2]==="accept"});
       return interaction.editReply({embeds:[team?teamEmbed(team).setDescription(`✅ انضممت إلى **${team.name}**. استخدم \`/team view\` لعرض الفريق.`):baseEmbed().setTitle("تم رفض دعوة الفريق")],components:[]});
     }
@@ -1481,6 +1483,7 @@ if (!token) {
     }
     if(action==="invite"){
       const invited=interaction.options.getUser("user",true),team=await apiGet<TeamView|null>(`/api/users/${interaction.user.id}/team`,true);
+      if(invited.bot)throw new Error("دعوات الفرق مخصصة للاعبين؛ لا يمكن دعوة بوت.");
       if(!team)throw new Error("أنشئ فريقاً أولاً عبر /team create");
       const invite=await apiSend<TeamInviteView>(`/api/users/${interaction.user.id}/teams/${team.id}/invites`,"POST",{invitedUserId:invited.id,invitedDisplayName:invited.globalName??invited.username,invitedAvatarUrl:invited.displayAvatarURL({extension:"png",size:256})});
       const delivered=await invited.send({embeds:[baseEmbed().setTitle(`👥 دعوة إلى ${team.name}`).setDescription(`دعاك **${displayName(interaction)}** للانضمام إلى فريقه. الدعوة صالحة 7 أيام.`)],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`team:invite:accept:${invite.id}`).setLabel("قبول الدعوة").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`team:invite:decline:${invite.id}`).setLabel("رفض").setStyle(ButtonStyle.Secondary))]}).then(()=>true).catch(()=>false);

@@ -23,6 +23,7 @@ async function parse<T>(response: Response): Promise<T> {
   let body: any;
   try { body = text ? JSON.parse(text) : undefined; }
   catch { body = undefined; }
-  if (!response.ok) throw new Error(body?.error ?? `API ${response.status}`);
+  if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : `تعذر الاتصال بخدمة Zark (${response.status})`);
+  if (response.status !== 204 && (body === undefined || (body !== null && typeof body !== 'object'))) throw new Error('وصلت استجابة غير صالحة من خدمة Zark. حاول مجدداً بعد قليل.');
   return body as T;
 }
