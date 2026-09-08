@@ -237,6 +237,7 @@ if (!token) {
         if (interaction.commandName === "help-plus") return await helpPlus(interaction);
         if (interaction.commandName === "dm-test") return await testDirectMessage(interaction);
         if (["availability", "وقت-فراغي"].includes(interaction.commandName)) return await availability(interaction);
+        if (interaction.commandName === "team") return await handleTeamCommand(interaction);
         if (interaction.commandName === "lfg") return await handleLfgCommand(interaction);
       }
       if (interaction.isStringSelectMenu()) return await handleSelect(interaction);
@@ -410,6 +411,11 @@ if (!token) {
     const parts = interaction.customId.split(":");
     if(interaction.customId==="fun:joke")return sendJoke(interaction);
     if(interaction.customId==="fun:meme")return sendMeme(interaction);
+    if(parts[0]==="team"&&parts[1]==="invite"&&["accept","decline"].includes(parts[2])){
+      await interaction.deferUpdate();
+      const team=await apiSend<TeamView|null>(`/api/users/${interaction.user.id}/team-invites/${parts[3]}/respond`,"POST",{accept:parts[2]==="accept"});
+      return interaction.editReply({embeds:[team?teamEmbed(team).setDescription(`✅ انضممت إلى **${team.name}**. استخدم \`/team view\` لعرض الفريق.`):baseEmbed().setTitle("تم رفض دعوة الفريق")],components:[]});
+    }
     if (parts[0] === "zark" && parts[1] === "lobby") {
       const action = parts[2];
       const lobbyId = parts[3];
@@ -689,7 +695,7 @@ if (!token) {
     if (!result.joinedExisting) await notifyInterestedPlayers(organizedRoom);
     const action = result.joinedExisting ? "وجدت لك غرفة مناسبة وانضممت إليها" : "أنشأت غرفة منظمة حسب الاهتمام والتفرغ";
     return interaction.editReply({
-      embeds: [roomEmbed(organizedRoom).setTitle(`✨ ${action}`).setDescription(`**${result.insight.interestPercent}%** من الأعضاء مهتمون بـ ${result.insight.gameName} · **${result.insight.availableNowCount}** متفرغون الآن.\n\n${organizedRoom.description ?? ""}`)],
+      embeds: [roomEmbed(organizedRoom).setTitle(`✨ ${action}`).setDescription(`**${result.insight.interestPercent}%** من الأعضاء مهتمون بـ ${result.insight.gameName} · **${result.insight.availableNowCount}** متفرغون الآن.\n💡 ${result.recommendation?.reason??"تم الاختيار حسب الاهتمام والتوفر."}\n\n${organizedRoom.description ?? ""}`)],
       components: [roomButtons(organizedRoom.id, organizedRoom.gameSlug, organizedRoom)],
     });
   }
@@ -1461,6 +1467,39 @@ if (!token) {
     await interaction.editReply({ embeds: [embed], files: [new AttachmentBuilder(image, { name: filename })] });
   }
 
+  async function handleTeamCommand(interaction:any){
+    const action=interaction.options.getSubcommand();
+    await interaction.deferReply({flags:action==="invitations"?MessageFlags.Ephemeral:undefined});
+    if(action==="view"){
+      const target=interaction.options.getUser("user")??interaction.user;
+      const team=await apiGet<TeamView|null>(`/api/users/${target.id}/team`,true);
+      return interaction.editReply(team?{embeds:[teamEmbed(team)]}:{content:`${target.id===interaction.user.id?'أنت لست':'هذا اللاعب ليس'} في فريق حالياً. افتح **${runtimeSettings.websiteUrl}/teams.html** لإنشاء فريق.`});
+    }
+    if(action==="create"){
+      const team=await apiSend<TeamView>(`/api/users/${interaction.user.id}/teams`,"POST",{...actor(interaction),name:interaction.options.getString("name",true),description:interaction.options.getString("description")??undefined});
+      return interaction.editReply({embeds:[teamEmbed(team).setDescription(`✅ تم إنشاء الفريق. أنت المالك الآن.\n${team.description||'استخدم /team invite لدعوة أول لاعب.'}`)]});
+    }
+    if(action==="invite"){
+      const invited=interaction.options.getUser("user",true),team=await apiGet<TeamView|null>(`/api/users/${interaction.user.id}/team`,true);
+      if(!team)throw new Error("أنشئ فريقاً أولاً عبر /team create");
+      const invite=await apiSend<TeamInviteView>(`/api/users/${interaction.user.id}/teams/${team.id}/invites`,"POST",{invitedUserId:invited.id,invitedDisplayName:invited.globalName??invited.username,invitedAvatarUrl:invited.displayAvatarURL({extension:"png",size:256})});
+      const delivered=await invited.send({embeds:[baseEmbed().setTitle(`👥 دعوة إلى ${team.name}`).setDescription(`دعاك **${displayName(interaction)}** للانضمام إلى فريقه. الدعوة صالحة 7 أيام.`)],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`team:invite:accept:${invite.id}`).setLabel("قبول الدعوة").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`team:invite:decline:${invite.id}`).setLabel("رفض").setStyle(ButtonStyle.Secondary))]}).then(()=>true).catch(()=>false);
+      return interaction.editReply({content:`✅ تم إنشاء الدعوة لـ **${invited.globalName??invited.username}**.${delivered?' وصلت إليه برسالة خاصة.':' رسائله الخاصة مغلقة؛ يمكنه فتح /team invitations.'}`});
+    }
+    if(action==="invitations"){
+      const invites=await apiGet<TeamInviteView[]>(`/api/users/${interaction.user.id}/team-invites`,true);
+      if(!invites.length)return interaction.editReply({content:"لا توجد لديك دعوات فرق فعالة."});
+      const components=invites.slice(0,5).map(invite=>new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`team:invite:accept:${invite.id}`).setLabel(`قبول ${trimText(invite.team.name,60)}`).setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`team:invite:decline:${invite.id}`).setLabel("رفض").setStyle(ButtonStyle.Secondary)));
+      return interaction.editReply({embeds:[baseEmbed().setTitle("👥 دعوات الفرق").setDescription(invites.slice(0,5).map(invite=>`**${invite.team.name}** · من ${invite.inviter.displayName} · تنتهي <t:${Math.floor(new Date(invite.expiresAt).getTime()/1000)}:R>`).join("\n"))],components});
+    }
+    if(action==="leave"){
+      await apiSend(`/api/users/${interaction.user.id}/team/leave`,"POST",{});
+      return interaction.editReply({content:"✅ غادرت الفريق."});
+    }
+  }
+
+  function teamEmbed(team:TeamView){return baseEmbed().setTitle(`👥 ${team.name}`).setColor(Number.parseInt(team.accentColor.slice(1),16)).setDescription(team.description||"فريق Zark جاهز للمنافسة.").addFields({name:"الأعضاء",value:`${team.memberCount}/${team.maxMembers}`,inline:true},{name:"نقاط الفريق",value:team.score.toLocaleString("ar"),inline:true},{name:"الإنجازات",value:`${team.totals.wins} فوز · ${team.totals.sessions} جلسة`,inline:true},{name:"التشكيلة",value:team.members.slice(0,12).map(member=>`${member.role==='OWNER'?'👑':member.role==='CAPTAIN'?'⭐':'•'} ${member.displayName}`).join("\n")||"لا يوجد أعضاء"});}
+
   function pickHumor(userId:string){
     const historyKey=`joke:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
@@ -1590,6 +1629,7 @@ if (!token) {
     const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
       { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع 1–20 جولة و10–60 ثانية\n`/lobby` لوبي جماعي: دخول وجاهز ثم بدء تلقائي\n`/daily` تحدي اليوم\n`/ميمز` ميمز عربية فكاهية وآمنة\n`/نكت` نكت عربية بلا تكرار\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP" },
       { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
+      { name: "👥 الفرق", value: "`/team create` إنشاء فريق\n`/team invite` دعوة لاعب\n`/team invitations` قبول أو رفض الدعوات\n`/team view` عرض التشكيلة والترتيب" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
       { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.اختيارات` `.شعارات` `.انمي` `.صح` `.معلومات`" },
@@ -2324,6 +2364,12 @@ function buildCommands() {
     new SlashCommandBuilder().setName("leaderboard").setDescription("متصدرو اليوم").addStringOption((option) => option.setName("type").setDescription("نوع النقاط").addChoices({ name: "ألعاب Zark", value: "game" }, { name: "تفاعل LFG", value: "engagement" })),
     availabilityCommand("availability"),
     availabilityCommand("وقت-فراغي"),
+    new SlashCommandBuilder().setName("team").setDescription("إنشاء وإدارة فريق Zark")
+      .addSubcommand(command=>command.setName("view").setDescription("عرض فريقك أو فريق لاعب").addUserOption(option=>option.setName("user").setDescription("اللاعب")))
+      .addSubcommand(command=>command.setName("create").setDescription("إنشاء فريق جديد").addStringOption(option=>option.setName("name").setDescription("اسم الفريق").setRequired(true).setMinLength(2).setMaxLength(32)).addStringOption(option=>option.setName("description").setDescription("وصف مختصر").setMaxLength(240)))
+      .addSubcommand(command=>command.setName("invite").setDescription("دعوة لاعب إلى فريقك").addUserOption(option=>option.setName("user").setDescription("اللاعب").setRequired(true)))
+      .addSubcommand(command=>command.setName("invitations").setDescription("عرض دعوات الفرق وقبولها"))
+      .addSubcommand(command=>command.setName("leave").setDescription("مغادرة فريقك الحالي")),
     new SlashCommandBuilder().setName("lfg").setDescription("نظام العثور على لاعبين")
       .addSubcommand((command) => command.setName("create").setDescription("أنشئ تجمعًا بخطوات سريعة"))
       .addSubcommand((command) => command.setName("profile").setDescription("ملف LFG").addUserOption((option) => option.setName("user").setDescription("العضو")))
@@ -2351,8 +2397,10 @@ type RaceStanding = { userId: string; displayName: string; points: number; wins:
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
 type MentionAvailability = { allowed: boolean; displayName?: string; snapshot?: { activity: UserAvailability["currentActivity"]; activeNow: boolean; lastActiveAt?: string; currentPeriod?: { startMinute: number; endMinute: number }; nextFree?: { startsAt: string; period: { startMinute: number; endMinute: number } } } };
+type TeamView = { id:string; name:string; description?:string; accentColor:string; memberCount:number; maxMembers:number; score:number; totals:{xp:number;wins:number;sessions:number}; members:Array<{id:string;displayName:string;role:"OWNER"|"CAPTAIN"|"MEMBER"}> };
+type TeamInviteView = { id:string; expiresAt:string; team:{name:string}; inviter:{displayName:string} };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
-type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
+type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean; recommendation?:{reason:string;score:number;teammates:number} };
 type LiveRoom = { platform?: LfgPlatform; gamePlatforms?: LfgPlatform[]; id: string; hostId: string; hostPriority?: boolean; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };
 type GuildRuntimeSettings = { guildId: string; botName: string; tagline: string; lfgChannelId?: string; lfgCategoryId?: string; publicChannelId?: string; dailyChannelId?: string; leaderboardChannelId?: string; reportChannelId?: string; websiteUrl: string; dmNotificationsEnabled: boolean; quickMatchEnabled: boolean; autoSmartRoomsEnabled: boolean; autoRoomIntervalMinutes: number; autoRoomMinimumInterested: number; autoRoomLifetimeMinutes: number; maxAutoRoomsPerGame: number; autoRoomDmInterestedUsers: boolean; deleteExpiredAutoRooms: boolean; voiceEmptyGraceMinutes: number; singlePlayerIdleMinutes: number; waitingSessionTimeoutMinutes: number; ratingsEnabled: boolean; reportsEnabled: boolean; autoCreateRoomChannels: boolean; maxDmPerDay: number; notificationCooldownMinutes: number; maxActiveRoomsPerUser: number; defaultRoomDurationMinutes: number; roomGraceMinutes: number; aiChatEnabled: boolean; aiDailyMessagesPerUser: number; aiGlobalDailyMessages: number; aiDailyTokenBudgetPerUser: number; aiGlobalDailyTokenBudget: number; aiMaxOutputTokens: number };
 type ReportThread = { id: string; kind: "PLAYER" | "BUG"; title: string; status: string; description?: string; reporter: { id: string; displayName: string; avatarUrl?: string }; reported?: { id: string; displayName: string; avatarUrl?: string }; messages: Array<{ id: string; authorName: string; authorRole: string; message: string; createdAt: string }> };

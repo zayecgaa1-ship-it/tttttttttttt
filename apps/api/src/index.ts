@@ -13,6 +13,7 @@ import { closeEvents, enforceRateLimit, eventRuntimeStatus, hasEventCapacity, in
 import { activateZarkRace, advanceZarkRace, answerDaily, answerZarkRace, cancelZarkLobby, createZarkLobby, expireZarkRace, getOrCreateDaily, getZarkRaceHint, leaderboard, listZarkGames, startZarkLobby, startZarkRace, updateZarkLobby } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
 import { getAvailability, getMentionAvailability, getTopLfgPlayers, getUnifiedProfile, syncVoicePresence, trackActivity, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
+import { adminDeleteTeam, createTeam, deleteTeam, getMyTeam, getTeam, inviteToTeam, leaveTeam, listMyTeamInvites, listTeams, removeTeamMember, respondToTeamInvite, setTeamMemberRole, updateTeam } from "./modules/teams/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, claimBumpReminder, cleanupOperationalLogs, createLfgCategory, deleteGameQuestion, getAdminAuditLog, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
@@ -199,6 +200,49 @@ app.delete("/api/web-admin/trades/:id", async (request) => {
   return deleteTradePermanently(params.id, user);
 });
 app.get("/api/loyalty/weekly", weeklyLoyaltyLeaderboard);
+app.get("/api/teams", async (request) => listTeams(z.object({ search: z.string().max(60).optional() }).parse(request.query).search));
+app.get("/api/teams/:id", async (request) => getTeam(z.object({ id: z.string().min(1).max(100) }).parse(request.params).id));
+app.get("/api/me/team", async (request) => getMyTeam((await requireWebUser(request)).userId));
+app.get("/api/me/team-invites", async (request) => listMyTeamInvites((await requireWebUser(request)).userId));
+app.post("/api/me/teams", async (request) => {
+  const user = await requireWebUser(request);
+  const body = z.object({ name: z.string().trim().min(2).max(32), description: z.string().trim().max(240).optional(), logoUrl: z.string().url().max(500).optional(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).parse(request.body);
+  return createTeam({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, ...body });
+});
+app.patch("/api/me/teams/:id", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ name: z.string().trim().min(2).max(32).optional(), description: z.string().trim().max(240).nullable().optional(), logoUrl: z.string().url().max(500).nullable().optional(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).parse(request.body);
+  return updateTeam(params.id, user.userId, body);
+});
+app.post("/api/me/teams/:id/invites", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ userId: z.string().regex(/^\d{17,20}$/) }).parse(request.body);
+  return inviteToTeam(params.id, { userId: user.userId, invitedUserId: body.userId });
+});
+app.post("/api/me/team-invites/:id/respond", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ accept: z.boolean() }).parse(request.body);
+  return respondToTeamInvite(params.id, user.userId, body.accept);
+});
+app.patch("/api/me/teams/:id/members/:userId", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ id: z.string(), userId: z.string() }).parse(request.params);
+  const body = z.object({ role: z.enum(["CAPTAIN", "MEMBER"]) }).parse(request.body);
+  return setTeamMemberRole(params.id, user.userId, params.userId, body.role);
+});
+app.delete("/api/me/teams/:id/members/:userId", async (request) => {
+  const user = await requireWebUser(request);
+  const params = z.object({ id: z.string(), userId: z.string() }).parse(request.params);
+  return removeTeamMember(params.id, user.userId, params.userId);
+});
+app.post("/api/me/team/leave", async (request) => leaveTeam((await requireWebUser(request)).userId));
+app.delete("/api/me/teams/:id", async (request) => {
+  const user = await requireWebUser(request);
+  return deleteTeam(z.object({ id: z.string() }).parse(request.params).id, user.userId);
+});
 app.put("/api/me/profile/settings", async (request) => {
   const user = await requireWebUser(request);
   const body = z.object({ bio: z.string().max(160).nullable().optional(), profileAccent: z.string().regex(/^#[0-9a-fA-F]{6}$/), activityVisible: z.boolean(), rivalNotificationsEnabled: z.boolean() }).parse(request.body);
@@ -239,6 +283,11 @@ app.post("/api/me/lfg/rooms", async (request) => {
   const user = await requireWebUser(request);
   const body = z.object({ gameSlug: z.string(), maxPlayers: z.number().int().min(2).max(50), durationMinutes: z.number().int().min(15).max(360).optional(), scheduledFor: z.coerce.date().optional(), title: z.string().max(80).optional(), description: z.string().max(500).optional(), gameMode: z.string().max(80).optional(), mapName: z.string().max(100).optional(), needsVoice: z.boolean().optional(), roomEmoji: z.string().max(12).optional(), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional() }).parse(request.body);
   return createLfgRoom({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, ...body });
+});
+app.post("/api/me/lfg/smart-match", async (request) => {
+  const user = await requireWebUser(request);
+  const body = z.object({ gameSlug: z.string().min(1).optional() }).parse(request.body ?? {});
+  return smartMatchLfg({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, ...body });
 });
 app.put("/api/me/lfg/:id", async (request) => {
   const user = await requireWebUser(request);
@@ -321,6 +370,11 @@ app.get("/api/web-admin/dashboard", async (request) => {
   await requireWebAdmin(request);
   const dashboard = await getAdminDashboard();
   return { ...dashboard, system: { ...dashboard.system, realtime: eventRuntimeStatus() } };
+});
+app.get("/api/web-admin/teams", async (request) => { await requireWebAdmin(request); return listTeams(); });
+app.delete("/api/web-admin/teams/:id", async (request) => {
+  const admin = await requireWebAdmin(request);
+  return adminDeleteTeam(z.object({ id: z.string() }).parse(request.params).id, admin.userId);
 });
 app.get("/api/web-admin/broadcasts", async (request) => {
   await requireWebAdmin(request);
@@ -744,6 +798,24 @@ app.post("/api/users/:id/availability/mention", { preHandler: requireServiceKey 
   const body = z.object({ guildId: z.string().min(1), channelId: z.string().min(1) }).parse(request.body);
   return getMentionAvailability({ userId: params.id, ...body });
 });
+app.get("/api/users/:id/team", { preHandler: requireServiceKey }, async (request) => getMyTeam(z.object({ id: z.string() }).parse(request.params).id));
+app.get("/api/users/:id/team-invites", { preHandler: requireServiceKey }, async (request) => listMyTeamInvites(z.object({ id: z.string() }).parse(request.params).id));
+app.post("/api/users/:id/teams", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), name: z.string().trim().min(2).max(32), description: z.string().trim().max(240).optional() }).parse(request.body);
+  return createTeam({ userId: params.id, ...body });
+});
+app.post("/api/users/:id/teams/:teamId/invites", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string(), teamId: z.string() }).parse(request.params);
+  const body = z.object({ invitedUserId: z.string(), invitedDisplayName: z.string().min(1).max(80), invitedAvatarUrl: z.string().url().optional() }).parse(request.body);
+  await syncLfgUserIdentity({ userId: body.invitedUserId, displayName: body.invitedDisplayName, avatarUrl: body.invitedAvatarUrl });
+  return inviteToTeam(params.teamId, { userId: params.id, invitedUserId: body.invitedUserId });
+});
+app.post("/api/users/:id/team-invites/:inviteId/respond", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string(), inviteId: z.string() }).parse(request.params);
+  return respondToTeamInvite(params.inviteId, params.id, z.object({ accept: z.boolean() }).parse(request.body).accept);
+});
+app.post("/api/users/:id/team/leave", { preHandler: requireServiceKey }, async (request) => leaveTeam(z.object({ id: z.string() }).parse(request.params).id));
 app.get("/api/lfg/top", async (request) => {
   const query = z.object({ metric: z.enum(["engagement", "sessions", "rating"]).default("engagement"), limit: z.coerce.number().int().min(1).max(50).default(10) }).parse(request.query);
   return getTopLfgPlayers(query.metric, query.limit);

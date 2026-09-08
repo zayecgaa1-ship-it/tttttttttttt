@@ -210,6 +210,20 @@ enum TradeNotificationType {
   REPORT_UPDATED
 }
 
+enum TeamMemberRole {
+  OWNER
+  CAPTAIN
+  MEMBER
+}
+
+enum TeamInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
 model BotIdentity {
   id        Int      @id @default(1)
   name      String   @default("Zark LFG System")
@@ -321,6 +335,10 @@ model User {
   reportMessages            ReportMessage[]
   aiUsage                   AiUsageDaily[]
   weeklyAvailability        UserAvailability[]
+  ownedTeams                Team[]                 @relation("TeamOwner")
+  teamMembership            TeamMember?
+  teamInvitesReceived       TeamInvite[]           @relation("TeamInviteRecipient")
+  teamInvitesSent           TeamInvite[]           @relation("TeamInviteSender")
   roomRatings               LfgRoomRating[]
   loyaltyTransactions       LoyaltyTransaction[]
   ownedTrades               Trade[]                @relation("TradeOwner")
@@ -340,6 +358,55 @@ model User {
   @@index([lfgPriorityUntil])
   @@index([vipUntil])
   @@index([lastActiveAt])
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  name        String
+  description String?
+  logoUrl     String?
+  accentColor String       @default("#e50914")
+  ownerId     String
+  maxMembers  Int          @default(20)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  owner       User         @relation("TeamOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+  invites     TeamInvite[]
+
+  @@index([ownerId])
+  @@index([createdAt])
+}
+
+model TeamMember {
+  id       String         @id @default(cuid())
+  teamId   String
+  userId   String         @unique
+  role     TeamMemberRole @default(MEMBER)
+  joinedAt DateTime       @default(now())
+  team     Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId, role])
+}
+
+model TeamInvite {
+  id            String           @id @default(cuid())
+  teamId        String
+  inviterId     String
+  invitedUserId String
+  status        TeamInviteStatus @default(PENDING)
+  expiresAt     DateTime
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  team          Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  inviter       User             @relation("TeamInviteSender", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitedUser   User             @relation("TeamInviteRecipient", fields: [invitedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, invitedUserId])
+  @@index([invitedUserId, status, expiresAt])
 }
 
 model LoyaltyTransaction {

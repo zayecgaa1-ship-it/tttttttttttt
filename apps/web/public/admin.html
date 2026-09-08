@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>لوحة تحكم Zark — Zark LFG System</title>
   <meta name="description" content="إدارة إعدادات بوت Zark والألعاب والمحتوى.">
-  <link rel="stylesheet" href="/styles.css?v=20260908-availability">
-<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260908-availability"><link rel="stylesheet" href="/experience.css?v=20260908-availability"><link rel="stylesheet" href="/platform.css?v=20260908-availability"></head>
+  <link rel="stylesheet" href="/styles.css?v=20260909-teams">
+<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260909-teams"><link rel="stylesheet" href="/experience.css?v=20260909-teams"><link rel="stylesheet" href="/platform.css?v=20260909-teams"></head>
 <body data-page="admin">
   <header id="site-nav"></header>
   <main class="shell page-main">
@@ -30,6 +30,7 @@
         <button type="button" data-admin-tab="reports">🛡️ البلاغات</button>
         <button type="button" data-admin-tab="trade">🔄 إدارة Trade</button>
         <button type="button" data-admin-tab="rooms">🛰️ الغرف</button>
+        <button type="button" data-admin-tab="teams">👥 الفرق</button>
         <button type="button" data-admin-tab="lfg-content">🎮 ألعاب LFG</button>
         <button type="button" data-admin-tab="zark-content">🧠 ألعاب البوت</button>
         <button type="button" data-admin-tab="operations">📜 سجل العمليات</button>
@@ -165,6 +166,11 @@
         <div id="admin-active-rooms" class="admin-room-list"></div>
       </section>
 
+      <section class="admin-section" data-admin-panel="teams" hidden>
+        <div class="admin-section-title"><div><span>👥</span><div><h2>إدارة فرق Zark</h2><p>راجع التشكيلات والنقاط واحذف الفريق المخالف مع تسجيل العملية في سجل الإدارة.</p></div></div></div>
+        <div id="admin-team-list" class="admin-room-list"></div>
+      </section>
+
       <section class="admin-section" data-admin-panel="lfg-content" hidden>
         <div class="admin-section-title"><div><span>🎮</span><div><h2>إدارة ألعاب LFG</h2><p>أضف لعبة إلى كتالوج التجمعات وحدد التصنيف وعدد اللاعبين.</p></div></div></div>
         <div class="admin-content-grid single">
@@ -209,6 +215,6 @@
     </div>
   </main>
   <footer id="site-footer"></footer>
-  <script src="/app.js?v=20260908-availability"></script>
+  <script src="/app.js?v=20260909-teams"></script>
 </body>
 </html>

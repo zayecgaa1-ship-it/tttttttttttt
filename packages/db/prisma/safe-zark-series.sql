@@ -153,6 +153,45 @@ BEGIN
 END
 $availability_presence_migration$;
 
+-- Teams extend the existing User identity and LFG history without duplicating accounts.
+DO $teams_migration$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'TeamMemberRole') THEN
+    CREATE TYPE "TeamMemberRole" AS ENUM ('OWNER', 'CAPTAIN', 'MEMBER');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'TeamInviteStatus') THEN
+    CREATE TYPE "TeamInviteStatus" AS ENUM ('PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED', 'EXPIRED');
+  END IF;
+  IF to_regclass('"User"') IS NOT NULL THEN
+    CREATE TABLE IF NOT EXISTS "Team" (
+      "id" TEXT PRIMARY KEY, "slug" TEXT NOT NULL UNIQUE, "name" TEXT NOT NULL,
+      "description" TEXT, "logoUrl" TEXT, "accentColor" TEXT NOT NULL DEFAULT '#e50914',
+      "ownerId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+      "maxMembers" INTEGER NOT NULL DEFAULT 20, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS "TeamMember" (
+      "id" TEXT PRIMARY KEY, "teamId" TEXT NOT NULL REFERENCES "Team"("id") ON DELETE CASCADE,
+      "userId" TEXT NOT NULL UNIQUE REFERENCES "User"("id") ON DELETE CASCADE,
+      "role" "TeamMemberRole" NOT NULL DEFAULT 'MEMBER', "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "TeamMember_teamId_userId_key" UNIQUE ("teamId", "userId")
+    );
+    CREATE TABLE IF NOT EXISTS "TeamInvite" (
+      "id" TEXT PRIMARY KEY, "teamId" TEXT NOT NULL REFERENCES "Team"("id") ON DELETE CASCADE,
+      "inviterId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+      "invitedUserId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+      "status" "TeamInviteStatus" NOT NULL DEFAULT 'PENDING', "expiresAt" TIMESTAMP(3) NOT NULL,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "TeamInvite_teamId_invitedUserId_key" UNIQUE ("teamId", "invitedUserId")
+    );
+    CREATE INDEX IF NOT EXISTS "Team_ownerId_idx" ON "Team"("ownerId");
+    CREATE INDEX IF NOT EXISTS "Team_createdAt_idx" ON "Team"("createdAt");
+    CREATE INDEX IF NOT EXISTS "TeamMember_teamId_role_idx" ON "TeamMember"("teamId", "role");
+    CREATE INDEX IF NOT EXISTS "TeamInvite_invitedUserId_status_expiresAt_idx" ON "TeamInvite"("invitedUserId", "status", "expiresAt");
+  END IF;
+END
+$teams_migration$;
+
 -- Restore only legacy entries disabled by the retired-game seed. After the
 -- catalogue assigns descriptive categories, subsequent deploys preserve edits.
 DO $restore_game_catalog$

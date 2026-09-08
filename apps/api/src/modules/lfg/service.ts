@@ -8,6 +8,7 @@ import { getGuildRuntimeSettings } from "../admin/service.js";
 import { awardLoyaltyPoints } from "../loyalty/service.js";
 import { LFG_GATHER_WINDOW_MINUTES, lfgWarningCloseAt } from "../../../../../packages/shared/src/lfg-lifecycle.js";
 import { resolveAvailability, shouldSuppressLfg, type SchedulePeriod } from "../../../../../packages/shared/src/availability.js";
+import { calculateSmartRoomScore } from "../../../../../packages/shared/src/team-matching.js";
 
 const categories = [
   { slug: "sandbox", name: "عالم مفتوح وبناء", icon: "🧱", sortOrder: 1 },
@@ -279,21 +280,38 @@ export async function smartMatchLfg(input: { userId: string; displayName: string
   const settings = await getGuildRuntimeSettings();
   if (!settings.quickMatchEnabled) throw new Error("التجميع الذكي معطّل مؤقتًا من الإدارة");
   const insights = await getLfgInterestInsights();
-  const insight = input.gameSlug ? insights.find((item) => item.gameSlug === input.gameSlug) : insights[0];
+  const preferences = input.gameSlug ? [] : await db.userGamePreference.findMany({ where: { userId: input.userId, interestStatus: "INTERESTED" }, select: { game: { select: { slug: true } } } });
+  const preferred = new Set(preferences.map((item) => item.game.slug));
+  const personalized = preferred.size ? insights.filter((item) => preferred.has(item.gameSlug)) : insights;
+  const insight = input.gameSlug
+    ? insights.find((item) => item.gameSlug === input.gameSlug)
+    : [...personalized].sort((a, b) => (b.availableNowCount * 4 + b.interestPercent) - (a.availableNowCount * 4 + a.interestPercent))[0];
   if (!insight) throw new Error("لا توجد لعبة متاحة للتجميع الذكي الآن");
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { slug: insight.gameSlug } });
-  const existing = await db.lfgRoom.findFirst({
+  const [rooms, teamMembership] = await Promise.all([db.lfgRoom.findMany({
     where: { lfgGameId: game.id, status: "OPEN", hostId: { not: input.userId }, members: { none: { userId: input.userId, status: "ACTIVE" } } },
-    orderBy: [{ memberCount: "desc" }, { createdAt: "asc" }],
-  });
-  if (existing) return { room: await joinLfgRoom(existing.id, input), insight, joinedExisting: true };
+    include: { members: { where: { status: "ACTIVE" }, select: { userId: true } } }, take: 25,
+  }), db.teamMember.findUnique({ where: { userId: input.userId }, include: { team: { select: { members: { select: { userId: true } } } } } })]);
+  const teammateIds = new Set(teamMembership?.team.members.map((member) => member.userId) ?? []);
+  const rankedRooms = rooms.map((room) => {
+    const teammates = room.members.filter((member) => teammateIds.has(member.userId)).length;
+    return { room, teammates, score: calculateSmartRoomScore({ memberCount: room.memberCount, maxPlayers: room.maxPlayers, teammates, ageMs: Date.now() - room.createdAt.getTime() }) };
+  }).sort((a, b) => b.score - a.score);
+  const existing = rankedRooms[0];
+  if (existing) {
+    const spots = Math.max(0, existing.room.maxPlayers - existing.room.memberCount - 1);
+    const reason = existing.teammates
+      ? `اخترنا هذه الغرفة لأن فيها ${existing.teammates} من زملاء فريقك وهي الأقرب للاكتمال.`
+      : `اخترنا هذه الغرفة لأنها الأقرب للاكتمال${spots ? ` وتحتاج ${spots} لاعبين بعد انضمامك` : ""}.`;
+    return { room: await joinLfgRoom(existing.room.id, input), insight, joinedExisting: true, recommendation: { reason, score: Math.round(existing.score), teammates: existing.teammates } };
+  }
   const targetPlayers = Math.min(game.maxPlayers, Math.max(game.minPlayers, insight.availableNowCount || game.minPlayers));
   const room = await createLfgRoom({
     ...input, gameSlug: game.slug, maxPlayers: targetPlayers,
     title: `تجمع ذكي • ${insight.interestPercent}% مهتمون`,
     description: `رتّبه Zark حسب الاهتمام والتفرغ الآن: ${insight.availableNowCount} لاعب متاح.`,
   });
-  return { room, insight, joinedExisting: false };
+  return { room, insight, joinedExisting: false, recommendation: { reason: `اخترنا ${game.name} حسب اهتماماتك ووجود ${insight.availableNowCount} لاعبين متاحين الآن.`, score: insight.availableNowCount * 4 + insight.interestPercent, teammates: 0 } };
 }
 
 export async function processAutoSmartRooms(options: { force?: boolean } = {}) {
