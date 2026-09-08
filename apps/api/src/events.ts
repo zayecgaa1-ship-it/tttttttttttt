@@ -9,6 +9,7 @@ const instanceId = randomUUID();
 let publisher: RedisClientType | undefined;
 let subscriber: RedisClientType | undefined;
 const localRateLimits = new Map<string, { count: number; resetAt: number }>();
+const localClaims = new Map<string, number>();
 const maxEventClients = Math.max(50, Math.min(5_000, Number(process.env.MAX_SSE_CLIENTS) || 500));
 
 export async function initEvents() {
@@ -105,6 +106,21 @@ export async function enforceRateLimit(scope: string, subject: string, limit: nu
     error.statusCode = 429;
     throw error;
   }
+}
+
+/** Claims a distributed TTL key once, with an in-memory fallback when Redis is unavailable. */
+export async function claimOnce(scope: string, subject: string, ttlSeconds: number) {
+  const key = `zark:claim:${scope}:${subject}`;
+  if (publisher?.isReady) {
+    try { return (await publisher.set(key, "1", { NX: true, EX: Math.max(1, ttlSeconds) })) === "OK"; }
+    catch (error) { console.error("Redis claim failed; using local fallback", error); }
+  }
+  const now = Date.now();
+  const expiry = localClaims.get(key) ?? 0;
+  if (expiry > now) return false;
+  localClaims.set(key, now + Math.max(1, ttlSeconds) * 1000);
+  if (localClaims.size > 10_000) for (const [itemKey, itemExpiry] of localClaims) if (itemExpiry <= now) localClaims.delete(itemKey);
+  return true;
 }
 
 function broadcast(event: DomainEventEnvelope) {

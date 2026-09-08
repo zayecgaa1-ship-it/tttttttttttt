@@ -100,7 +100,6 @@ if (!token) {
   const ratingRequestsInFlight = new Set<string>();
   const broadcastsInFlight = new Set<string>();
   const roomByVoiceChannel = new Map<string, string>();
-  const mentionStatusCooldown = new Map<string, number>();
   const moderationAlertCooldown = new Map<string, number>();
   let securityReadiness: { checked: boolean; ready: boolean; missingPermissions: string[]; blockedRoles: Array<{ id: string; name: string }> } = { checked: false, ready: false, missingPermissions: [], blockedRoles: [] };
   let directMessagesQuarantined = false;
@@ -143,6 +142,7 @@ if (!token) {
       console.error("Bot settings load failed; using environment defaults", error);
     }
     console.log(`${brand.name} متصل باسم ${ready.user.tag}`);
+    if (guildId) { const guild=ready.guilds.cache.get(guildId); const activeVoiceUsers=[...new Set(guild?.voiceStates.cache.filter(state=>Boolean(state.channelId)&&!state.member?.user.bot).map(state=>state.id)??[])]; await apiSend("/api/activity/voice/sync", "POST", { userIds: activeVoiceUsers }).catch((error)=>console.error("Voice presence bootstrap failed",error)); }
     await startEventSubscriber().catch((error) => console.error("Redis bot subscriber unavailable", error));
     await verifyProtectionHierarchy().catch((error) => console.error("Security hierarchy check failed", error));
     const startupTasks = await Promise.allSettled([reconcileRoomListings(), reconcileRoomSpaces(), deliverPendingRatingRequests(), cleanupFinishedRoomSpaces(), deliverOpenRoomInvites(), sendHeartbeat(), runBumpReminderCycle(), syncLoyaltyRoleMembers(), ensureHackAlertChannel(), processPendingBroadcast()]);
@@ -174,6 +174,7 @@ if (!token) {
       const oldRoomId = oldState.channelId ? roomByVoiceChannel.get(oldState.channelId) : undefined;
       const newRoomId = newState.channelId ? roomByVoiceChannel.get(newState.channelId) : undefined;
       const avatarUrl = (newState.member?.user ?? oldState.member?.user)?.displayAvatarURL({ extension: "png", size: 256 });
+      void apiSend(`/api/users/${newState.id}/activity`, "POST", { displayName, avatarUrl, kind: newState.channelId ? "VOICE_JOIN" : "VOICE_LEAVE" }).catch((error) => console.error("Voice presence tracking failed", error));
       if (oldRoomId) await apiSend<LiveRoom>(`/api/lfg/${oldRoomId}/voice`, "POST", { userId: newState.id, displayName, avatarUrl, action: "LEAVE" });
       if (newRoomId) await apiSend<LiveRoom>(`/api/lfg/${newRoomId}/voice`, "POST", { userId: newState.id, displayName, avatarUrl, action: "JOIN" });
     } catch (error) {
@@ -206,6 +207,7 @@ if (!token) {
 
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
+      if (interaction.user && !interaction.user.bot) void apiSend(`/api/users/${interaction.user.id}/activity`, "POST", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), kind: "DISCORD_INTERACTION" }).catch(() => undefined);
       if (interaction.isAutocomplete()) return await completePlayAutocomplete(interaction);
       if (interaction.isChatInputCommand()) {
         if (await isSuspendedAdmin(interaction.user.id)) throw new Error("تم تعليق صلاحيات هذا الحساب من نظام Zark Admin Protection. تواصل مع المالك.");
@@ -264,6 +266,7 @@ if (!token) {
       await handleHackAlertMessage(message);
       return;
     }
+    void apiSend(`/api/users/${message.author.id}/activity`, "POST", { displayName: message.member?.displayName ?? message.author.username, avatarUrl: message.author.displayAvatarURL({ extension: "png", size: 256 }), kind: "DISCORD_MESSAGE" }).catch(() => undefined);
     if (await enforceMessageSafety(message)) return;
     const player = { userId: message.author.id, displayName: message.member?.displayName ?? message.author.username, answer: message.content };
     try {
@@ -1202,22 +1205,15 @@ if (!token) {
   async function replyWithMentionedMemberStatus(message: any) {
     const mentioned = message.mentions?.users?.find((user: any) => !user.bot);
     if (!mentioned) return;
-    // Status is shared information, so rate-limit per mentioned member rather
-    // than per author: repeated pings by different people cannot spam a room.
-    const cooldownKey = `${message.guildId ?? "dm"}:${mentioned.id}`;
-    const lastReply = mentionStatusCooldown.get(cooldownKey) ?? 0;
-    if (Date.now() - lastReply < 15 * 60_000) return;
-    mentionStatusCooldown.set(cooldownKey, Date.now());
-    if (mentionStatusCooldown.size > 500) for (const [key, timestamp] of mentionStatusCooldown) if (Date.now() - timestamp > 15 * 60_000) mentionStatusCooldown.delete(key);
     try {
-      const data = await apiGet<UnifiedProfile>(`/api/profiles/${mentioned.id}`);
-      const description = data.settings.activityVisible
-        ? `حالة **${data.displayName}** الآن: ${profileActivityText(data)}`
-        : `🔒 **${data.displayName}** اختار إخفاء حالته الحالية.`;
-      await message.reply({ content: description, allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
-    } catch {
-      await message.reply({ content: `ℹ️ **${mentioned.displayName ?? mentioned.username}** لم يحدد حالته في Zark بعد.`, allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
-    }
+      const data = await apiSend<MentionAvailability>(`/api/users/${mentioned.id}/availability/mention`, "POST", { guildId: message.guildId ?? "dm", channelId: message.channelId });
+      if (!data.allowed || !data.snapshot) return;
+      const snapshot = data.snapshot;
+      const current = snapshot.currentPeriod ? `⏱️ الفترة: ${minuteClock(snapshot.currentPeriod.startMinute)} → ${minuteClock(snapshot.currentPeriod.endMinute)}` : undefined;
+      const next = snapshot.nextFree && snapshot.activity !== "FREE" ? `🟢 وقت الفراغ القادم <t:${Math.floor(new Date(snapshot.nextFree.startsAt).getTime()/1000)}:R> (${minuteClock(snapshot.nextFree.period.startMinute)} → ${minuteClock(snapshot.nextFree.period.endMinute)})` : undefined;
+      const active = snapshot.activeNow ? "🕒 نشط الآن" : snapshot.lastActiveAt ? `🕒 آخر نشاط <t:${Math.floor(new Date(snapshot.lastActiveAt).getTime()/1000)}:R>` : undefined;
+      await message.reply({ content: [`${availabilityLabel(snapshot.activity)} **${data.displayName}**`, current, next, active].filter(Boolean).join("\n"), allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
+    } catch (error) { console.error("Mention availability failed", error); }
   }
 
   async function enforceMessageSafety(message: any) {
@@ -2266,6 +2262,7 @@ if (!token) {
   function formatDuration(seconds: number) { const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return hours ? `${hours}س ${minutes}د` : `${minutes} دقيقة`; }
   function formatClock(value: string) { return new Intl.DateTimeFormat("ar", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Jerusalem" }).format(new Date(value)); }
   function availabilityLabel(value: UserAvailability["currentActivity"]) { return ({ FREE: "🟢 فاضي للعب", PLAYING: "🎮 ألعب الآن", STUDYING: "📚 أدرس", WORKING: "💼 أعمل", BUSY: "⛔ مشغول", SLEEPING: "😴 نايم", AWAY: "🌙 غير متاح" })[value]; }
+  function minuteClock(value: number) { const hours=Math.floor(value/60)%24,minutes=value%60;return `${String(hours).padStart(2,"0")}:${String(minutes).padStart(2,"0")}`; }
   function profileActivityText(data: UnifiedProfile) {
     if (!data.settings.activityVisible) return "🔒 الحالة مخفية من العضو";
     const until = data.settings.activityUntil ? ` حتى <t:${Math.floor(new Date(data.settings.activityUntil).getTime() / 1000)}:R>` : "";
@@ -2353,6 +2350,7 @@ type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
+type MentionAvailability = { allowed: boolean; displayName?: string; snapshot?: { activity: UserAvailability["currentActivity"]; activeNow: boolean; lastActiveAt?: string; currentPeriod?: { startMinute: number; endMinute: number }; nextFree?: { startsAt: string; period: { startMinute: number; endMinute: number } } } };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
 type SmartMatchResult = { room: LiveRoom; insight: LfgInterestInsight; joinedExisting: boolean };
 type LiveRoom = { platform?: LfgPlatform; gamePlatforms?: LfgPlatform[]; id: string; hostId: string; hostPriority?: boolean; gameSlug: string; gameName: string; gameIcon?: string; hostName: string; hostAvatarUrl?: string; title?: string; currentPlayers: number; maxPlayers: number; durationMinutes: number; createdAt: string; scheduledFor?: string; readyNotifiedAt?: string; reminderDeliveredAt?: string; attendanceWarningAt?: string; idleWarningAt?: string; startedAt?: string; playEndsAt?: string; completedAt?: string; autoDeleteAt?: string; expiresAt?: string; source: "MANUAL" | "AUTO"; status: string; needsVoice: boolean; locked: boolean; roomEmoji?: string; accentColor: string; gameMode?: string; mapName?: string; description?: string; textChannelId?: string; voiceChannelId?: string; categoryId?: string; controlMessageId?: string; listingChannelId?: string; listingMessageId?: string; members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }> };

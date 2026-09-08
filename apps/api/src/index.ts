@@ -12,7 +12,7 @@ import { db } from "../../../packages/db/src/client.js";
 import { closeEvents, enforceRateLimit, eventRuntimeStatus, hasEventCapacity, initEvents, subscribe } from "./events.js";
 import { activateZarkRace, advanceZarkRace, answerDaily, answerZarkRace, cancelZarkLobby, createZarkLobby, expireZarkRace, getOrCreateDaily, getZarkRaceHint, leaderboard, listZarkGames, startZarkLobby, startZarkRace, updateZarkLobby } from "./service.js";
 import { closeLfgRoom, completeLfgRoom, createLfgRoom, getLfgCatalog, getLfgInterestInsights, getLfgRoom, getNotificationCandidates, getSmartRoomDashboard, getSmartRoomHistory, getUserPreferences, joinLfgRoom, kickLfgMember, leaveLfgRoom, listLfgRooms, listPendingRatingRooms, listRoomCleanupResources, markLfgChannelsDeleted, markLfgReminderDelivered, markNotificationDelivery, markRatingRequestsDelivered, muteGameNotifications, processAutoSmartRooms, processDueLfgRooms, quickMatchLfg, recordLfgVoiceEvent, searchLfgRooms, setLfgChannels, setLfgListing, smartMatchLfg, snoozeGameNotifications, startLfgRoom, syncLfgUserIdentity, updateLfgRoom, updateUserPreference } from "./modules/lfg/service.js";
-import { getAvailability, getTopLfgPlayers, getUnifiedProfile, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
+import { getAvailability, getMentionAvailability, getTopLfgPlayers, getUnifiedProfile, syncVoicePresence, trackActivity, updateAvailability, updateProfileSettings } from "./modules/profiles/service.js";
 import { addReportMessage, deleteReportTicket, getMyReports, getReportThreadForAdmin, getReportThreadForUser, rateLfgPlayer, rateLfgRoom, reportBug, reportPlayer, setReportPresence, updateReportStatus } from "./modules/feedback/service.js";
 import { addGameQuestion, claimBumpReminder, cleanupOperationalLogs, createLfgCategory, deleteGameQuestion, getAdminAuditLog, getAdminDashboard, getAdminFeedback, getGuildRuntimeSettings, getZarkGameContent, recordBumpCompleted, recordServiceHeartbeat, setAutoSmartRoomsEnabled, updateGameQuestion, updateGuildRuntimeSettings, upsertLfgGame } from "./modules/admin/service.js";
 import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/support/service.js";
@@ -209,15 +209,19 @@ const availabilitySchema = z.object({
   activityUntil: z.coerce.date().nullable().optional(),
   activityNote: z.string().max(120).nullable().optional(),
   mentionPolicy: z.enum(["EVERYONE", "INTERESTED_ONLY", "NOBODY"]),
+  timezone: z.string().min(1).max(100).optional(),
+  privacy: z.object({ showFreeTime: z.boolean(), showStudyTime: z.boolean(), showSleepTime: z.boolean(), showLastActive: z.boolean(), showCurrentStatus: z.boolean(), mentionStatusEnabled: z.boolean() }).optional(),
+  doNotDisturb: z.object({ sleep: z.boolean(), study: z.boolean(), busy: z.boolean() }).optional(),
   weeklyAvailability: z.array(z.object({
     dayOfWeek: z.number().int().min(0).max(6),
     startMinute: z.number().int().min(0).max(1439),
-    endMinute: z.number().int().min(1).max(1440),
+    endMinute: z.number().int().min(0).max(1439),
     activity: z.enum(["FREE", "PLAYING", "STUDYING", "WORKING", "BUSY", "SLEEPING", "AWAY"]),
-  })).max(28).optional(),
+  })).max(70).optional(),
 });
 app.get("/api/me/availability", async (request) => getAvailability((await requireWebUser(request)).userId));
 app.put("/api/me/availability", async (request) => updateAvailability((await requireWebUser(request)).userId, availabilitySchema.parse(request.body)));
+app.post("/api/me/activity", async (request) => { const user = await requireWebUser(request); return trackActivity({ userId: user.userId, displayName: user.displayName, avatarUrl: user.avatarUrl, kind: "WEBSITE" }); });
 app.get("/api/me/lfg-preferences", async (request) => getUserPreferences((await requireWebUser(request)).userId));
 app.put("/api/me/lfg-preferences/:game", async (request) => {
   const user = await requireWebUser(request);
@@ -366,6 +370,13 @@ app.put("/api/web-admin/settings", async (request) => {
     aiDailyTokenBudgetPerUser: z.number().int().min(500).max(100000),
     aiGlobalDailyTokenBudget: z.number().int().min(10000).max(1000000),
     aiMaxOutputTokens: z.number().int().min(50).max(1000),
+    autoMentionStatusEnabled: z.boolean(),
+    mentionStatusCooldownMinutes: z.number().int().min(1).max(1440),
+    activityActiveMinutes: z.number().int().min(1).max(120),
+    mentionStatusChannelIds: z.array(z.string().regex(/^\d{17,20}$/)).max(50),
+    mentionStatusExcludedIds: z.array(z.string().regex(/^\d{17,20}$/)).max(50),
+    activityTrackingEnabled: z.boolean(),
+    availabilityLfgIntegration: z.boolean(),
   }).parse(request.body);
   const settings = await updateGuildRuntimeSettings(admin.userId, body);
   // Do not make an administrator wait for the next scheduler tick after
@@ -721,6 +732,17 @@ app.get("/api/users/:id/availability", { preHandler: requireServiceKey }, async 
 app.put("/api/users/:id/availability", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
   return updateAvailability(params.id, availabilitySchema.parse(request.body));
+});
+app.post("/api/users/:id/activity", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ displayName: z.string().min(1).max(80), avatarUrl: z.string().url().optional(), kind: z.enum(["DISCORD_MESSAGE", "DISCORD_INTERACTION", "VOICE_JOIN", "VOICE_LEAVE"]) }).parse(request.body);
+  return trackActivity({ userId: params.id, ...body });
+});
+app.post("/api/activity/voice/sync", { preHandler: requireServiceKey }, async (request) => syncVoicePresence(z.object({ userIds: z.array(z.string()).max(5000) }).parse(request.body).userIds));
+app.post("/api/users/:id/availability/mention", { preHandler: requireServiceKey }, async (request) => {
+  const params = z.object({ id: z.string() }).parse(request.params);
+  const body = z.object({ guildId: z.string().min(1), channelId: z.string().min(1) }).parse(request.body);
+  return getMentionAvailability({ userId: params.id, ...body });
 });
 app.get("/api/lfg/top", async (request) => {
   const query = z.object({ metric: z.enum(["engagement", "sessions", "rating"]).default("engagement"), limit: z.coerce.number().int().min(1).max(50).default(10) }).parse(request.query);

@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ملفي — Zark LFG System</title><link rel="stylesheet" href="/styles.css?v=20260906-red-fix"><meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260906-red-fix"><link rel="stylesheet" href="/experience.css?v=20260906-red-fix"><link rel="stylesheet" href="/platform.css?v=20260906-red-fix"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>جدولي وحالتي — Zark</title><link rel="stylesheet" href="/styles.css?v=20260908-availability"><meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260908-availability"><link rel="stylesheet" href="/experience.css?v=20260908-availability"><link rel="stylesheet" href="/platform.css?v=20260908-availability"></head>
 <body data-page="profile">
   <header id="site-nav"></header>
   <main class="shell page-main">
@@ -21,8 +21,8 @@
           <button class="button primary" type="submit">حفظ الملف</button><p id="profile-settings-result" class="form-result"></p>
         </form>
         <form id="availability-form" class="surface wide availability-settings">
-          <h2>🕐 وقت فراغي وحالتي</h2>
-          <p class="section-copy">غيّر حالتك بضغطة واحدة. لن يرسل لك Zark فرص لعب عندما تكون مشغولًا.</p>
+          <h2>🗓️ جدولي وحالتي</h2>
+          <p class="section-copy">حدّد حالتك الآن وجدولك الأسبوعي. يحسب Zark وقت فراغك القادم حسب منطقتك الزمنية.</p>
           <div id="availability-current" data-tour="availability-status" class="availability-current">—</div>
           <div data-tour="availability-quick" class="availability-quick">
             <button type="button" data-availability-quick="FREE:120">🟢 فاضي ساعتين</button><button type="button" data-availability-quick="PLAYING:120">🎮 ألعب الآن</button><button type="button" data-availability-quick="BUSY:60">⛔ مشغول ساعة</button><button type="button" data-availability-quick="SLEEPING:480">😴 نايم</button><button type="button" data-availability-quick="AWAY:0">🌙 غير متاح</button>
@@ -35,14 +35,20 @@
             </div>
             <label>ملاحظة الحالة<input id="availability-note" maxlength="120" placeholder="مثال: جاهز لماينكرافت بعد التاسعة"></label>
           </details>
-          <div data-tour="availability-weekly" class="weekly-simple-head"><div><h3 class="availability-title">ساعات فراغي الأسبوعية</h3><p>فعّل اليوم وحدد: فاضي من أي ساعة وحتى أي ساعة.</p></div></div>
+          <div class="availability-section-head"><h3>🌍 المنطقة الزمنية</h3><p>تم اكتشافها من جهازك ويمكنك تعديلها.</p></div>
+          <label>Timezone<input id="availability-timezone" dir="ltr" list="timezone-list" maxlength="100" placeholder="Asia/Jerusalem"><datalist id="timezone-list"><option value="Asia/Jerusalem"><option value="Asia/Amman"><option value="Asia/Riyadh"><option value="Asia/Dubai"><option value="Africa/Cairo"><option value="Europe/Istanbul"><option value="Europe/London"><option value="America/New_York"></datalist></label>
+          <div data-tour="availability-weekly" class="weekly-simple-head"><div><h3 class="availability-title">الجدول الأسبوعي</h3><p>أضف أكثر من فترة لكل يوم. يدعم مثلًا 23:00 ← 07:00.</p></div></div>
           <div id="weekly-availability" class="weekly-availability"></div>
+          <div class="availability-section-head"><h3>🔐 إعدادات الخصوصية</h3></div>
+          <div class="toggle-grid three availability-privacy"><label class="toggle-card"><input id="privacy-current" type="checkbox"><span><b>عرض حالتي الحالية</b></span></label><label class="toggle-card"><input id="privacy-mention" type="checkbox"><span><b>الرد عند منشن حسابي</b></span></label><label class="toggle-card"><input id="privacy-last-active" type="checkbox"><span><b>عرض آخر نشاط</b></span></label><label class="toggle-card"><input id="privacy-free" type="checkbox"><span><b>عرض وقت الفراغ</b></span></label><label class="toggle-card"><input id="privacy-study" type="checkbox"><span><b>عرض وقت الدراسة</b></span></label><label class="toggle-card"><input id="privacy-sleep" type="checkbox"><span><b>عرض وقت النوم</b></span></label></div>
+          <div class="availability-section-head"><h3>🔕 عدم الإزعاج في LFG</h3></div>
+          <div class="toggle-grid three"><label class="toggle-card"><input id="dnd-sleep" type="checkbox"><span><b>أثناء النوم</b></span></label><label class="toggle-card"><input id="dnd-study" type="checkbox"><span><b>أثناء الدراسة</b></span></label><label class="toggle-card"><input id="dnd-busy" type="checkbox"><span><b>أثناء الانشغال</b></span></label></div>
           <button class="button primary" type="submit">حفظ الحالة والجدول</button>
           <p id="availability-result" class="form-result"></p>
         </form>
       </div>
     </section>
   </main>
-  <footer id="site-footer"></footer><script src="/app.js?v=20260906-red-fix"></script>
+  <footer id="site-footer"></footer><script src="/app.js?v=20260908-availability"></script>
 </body>
 </html>

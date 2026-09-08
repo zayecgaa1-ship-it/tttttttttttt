@@ -252,6 +252,13 @@ model GuildSettings {
   aiDailyTokenBudgetPerUser    Int       @default(50000)
   aiGlobalDailyTokenBudget     Int       @default(1000000)
   aiMaxOutputTokens            Int       @default(250)
+  autoMentionStatusEnabled     Boolean   @default(true)
+  mentionStatusCooldownMinutes Int       @default(30)
+  activityActiveMinutes        Int       @default(10)
+  mentionStatusChannelIds      String[]  @default([])
+  mentionStatusExcludedIds     String[]  @default([])
+  activityTrackingEnabled      Boolean   @default(true)
+  availabilityLfgIntegration   Boolean   @default(true)
   loyaltyBoostUntil            DateTime?
   loyaltyBoostMultiplier       Int       @default(1)
   updatedBy                    String?
@@ -271,6 +278,19 @@ model User {
   activityUntil             DateTime?
   activityNote              String?
   mentionPolicy             MentionPolicy          @default(INTERESTED_ONLY)
+  timezone                  String                 @default("Asia/Jerusalem")
+  timezoneConfigured        Boolean                @default(false)
+  lastActiveAt              DateTime?
+  voiceActive              Boolean                @default(false)
+  showFreeTime             Boolean                @default(true)
+  showStudyTime            Boolean                @default(false)
+  showSleepTime            Boolean                @default(false)
+  showLastActive           Boolean                @default(true)
+  showCurrentStatus        Boolean                @default(true)
+  mentionStatusEnabled     Boolean                @default(true)
+  dndDuringSleep           Boolean                @default(true)
+  dndDuringStudy           Boolean                @default(true)
+  dndDuringBusy            Boolean                @default(false)
   xp                        Int                    @default(0)
   wins                      Int                    @default(0)
   streak                    Int                    @default(0)
@@ -319,6 +339,7 @@ model User {
 
   @@index([lfgPriorityUntil])
   @@index([vipUntil])
+  @@index([lastActiveAt])
 }
 
 model LoyaltyTransaction {

@@ -118,6 +118,13 @@ export type GuildRuntimeSettings = {
   aiDailyTokenBudgetPerUser: number;
   aiGlobalDailyTokenBudget: number;
   aiMaxOutputTokens: number;
+  autoMentionStatusEnabled: boolean;
+  mentionStatusCooldownMinutes: number;
+  activityActiveMinutes: number;
+  mentionStatusChannelIds: string[];
+  mentionStatusExcludedIds: string[];
+  activityTrackingEnabled: boolean;
+  availabilityLfgIntegration: boolean;
 };
 
 export type LeaderboardRow = {

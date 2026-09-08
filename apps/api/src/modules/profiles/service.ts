@@ -1,4 +1,7 @@
 import { db } from "../../../../../packages/db/src/client.js";
+import { filterScheduleForPrivacy, isValidTimeZone, resolveAvailability, validateSchedule, type SchedulePeriod } from "../../../../../packages/shared/src/availability.js";
+import { claimOnce } from "../../events.js";
+import { getGuildRuntimeSettings } from "../admin/service.js";
 
 const publicRatingTags = new Set(["تعاوني", "محترف", "ممتع", "تنافسي"]);
 
@@ -33,6 +36,8 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
   const tagCounts = new Map<string, number>();
   for (const row of tags) for (const tag of row.tags) if (publicRatingTags.has(tag)) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
   const activityExpired = Boolean(user.activityUntil && user.activityUntil.getTime() <= Date.now());
+  const publicSchedule = includePrivate ? user.weeklyAvailability : filterScheduleForPrivacy(user.weeklyAvailability as SchedulePeriod[], { showFreeTime: user.showFreeTime, showStudyTime: user.showStudyTime, showSleepTime: user.showSleepTime });
+  const statusVisible = includePrivate || (user.activityVisible && user.showCurrentStatus);
   return {
     userId: user.id,
     displayName: user.displayName,
@@ -40,13 +45,13 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
     settings: {
       bio: user.bio,
       profileAccent: user.profileAccent,
-      activityVisible: user.activityVisible,
+      activityVisible: statusVisible,
       rivalNotificationsEnabled: user.rivalNotificationsEnabled,
-      currentActivity: activityExpired ? "AWAY" : user.currentActivity,
-      activityUntil: activityExpired ? undefined : user.activityUntil?.toISOString(),
-      activityNote: activityExpired ? undefined : user.activityNote,
+      currentActivity: statusVisible && !activityExpired ? user.currentActivity : "AWAY",
+      activityUntil: statusVisible && !activityExpired ? user.activityUntil?.toISOString() : undefined,
+      activityNote: statusVisible && !activityExpired ? user.activityNote : undefined,
       mentionPolicy: user.mentionPolicy,
-      weeklyAvailability: user.weeklyAvailability.map((slot) => ({ id: slot.id, dayOfWeek: slot.dayOfWeek, startMinute: slot.startMinute, endMinute: slot.endMinute, activity: slot.activity })),
+      weeklyAvailability: publicSchedule.map((slot) => ({ id: slot.id, dayOfWeek: slot.dayOfWeek, startMinute: slot.startMinute, endMinute: slot.endMinute === 1440 ? 0 : slot.endMinute, activity: slot.activity })),
     },
     zark: { xp: user.xp, wins: user.wins, streak: user.streak, level: levelFromXp(user.xp), games: user.gameProfiles.map((profile) => ({ slug: profile.game.slug, name: profile.game.name, xp: profile.xp, wins: profile.wins, losses: profile.losses, streak: profile.streak })) },
     loyalty: { points: user.loyaltyPoints, lifetimePoints: user.lifetimeLoyaltyPoints, vipUnlocked: Boolean(user.vipUntil && user.vipUntil.getTime() > now), vipUntil: user.vipUntil?.toISOString(), badge: user.loyaltyBadge },
@@ -56,7 +61,7 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
       hostedCompleted,
       uniqueTeammates: teammateRows.length,
       voiceSeconds,
-      activeRooms: (includePrivate || user.activityVisible ? activeMemberships : []).map((membership) => ({
+      activeRooms: (statusVisible ? activeMemberships : []).map((membership) => ({
         id: membership.room.id,
         gameName: membership.room.lfgGame.name,
         gameIcon: membership.room.lfgGame.icon,
@@ -71,17 +76,25 @@ export async function getUnifiedProfile(userId: string, includePrivate = false) 
 }
 
 export async function getAvailability(userId: string) {
-  const user = await db.user.findUniqueOrThrow({ where: { id: userId }, include: { weeklyAvailability: { orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] } } });
+  const [user, settings] = await Promise.all([db.user.findUniqueOrThrow({ where: { id: userId }, include: { weeklyAvailability: { orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] } } }), getGuildRuntimeSettings()]);
   const expired = user.activityUntil && user.activityUntil.getTime() <= Date.now();
   if (expired && user.currentActivity !== "AWAY") {
     await db.user.update({ where: { id: userId }, data: { currentActivity: "AWAY", activityUntil: null, activityNote: null } });
   }
+  const snapshot = resolveAvailability({ timeZone: user.timezone, periods: user.weeklyAvailability as SchedulePeriod[], manualActivity: expired ? "AWAY" : user.currentActivity, manualUntil: expired ? null : user.activityUntil, voiceActive: user.voiceActive, lastActiveAt: user.lastActiveAt, activeWindowMinutes: settings.activityActiveMinutes });
   return {
     currentActivity: expired ? "AWAY" : user.currentActivity,
     activityUntil: expired ? undefined : user.activityUntil?.toISOString(),
     activityNote: expired ? undefined : user.activityNote ?? undefined,
     mentionPolicy: user.mentionPolicy,
-    weeklyAvailability: user.weeklyAvailability.map((slot) => ({ id: slot.id, dayOfWeek: slot.dayOfWeek, startMinute: slot.startMinute, endMinute: slot.endMinute, activity: slot.activity })),
+    timezone: user.timezone,
+    timezoneConfigured: user.timezoneConfigured,
+    lastActiveAt: user.lastActiveAt?.toISOString(),
+    voiceActive: user.voiceActive,
+    snapshot,
+    privacy: { showFreeTime: user.showFreeTime, showStudyTime: user.showStudyTime, showSleepTime: user.showSleepTime, showLastActive: user.showLastActive, showCurrentStatus: user.showCurrentStatus, mentionStatusEnabled: user.mentionStatusEnabled },
+    doNotDisturb: { sleep: user.dndDuringSleep, study: user.dndDuringStudy, busy: user.dndDuringBusy },
+    weeklyAvailability: user.weeklyAvailability.map((slot) => ({ id: slot.id, dayOfWeek: slot.dayOfWeek, startMinute: slot.startMinute, endMinute: slot.endMinute === 1440 ? 0 : slot.endMinute, activity: slot.activity })),
   };
 }
 
@@ -91,17 +104,23 @@ export async function updateAvailability(userId: string, input: {
   activityNote?: string | null;
   mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY";
   weeklyAvailability?: Array<{ dayOfWeek: number; startMinute: number; endMinute: number; activity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY" }>;
+  timezone?: string;
+  privacy?: { showFreeTime: boolean; showStudyTime: boolean; showSleepTime: boolean; showLastActive: boolean; showCurrentStatus: boolean; mentionStatusEnabled: boolean };
+  doNotDisturb?: { sleep: boolean; study: boolean; busy: boolean };
 }) {
   const slots = input.weeklyAvailability ?? [];
-  for (const slot of slots) {
-    if (slot.dayOfWeek < 0 || slot.dayOfWeek > 6 || slot.startMinute < 0 || slot.startMinute >= 1440 || slot.endMinute <= slot.startMinute || slot.endMinute > 1440) throw new Error("وقت التوفر الأسبوعي غير صحيح");
-  }
+  if (input.weeklyAvailability) validateSchedule(slots as SchedulePeriod[]);
+  if (input.timezone && !isValidTimeZone(input.timezone)) throw new Error("المنطقة الزمنية غير صحيحة");
   await db.$transaction(async (tx) => {
     await tx.user.update({ where: { id: userId }, data: {
       currentActivity: input.currentActivity,
       activityUntil: input.currentActivity === "AWAY" ? null : input.activityUntil,
       activityNote: input.activityNote?.trim() || null,
       mentionPolicy: input.mentionPolicy,
+      timezone: input.timezone,
+      timezoneConfigured: input.timezone ? true : undefined,
+      ...(input.privacy ? { showFreeTime: input.privacy.showFreeTime, showStudyTime: input.privacy.showStudyTime, showSleepTime: input.privacy.showSleepTime, showLastActive: input.privacy.showLastActive, showCurrentStatus: input.privacy.showCurrentStatus, mentionStatusEnabled: input.privacy.mentionStatusEnabled } : {}),
+      ...(input.doNotDisturb ? { dndDuringSleep: input.doNotDisturb.sleep, dndDuringStudy: input.doNotDisturb.study, dndDuringBusy: input.doNotDisturb.busy } : {}),
     } });
     if (input.weeklyAvailability) {
       await tx.userAvailability.deleteMany({ where: { userId } });
@@ -109,6 +128,46 @@ export async function updateAvailability(userId: string, input: {
     }
   });
   return getAvailability(userId);
+}
+
+export async function trackActivity(input: { userId: string; displayName: string; avatarUrl?: string; kind: "DISCORD_MESSAGE" | "DISCORD_INTERACTION" | "VOICE_JOIN" | "VOICE_LEAVE" | "WEBSITE" }) {
+  const voiceActive = input.kind === "VOICE_JOIN" ? true : input.kind === "VOICE_LEAVE" ? false : undefined;
+  const mayWriteActivity = await claimOnce("activity-write", input.userId, 180);
+  if (!mayWriteActivity && voiceActive === undefined) return { tracked: false, throttled: true };
+  const settings = await getGuildRuntimeSettings();
+  if (!settings.activityTrackingEnabled) return { tracked: false };
+  const now = new Date();
+  await db.user.upsert({
+    where: { id: input.userId },
+    update: { displayName: input.displayName, avatarUrl: input.avatarUrl, ...(mayWriteActivity ? { lastActiveAt: now } : {}), ...(voiceActive === undefined ? {} : { voiceActive }) },
+    create: { id: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, lastActiveAt: now, voiceActive: voiceActive ?? false },
+  });
+  return { tracked: true, lastActiveAt: now.toISOString() };
+}
+
+export async function syncVoicePresence(userIds: string[]) {
+  const settings = await getGuildRuntimeSettings();
+  if (!settings.activityTrackingEnabled) return { active: 0, tracked: false };
+  await db.$transaction([
+    db.user.updateMany({ where: { voiceActive: true, id: { notIn: userIds } }, data: { voiceActive: false } }),
+    ...(userIds.length ? [db.user.updateMany({ where: { id: { in: userIds } }, data: { voiceActive: true, lastActiveAt: new Date() } })] : []),
+  ]);
+  return { active: userIds.length };
+}
+
+export async function getMentionAvailability(input: { userId: string; guildId: string; channelId: string }) {
+  const settings = await getGuildRuntimeSettings();
+  if (!settings.autoMentionStatusEnabled) return { allowed: false, reason: "disabled" as const };
+  if (settings.mentionStatusExcludedIds.includes(input.channelId)) return { allowed: false, reason: "excluded-channel" as const };
+  if (settings.mentionStatusChannelIds.length && !settings.mentionStatusChannelIds.includes(input.channelId)) return { allowed: false, reason: "channel-not-enabled" as const };
+  const user = await db.user.findUnique({ where: { id: input.userId }, include: { weeklyAvailability: { orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] } } });
+  if (!user) return { allowed: false, reason: "not-configured" as const };
+  if (!user.mentionStatusEnabled || !user.activityVisible || !user.showCurrentStatus) return { allowed: false, reason: "private" as const, displayName: user.displayName };
+  const claimed = await claimOnce("mention-status", `${input.guildId}:${input.channelId}:${input.userId}`, settings.mentionStatusCooldownMinutes * 60);
+  if (!claimed) return { allowed: false, reason: "cooldown" as const };
+  const snapshot = resolveAvailability({ timeZone: user.timezone, periods: user.weeklyAvailability as SchedulePeriod[], manualActivity: user.currentActivity, manualUntil: user.activityUntil, voiceActive: user.voiceActive, lastActiveAt: user.lastActiveAt, activeWindowMinutes: settings.activityActiveMinutes });
+  const visiblePeriods = filterScheduleForPrivacy(user.weeklyAvailability as SchedulePeriod[], { showFreeTime: user.showFreeTime, showStudyTime: user.showStudyTime, showSleepTime: user.showSleepTime });
+  return { allowed: true, displayName: user.displayName, timezone: user.timezone, snapshot: { ...snapshot, currentPeriod: visiblePeriods.some((period) => period.id === snapshot.currentPeriod?.id) ? snapshot.currentPeriod : undefined, nextFree: user.showFreeTime ? snapshot.nextFree : undefined, today: snapshot.today.filter((period) => visiblePeriods.some((item) => item.id === period.id)), tomorrow: snapshot.tomorrow.filter((period) => visiblePeriods.some((item) => item.id === period.id)), lastActiveAt: user.showLastActive ? snapshot.lastActiveAt : undefined } };
 }
 
 export async function updateProfileSettings(userId: string, input: { bio?: string | null; profileAccent: string; activityVisible: boolean; rivalNotificationsEnabled: boolean }) {

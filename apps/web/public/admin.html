@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>لوحة تحكم Zark — Zark LFG System</title>
   <meta name="description" content="إدارة إعدادات بوت Zark والألعاب والمحتوى.">
-  <link rel="stylesheet" href="/styles.css?v=20260907-game-platforms">
-<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260907-game-platforms"><link rel="stylesheet" href="/experience.css?v=20260907-game-platforms"><link rel="stylesheet" href="/platform.css?v=20260907-game-platforms"></head>
+  <link rel="stylesheet" href="/styles.css?v=20260908-availability">
+<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260908-availability"><link rel="stylesheet" href="/experience.css?v=20260908-availability"><link rel="stylesheet" href="/platform.css?v=20260908-availability"></head>
 <body data-page="admin">
   <header id="site-nav"></header>
   <main class="shell page-main">
@@ -78,6 +78,9 @@
             <label class="toggle-card"><input id="setting-auto-channels" type="checkbox"><span><b>غرف Text + Voice</b><small>إنشاء مساحة خاصة لكل LFG</small></span></label>
             <label class="toggle-card"><input id="setting-ai-enabled" type="checkbox"><span><b>مساعد Zark</b><small>دعم ذكي بحدود تكلفة</small></span></label>
           </div>
+          <h3>Presence + Availability</h3>
+          <div class="toggle-grid three"><label class="toggle-card"><input id="setting-mention-status" type="checkbox"><span><b>حالة العضو عند المنشن</b><small>رد مختصر مع Cooldown</small></span></label><label class="toggle-card"><input id="setting-activity-tracking" type="checkbox"><span><b>تتبع النشاط</b><small>Discord وVoice والموقع مع throttling</small></span></label><label class="toggle-card"><input id="setting-availability-lfg" type="checkbox"><span><b>تكامل LFG</b><small>احترام النوم والدراسة وعدم الإزعاج</small></span></label></div>
+          <div class="settings-grid three"><label>Cooldown المنشن بالدقائق<input id="setting-mention-cooldown" type="number" min="1" max="1440" value="30"></label><label>مدة «نشط الآن» بالدقائق<input id="setting-active-minutes" type="number" min="1" max="120" value="10"></label><label>القنوات المسموحة<input id="setting-mention-channels" placeholder="IDs مفصولة بفاصلة؛ فارغ = كل القنوات"></label><label>القنوات المستثناة<input id="setting-mention-excluded" placeholder="Discord Channel IDs مفصولة بفاصلة"></label></div>
           <h3>Auto LFG Rooms</h3>
           <p class="section-note">يفحص Zark الاهتمامات حسب الفاصل المحدد، ولا يكرر غرفة لديها مقاعد شاغرة.</p>
           <div class="settings-grid three">
@@ -206,6 +209,6 @@
     </div>
   </main>
   <footer id="site-footer"></footer>
-  <script src="/app.js?v=20260907-game-platforms"></script>
+  <script src="/app.js?v=20260908-availability"></script>
 </body>
 </html>

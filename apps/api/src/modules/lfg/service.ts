@@ -7,6 +7,7 @@ import { serializable } from "../../db-transaction.js";
 import { getGuildRuntimeSettings } from "../admin/service.js";
 import { awardLoyaltyPoints } from "../loyalty/service.js";
 import { LFG_GATHER_WINDOW_MINUTES, lfgWarningCloseAt } from "../../../../../packages/shared/src/lfg-lifecycle.js";
+import { resolveAvailability, shouldSuppressLfg, type SchedulePeriod } from "../../../../../packages/shared/src/availability.js";
 
 const categories = [
   { slug: "sandbox", name: "عالم مفتوح وبناء", icon: "🧱", sortOrder: 1 },
@@ -796,11 +797,12 @@ export async function getNotificationCandidates(roomId: string) {
     include: { user: { include: { weeklyAvailability: true } }, game: true },
     take: 50,
   });
-  // Marking a game as interested is an explicit opt-in for room invitations.
-  // Availability is only used by the smart organiser, not for suppressing a
-  // room alert that the member has explicitly requested.
   const selected = [];
   for (const candidate of candidates) {
+    if (settings.availabilityLfgIntegration) {
+      const activity = resolveAvailability({ timeZone: candidate.user.timezone, periods: candidate.user.weeklyAvailability as SchedulePeriod[], manualActivity: candidate.user.currentActivity, manualUntil: candidate.user.activityUntil, voiceActive: candidate.user.voiceActive }).activity;
+      if (shouldSuppressLfg(activity, { sleep: candidate.user.dndDuringSleep, study: candidate.user.dndDuringStudy, busy: candidate.user.dndDuringBusy })) continue;
+    }
     try {
       const dedupeKey = `${roomId}:${candidate.userId}`;
       const previous = await db.notificationDelivery.findUnique({ where: { dedupeKey }, select: { status: true } });
@@ -827,14 +829,9 @@ export async function getNotificationCandidates(roomId: string) {
   return selected;
 }
 
-function isUserAvailableForLfg(user: { currentActivity: string; activityUntil: Date | null; weeklyAvailability: Array<{ dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> }, now: Date) {
-  const activeUntil = user.activityUntil && user.activityUntil.getTime() > now.getTime();
-  if (user.currentActivity === "FREE" && (!user.activityUntil || activeUntil)) return true;
-  // أي حالة فعالة غير "فاضي" لها الأولوية على الجدول حتى لا نزعج عضوًا يدرس أو ينام.
-  if (activeUntil) return false;
-  const dayOfWeek = now.getDay();
-  const minute = now.getHours() * 60 + now.getMinutes();
-  return user.weeklyAvailability.some((slot) => slot.dayOfWeek === dayOfWeek && slot.activity === "FREE" && slot.startMinute <= minute && minute < slot.endMinute);
+function isUserAvailableForLfg(user: { timezone: string; voiceActive: boolean; currentActivity: string; activityUntil: Date | null; weeklyAvailability: Array<{ dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> }, now: Date) {
+  const activity = resolveAvailability({ now, timeZone: user.timezone, periods: user.weeklyAvailability as SchedulePeriod[], manualActivity: user.currentActivity as any, manualUntil: user.activityUntil, voiceActive: user.voiceActive }).activity;
+  return activity === "FREE" || activity === "PLAYING";
 }
 
 export async function markNotificationDelivery(roomId: string, userId: string, status: "SENT" | "IGNORED" | "FAILED") {

@@ -122,6 +122,37 @@ BEGIN
 END
 $lfg_platform_migration$;
 
+-- Extend the existing availability system with presence, privacy and guild controls.
+DO $availability_presence_migration$
+BEGIN
+  IF to_regclass('"User"') IS NOT NULL THEN
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "timezone" TEXT NOT NULL DEFAULT 'Asia/Jerusalem';
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "timezoneConfigured" BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "lastActiveAt" TIMESTAMP(3);
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "voiceActive" BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "showFreeTime" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "showStudyTime" BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "showSleepTime" BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "showLastActive" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "showCurrentStatus" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "mentionStatusEnabled" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "dndDuringSleep" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "dndDuringStudy" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "dndDuringBusy" BOOLEAN NOT NULL DEFAULT FALSE;
+    CREATE INDEX IF NOT EXISTS "User_lastActiveAt_idx" ON "User"("lastActiveAt");
+  END IF;
+  IF to_regclass('"GuildSettings"') IS NOT NULL THEN
+    ALTER TABLE "GuildSettings" ADD COLUMN IF NOT EXISTS "autoMentionStatusEnabled" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "GuildSettings" ADD COLUMN IF NOT EXISTS "mentionStatusCooldownMinutes" INTEGER NOT NULL DEFAULT 30;
+    ALTER TABLE "GuildSettings" ADD COLUMN IF NOT EXISTS "activityActiveMinutes" INTEGER NOT NULL DEFAULT 10;
+    ALTER TABLE "GuildSettings" ADD COLUMN IF NOT EXISTS "mentionStatusChannelIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+    ALTER TABLE "GuildSettings" ADD COLUMN IF NOT EXISTS "mentionStatusExcludedIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+    ALTER TABLE "GuildSettings" ADD COLUMN IF NOT EXISTS "activityTrackingEnabled" BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE "GuildSettings" ADD COLUMN IF NOT EXISTS "availabilityLfgIntegration" BOOLEAN NOT NULL DEFAULT TRUE;
+  END IF;
+END
+$availability_presence_migration$;
+
 -- Restore only legacy entries disabled by the retired-game seed. After the
 -- catalogue assigns descriptive categories, subsequent deploys preserve edits.
 DO $restore_game_catalog$
