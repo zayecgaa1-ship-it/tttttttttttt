@@ -417,6 +417,15 @@ if (!token) {
 
   async function handleButton(interaction: any) {
     const parts = interaction.customId.split(":");
+    if(parts[0]==='game-help'&&parts[1]==='join'){
+      await interaction.deferReply({flags:MessageFlags.Ephemeral});
+      const result=await apiSend<GameHelpJoinResult>(`/api/bot/game-help/${parts[2]}/join`,'POST',{userId:interaction.user.id,displayName:displayName(interaction)});
+      const date=new Date(new Date(result.campaign.helpStartsAt).getTime()+(result.registration.assignedDay-1)*86_400_000);
+      const dateText=new Intl.DateTimeFormat('ar',{weekday:'long',day:'numeric',month:'long',timeZone:'Asia/Jerusalem'}).format(date);
+      const current=interaction.message.embeds[0];
+      if(current)await interaction.message.edit({embeds:[EmbedBuilder.from(current).setFooter({text:`المسجلون: ${result.count}/${result.campaign.helpTotalCapacity}`})],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`game-help:join:${parts[2]}`).setLabel(result.full?'اكتمل العدد':'سجّل للمساعدة').setEmoji('🙋').setStyle(ButtonStyle.Success).setDisabled(result.full))]}).catch(()=>undefined);
+      return interaction.editReply({content:`✅ تم تسجيلك بالترتيب **${result.count}**. موعدك في اليوم **${result.registration.assignedDay}**: **${dateText}**.`});
+    }
     if(interaction.customId==="fun:joke")return sendJoke(interaction);
     if(interaction.customId==="fun:meme")return sendMeme(interaction);
     if(parts[0]==="team"&&parts[1]==="invite"&&["accept","decline"].includes(parts[2])){
@@ -849,7 +858,9 @@ if (!token) {
         totalMembers=1;failedCount=1;
         const channel=await guild.channels.fetch(claim.campaign.targetChannelId);
         if(!channel||![ChannelType.GuildText,ChannelType.GuildAnnouncement].includes(channel.type)||!channel.isTextBased()||!('send' in channel))throw new Error('روم المساعدة غير متاح أو لا يقبل الرسائل');
-        await channel.send({embeds:[baseEmbed().setTitle(`🎮 ${claim.campaign.title}`).setDescription(claim.campaign.content)],allowedMentions:{parse:[]},nonce:claim.campaign.id.slice(0,25),enforceNonce:true});
+        const components=claim.campaign.helpTotalCapacity?[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`game-help:join:${claim.campaign.id}`).setLabel('سجّل للمساعدة').setEmoji('🙋').setStyle(ButtonStyle.Success))]:[];
+        const sent=await channel.send({embeds:[baseEmbed().setTitle(`🎮 ${claim.campaign.title}`).setDescription(claim.campaign.content).setFooter({text:claim.campaign.helpTotalCapacity?`المسجلون: 0/${claim.campaign.helpTotalCapacity}`:'ZARK'})],components,allowedMentions:{parse:[]},nonce:claim.campaign.id.slice(0,25),enforceNonce:true});
+        if(claim.campaign.helpTotalCapacity)await apiSend(`/api/bot/game-help/${claim.campaign.id}/message`,'PUT',{messageId:sent.id}).catch(error=>console.error('Game-help message id save failed',error));
         sentCount=1;failedCount=0;await updateBroadcast('COMPLETED');return;
       }
       const members = await guild.members.fetch();
@@ -2450,4 +2461,5 @@ type LoyaltyProfile = { points: number; lifetimePoints: number; vipUnlocked: boo
 type UnifiedProfile = { displayName: string; avatarUrl?: string; loyalty?: { points: number; lifetimePoints: number; vipUnlocked: boolean; badge?: string }; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
 type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";
 type SecurityResult = { suspend: boolean; duplicate?: boolean; counts?: { bans: number; timeouts: number; kicks: number; roles: number; channels: number; webhooks: number }; suspension?: { reason: string }; settings?: { securityLogChannelId?: string | null; ownerDmAlertsEnabled?: boolean } };
-type BroadcastCampaign = { id: string; targetChannelId?:string|null; title: string; content: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; totalMembers: number; sentCount: number; failedCount: number; skippedCount: number; createdAt: string };
+type BroadcastCampaign = { id: string; targetChannelId?:string|null; helpTotalCapacity?:number|null; helpDailyCapacity?:number|null; helpDays?:number|null; helpStartsAt?:string|null; title: string; content: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; totalMembers: number; sentCount: number; failedCount: number; skippedCount: number; createdAt: string };
+type GameHelpJoinResult={registration:{assignedDay:number};count:number;full:boolean;campaign:{helpStartsAt:string;helpTotalCapacity:number}};

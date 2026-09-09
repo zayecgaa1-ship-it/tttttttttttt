@@ -192,6 +192,11 @@ enum AdminBroadcastStatus {
   FAILED
 }
 
+enum GameHelpRegistrationStatus {
+  WAITING
+  HELPED
+}
+
 enum TradeReportReason {
   SCAM_FRAUD
   HARASSMENT
@@ -1150,6 +1155,13 @@ model AuditLog {
 
 model AdminBroadcast {
   targetChannelId String?
+  helpGameSlug     String?
+  helpMapName      String?
+  helpDailyCapacity Int?
+  helpDays         Int?
+  helpTotalCapacity Int?
+  helpStartsAt     DateTime?
+  discordMessageId String?
   id           String               @id @default(cuid())
   adminId      String
   title        String
@@ -1164,9 +1176,29 @@ model AdminBroadcast {
   completedAt  DateTime?
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
+  helpRegistrations GameHelpRegistration[]
 
   @@index([status, createdAt])
   @@index([adminId, createdAt])
+}
+
+model GameHelpRegistration {
+  id             String                     @id @default(cuid())
+  campaignId     String
+  userId         String
+  displayName    String
+  status         GameHelpRegistrationStatus @default(WAITING)
+  assignedDay    Int
+  rejoinAllowed  Boolean                    @default(false)
+  helpedAt       DateTime?
+  helpedBy       String?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  campaign       AdminBroadcast             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, userId])
+  @@index([userId, status, rejoinAllowed])
+  @@index([campaignId, createdAt])
 }
 
 // Per-guild settings deliberately live in the existing PostgreSQL database.

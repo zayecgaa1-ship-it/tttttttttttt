@@ -7,7 +7,7 @@ const context=await browser.newContext({viewport:{width:390,height:844},reducedM
 const roleId='111111111111111111',channelId='222222222222222222';
 const games=[{slug:'roblox',name:'Roblox'},{slug:'minecraft',name:'Minecraft'}];
 const settings={enabled:true,maxBansPerHour:2,maxTimeoutsPerHour:2,maxKicksPerHour:5,maxRoleChangesPerHour:8,maxChannelDeletesPerHour:3,maxWebhookChangesPerHour:3,ownerDmAlertsEnabled:true,rolePolicies:[],profanityEnabled:true,profanityNotifyOwner:true,profanityLogEnabled:true,profanityCustomWords:[]};
-let saved,help;
+let saved,help,helpAction;
 await context.addInitScript(()=>{localStorage.setItem('zark-tutorial-v4',JSON.stringify({pausedVersion:4}));window.EventSource=class{close(){}}});
 await context.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url());
@@ -19,7 +19,8 @@ await context.route('**/*',async route=>{
     else if(url.pathname==='/api/web-admin/discord-options')data={roles:[{id:roleId,name:'مشرف'}],channels:[{id:channelId,name:'مساعدة-الألعاب'}]};
     else if(url.pathname==='/api/security/moderation-settings'){saved=req.postDataJSON();data=saved;}
     else if(url.pathname==='/api/web-admin/game-help'){help=req.postDataJSON();data={id:'queued-help'};}
-    else if(url.pathname==='/api/web-admin/broadcasts')data=[];
+    else if(url.pathname.includes('/api/web-admin/game-help/registrations/')){helpAction=url.pathname;data={ok:true};}
+    else if(url.pathname==='/api/web-admin/broadcasts')data=[{id:'campaign',title:'مساعدة في Roblox — Blox Fruits',status:'COMPLETED',createdAt:new Date().toISOString(),sentCount:1,failedCount:0,skippedCount:0,totalMembers:1,helpStartsAt:new Date().toISOString(),helpDays:7,helpDailyCapacity:3,helpTotalCapacity:21,helpRegistrations:[{id:'registration',userId:'333333333333333333',displayName:'لاعب تجريبي',assignedDay:1,status:'WAITING',rejoinAllowed:false}]}];
     return route.fulfill({json:data});
   }
   const root=path.resolve('apps/web/public'),file=path.resolve(root,'.'+url.pathname);
@@ -52,11 +53,15 @@ try{
   await page.locator('#game-help-channel').selectOption(channelId);
   await page.locator('#game-help-game').selectOption('roblox');await page.locator('#game-help-map').selectOption('Blox Fruits');
   assert.match(await page.locator('#game-help-preview').innerText(),/Blox Fruits/);
-  await page.locator('#game-help-send').click();await page.waitForFunction(()=>document.querySelector('#game-help-result').textContent.includes('تم تسجيل'));
-  assert.deepEqual(help,{channelId,gameSlug:'roblox',mapName:'Blox Fruits'});
+  await page.locator('#game-help-daily').fill('3');await page.locator('#game-help-days').fill('7');
+  assert.match(await page.locator('#game-help-preview').innerText(),/21/);
+  await page.locator('#game-help-send').click();await page.waitForFunction(()=>document.querySelector('#game-help-result').textContent.includes('تم إرسال'));
+  assert.deepEqual(help,{channelId,gameSlug:'roblox',mapName:'Blox Fruits',dailyCapacity:3,days:7});
+  await page.locator('.game-help-admin summary').click();await page.locator('[data-help-complete="registration"]').click();await page.waitForTimeout(100);
+  assert.match(helpAction,/registrations\/registration\/complete$/);
   await page.locator('#game-help-game').selectOption('minecraft');assert.equal(await page.locator('#game-help-map-label').isVisible(),false);
   await page.locator('#game-help-send').click();await page.waitForTimeout(100);
-  assert.deepEqual(help,{channelId,gameSlug:'minecraft'});
+  assert.deepEqual(help,{channelId,gameSlug:'minecraft',dailyCapacity:3,days:7});
   assert.deepEqual(errors,[]);
   console.log('PASS: role selection and limits, profanity destinations, custom words, channel help and Blox Fruits payload.');
 }finally{await browser.close()}

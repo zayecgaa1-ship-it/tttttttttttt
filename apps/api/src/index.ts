@@ -20,7 +20,7 @@ import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/suppo
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, purchaseLoyaltyReward, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
 import { answerTradeCompletion, backfillTradeThumbnails, createTrade, decideInterest, deleteTradePermanently, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
-import { claimBroadcast, createBroadcast, createGameHelp, getPendingBroadcast, listBroadcasts, updateBroadcastProgress } from "./modules/broadcast/service.js";
+import { allowGameHelpRejoin, claimBroadcast, createBroadcast, createGameHelp, getPendingBroadcast, joinGameHelp, listBroadcasts, markGameHelpCompleted, setGameHelpDiscordMessage, updateBroadcastProgress } from "./modules/broadcast/service.js";
 import { discordOptions } from './discord-options.js';
 import { moderationSettingsSchema } from '../../../packages/shared/src/moderation.js';
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
@@ -385,10 +385,18 @@ app.get("/api/web-admin/broadcasts", async (request) => {
 app.get('/api/web-admin/discord-options',async request=>{await requireWebAdmin(request);return discordOptions()});
 app.post('/api/web-admin/game-help',async request=>{
   const admin=await requireWebAdmin(request);
-  const body=z.object({channelId:z.string().regex(/^\d{17,20}$/),gameSlug:z.string().min(1).max(100),mapName:z.enum(['Blox Fruits']).optional()}).parse(request.body);
+  const body=z.object({channelId:z.string().regex(/^\d{17,20}$/),gameSlug:z.string().min(1).max(100),mapName:z.enum(['Blox Fruits']).optional(),dailyCapacity:z.number().int().min(1).max(100),days:z.number().int().min(1).max(30)}).parse(request.body);
   const options=await discordOptions();
   if(!options.channels.some(channel=>channel.id===body.channelId))throw new HttpError('اختر روم كتابة من هذا السيرفر',400);
   return createGameHelp(admin,body);
+});
+app.post('/api/web-admin/game-help/registrations/:id/complete',async request=>{
+  const admin=await requireWebAdmin(request),params=z.object({id:z.string().min(1).max(40)}).parse(request.params);
+  return markGameHelpCompleted(admin,params.id);
+});
+app.post('/api/web-admin/game-help/registrations/:id/allow-rejoin',async request=>{
+  const admin=await requireWebAdmin(request),params=z.object({id:z.string().min(1).max(40)}).parse(request.params);
+  return allowGameHelpRejoin(admin,params.id);
 });
 app.post("/api/web-admin/broadcasts", async (request) => {
   const admin = await requireWebAdmin(request);
@@ -463,6 +471,15 @@ app.put("/api/bot/broadcasts/:id/progress", { preHandler: requireServiceKey }, a
   const params = z.object({ id: z.string() }).parse(request.params);
   const body = z.object({ status: z.enum(["RUNNING", "COMPLETED", "FAILED"]), totalMembers: z.number().int().min(0), sentCount: z.number().int().min(0), failedCount: z.number().int().min(0), skippedCount: z.number().int().min(0), lastError: z.string().max(500).optional() }).parse(request.body);
   return updateBroadcastProgress(params.id, body);
+});
+app.post('/api/bot/game-help/:id/join',{preHandler:requireServiceKey},async request=>{
+  const params=z.object({id:z.string().min(1).max(40)}).parse(request.params);
+  const body=z.object({userId:z.string().regex(/^\d{17,20}$/),displayName:z.string().trim().min(1).max(100)}).parse(request.body);
+  return joinGameHelp(params.id,body);
+});
+app.put('/api/bot/game-help/:id/message',{preHandler:requireServiceKey},async request=>{
+  const params=z.object({id:z.string().min(1).max(40)}).parse(request.params),body=z.object({messageId:z.string().regex(/^\d{17,20}$/)}).parse(request.body);
+  return setGameHelpDiscordMessage(params.id,body.messageId);
 });
 app.post("/api/web-admin/ai/diagnostics", async (request) => {
   const admin = await requireWebAdmin(request);

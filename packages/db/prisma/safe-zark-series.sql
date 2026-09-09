@@ -9,6 +9,13 @@ BEGIN
   END IF;
   IF to_regclass('"AdminBroadcast"') IS NOT NULL THEN
     ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "targetChannelId" TEXT;
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "helpGameSlug" TEXT;
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "helpMapName" TEXT;
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "helpDailyCapacity" INTEGER;
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "helpDays" INTEGER;
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "helpTotalCapacity" INTEGER;
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "helpStartsAt" TIMESTAMP(3);
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "discordMessageId" TEXT;
   END IF;
 END
 $moderation_migration$;

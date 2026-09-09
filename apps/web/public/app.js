@@ -746,9 +746,9 @@ async function bindGameHelpForm(){
   const options=await api('/api/web-admin/discord-options'),games=state.lfgGames||[];
   $('game-help-channel').innerHTML='<option value="">اختر الروم</option>'+options.channels.map(item=>`<option value="${escapeHtml(item.id)}">#${escapeHtml(item.name)}</option>`).join('');
   $('game-help-game').innerHTML=games.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.name)}</option>`).join('');
-  const preview=()=>{const slug=$('game-help-game').value;$('game-help-map-label').hidden=slug!=='roblox';$('game-help-preview').textContent=`مين بدو مساعدة في ${$('game-help-game').selectedOptions[0]?.textContent||'لعبة'}${slug==='roblox'&&$('game-help-map').value?' — '+$('game-help-map').value:''}؟`};
-  $('game-help-game').onchange=preview;$('game-help-map').onchange=preview;preview();$('game-help-send').disabled=!games.length||!options.channels.length;
-  $('admin-game-help-form').onsubmit=async event=>{event.preventDefault();const button=$('game-help-send'),result=$('game-help-result');if(button.disabled)return;button.disabled=true;try{const campaign=await api('/api/web-admin/game-help',{method:'POST',body:{channelId:$('game-help-channel').value,gameSlug:$('game-help-game').value,mapName:$('game-help-game').value==='roblox'?$('game-help-map').value||undefined:undefined}});result.textContent='✅ تم تسجيل الرسالة للإرسال. تابع نتيجة وصولها في سجل الحملات.';await loadAdminBroadcasts();}catch(error){result.textContent=`❌ ${error.message}`}finally{button.disabled=false}};
+  const preview=()=>{const slug=$('game-help-game').value,daily=Number($('game-help-daily').value)||0,days=Number($('game-help-days').value)||0;$('game-help-map-label').hidden=slug!=='roblox';$('game-help-preview').textContent=`مين بدو مساعدة في ${$('game-help-game').selectedOptions[0]?.textContent||'لعبة'}${slug==='roblox'&&$('game-help-map').value?' — '+$('game-help-map').value:''}؟ ${daily} يوميًا × ${days} أيام = ${daily*days} لاعب كحد أقصى.`};
+  $('game-help-game').onchange=preview;$('game-help-map').onchange=preview;$('game-help-daily').oninput=preview;$('game-help-days').oninput=preview;preview();$('game-help-send').disabled=!games.length||!options.channels.length;
+  $('admin-game-help-form').onsubmit=async event=>{event.preventDefault();const button=$('game-help-send'),result=$('game-help-result');if(button.disabled)return;button.disabled=true;try{await api('/api/web-admin/game-help',{method:'POST',body:{channelId:$('game-help-channel').value,gameSlug:$('game-help-game').value,mapName:$('game-help-game').value==='roblox'?$('game-help-map').value||undefined:undefined,dailyCapacity:Number($('game-help-daily').value),days:Number($('game-help-days').value)}});result.textContent='✅ تم إرسال الحملة وفتح التسجيل. تابع الأسماء من سجل الحملات.';await loadAdminBroadcasts();}catch(error){result.textContent=`❌ ${error.message}`}finally{button.disabled=false}};
 }
 async function bindSecurityModeration(settings){
   const options=await api('/api/web-admin/discord-options');
@@ -786,13 +786,18 @@ function bindAdminBroadcastForm(){
 
 async function loadAdminBroadcasts(){
   clearTimeout(adminBroadcastTimer);
+  const openHelp=new Set([...document.querySelectorAll('.game-help-admin[open]')].map(node=>node.dataset.campaign));
   const campaigns=await api('/api/web-admin/broadcasts');
   const labels={PENDING:'بانتظار البوت',RUNNING:'جارِ الإرسال',COMPLETED:'مكتملة',FAILED:'فشلت'};
   $('admin-broadcast-list').innerHTML=campaigns.length?campaigns.map(item=>{
     const delivered=item.sentCount+item.failedCount,percent=item.totalMembers?Math.min(100,Math.round(delivered/item.totalMembers*100)):0;
-    return `<article class="admin-room"><div><b>📣 ${escapeHtml(item.title)}</b><small>${new Date(item.createdAt).toLocaleString('ar')} · ${escapeHtml(labels[item.status]||item.status)}</small>${item.lastError?`<small class="error-text">${escapeHtml(item.lastError)}</small>`:''}</div><div class="broadcast-progress"><small>✅ ${item.sentCount} وصلت · ❌ ${item.failedCount} تعذرت · 🤖 ${item.skippedCount} بوت</small><progress value="${percent}" max="100"></progress></div></article>`;
+    const registrations=item.helpRegistrations||[],help=item.helpTotalCapacity?`<details class="game-help-admin" data-campaign="${escapeHtml(item.id)}" ${openHelp.has(item.id)?'open':''}><summary>المسجلون ${registrations.length}/${item.helpTotalCapacity} · ${item.helpDailyCapacity} يوميًا لمدة ${item.helpDays} أيام</summary>${registrations.length?registrations.map(reg=>{const dayDate=new Date(new Date(item.helpStartsAt).getTime()+(reg.assignedDay-1)*86400000).toLocaleDateString('ar',{weekday:'long',day:'numeric',month:'long'});return `<div class="game-help-player"><span><b>${escapeHtml(reg.displayName)}</b><small>${escapeHtml(reg.userId)} · اليوم ${reg.assignedDay} (${escapeHtml(dayDate)}) · ${reg.status==='HELPED'?'تمت مساعدته':'بانتظار المساعدة'}</small></span>${reg.status==='WAITING'?`<button class="button primary small" data-help-complete="${escapeHtml(reg.id)}">تمت مساعدته</button>`:reg.rejoinAllowed?'<small>✅ مسموح له التسجيل مجددًا</small>':`<button class="button ghost small" data-help-rejoin="${escapeHtml(reg.id)}">السماح مجددًا</button>`}</div>`}).join(''):'<p class="section-note">لم يسجل أحد بعد.</p>'}</details>`:'';
+    return `<article class="admin-room admin-broadcast-card"><div><b>📣 ${escapeHtml(item.title)}</b><small>${new Date(item.createdAt).toLocaleString('ar')} · ${escapeHtml(labels[item.status]||item.status)}</small>${item.lastError?`<small class="error-text">${escapeHtml(item.lastError)}</small>`:''}${help}</div><div class="broadcast-progress"><small>✅ ${item.sentCount} وصلت · ❌ ${item.failedCount} تعذرت · 🤖 ${item.skippedCount} بوت</small><progress value="${percent}" max="100"></progress></div></article>`;
   }).join(''):empty('لم يتم إرسال رسائل جماعية بعد.');
-  if(campaigns.some(item=>item.status==='PENDING'||item.status==='RUNNING'))adminBroadcastTimer=setTimeout(()=>loadAdminBroadcasts().catch(()=>undefined),4000);
+  document.querySelectorAll('[data-help-complete]').forEach(button=>button.onclick=()=>updateGameHelpRegistration(button,'complete'));
+  document.querySelectorAll('[data-help-rejoin]').forEach(button=>button.onclick=()=>updateGameHelpRegistration(button,'allow-rejoin'));
+  const activeHelp=campaigns.some(item=>item.helpStartsAt&&Date.now()<new Date(item.helpStartsAt).getTime()+(item.helpDays||0)*86400000);
+  if(campaigns.some(item=>item.status==='PENDING'||item.status==='RUNNING')||activeHelp)adminBroadcastTimer=setTimeout(()=>loadAdminBroadcasts().catch(()=>undefined),activeHelp?8000:4000);
 }
 
 async function loadAdminTradeModeration(){
@@ -948,6 +953,10 @@ function trapDialogFocus(event,container){
   const first=controls[0],last=controls.at(-1);if(!first)return;
   if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
   else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+}
+async function updateGameHelpRegistration(button,action){
+  const id=button.dataset.helpComplete||button.dataset.helpRejoin;button.disabled=true;
+  try{await api(`/api/web-admin/game-help/registrations/${encodeURIComponent(id)}/${action}`,{method:'POST'});await loadAdminBroadcasts()}catch(error){button.disabled=false;alert(error.message)}
 }
 async function loadAdminTeams(){
   const teams=await api('/api/web-admin/teams');
