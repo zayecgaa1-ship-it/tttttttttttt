@@ -13,6 +13,7 @@
     "test:joke-cards": "tsx --test packages/fun/src/joke-card.test.ts",
     "preview:joke-cards": "tsx scripts/render-joke-card-samples.mjs",
     "verify": "npm run build && npm test",
+    "test:tutorial": "node scripts/tutorial-web-smoke.mjs && node scripts/experience-web-smoke.mjs",
     "test:reports": "tsx scripts/report-ticket-smoke.ts",
     "test:ai-actions": "tsx scripts/ai-actions-smoke.ts",
     "test:admin-games": "tsx scripts/admin-game-content-smoke.ts",
