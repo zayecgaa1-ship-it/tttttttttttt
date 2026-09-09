@@ -53,11 +53,25 @@ try{
   await page.goto('https://zark.local/');
   await page.locator('#tutorial-help-fab').click();await page.locator('[data-full]').click();await title('مرحبًا في Zark');
   await page.locator('[data-next]').click();await title('التنقل');
+  assert.equal(await page.locator('#mobile-more-drawer').isVisible(),true);
+  assert.equal(await page.locator('#mobile-more-drawer section').getAttribute('data-tour-active'),'true');
+  assert.equal(await page.locator('#nav-links').evaluate(el=>el.classList.contains('open')),false);
+  mkdirSync('artifacts/tutorial',{recursive:true});await page.screenshot({path:'artifacts/tutorial/new-drawer.png'});
+  await page.setViewportSize({width:1440,height:900});
+  await page.waitForSelector('#nav-links[data-tour-active]');
+  assert.equal(await page.locator('#mobile-more-drawer').isVisible(),false);
+  await page.setViewportSize({width:390,height:844});
+  await page.waitForSelector('#mobile-more-drawer section[data-tour-active]');
   await page.locator('[data-next]').click();await page.waitForURL('**/lfg.html');await title('اختر اللعبة');
   assert.equal(await page.locator('#create-room-panel').evaluate(el=>el.classList.contains('open')),true);
   await page.locator('[data-back]').click();await page.waitForURL('https://zark.local/');await title('التنقل');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#mobile-menu').getAttribute('aria-expanded'),'false');
+  assert.equal(await page.locator('#mobile-more-drawer').isVisible(),false);
+  await page.locator('#mobile-menu').click();
+  assert.equal(await page.locator('#mobile-more-drawer').isVisible(),true,'header menu opens the new drawer');
+  assert.equal(await page.locator('#nav-links').evaluate(el=>el.classList.contains('open')),false);
+  await page.locator('[data-close-more]').click();
 
   await page.goto('https://zark.local/lfg.html');
   await page.locator('#tutorial-help-fab').click();await page.locator('[data-section="lfg"]').click();await title('اختر اللعبة');

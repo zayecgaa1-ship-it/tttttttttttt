@@ -92,13 +92,15 @@ const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="/status.html">حالة النظام</a>');
   const menu = $('mobile-menu');
   document.querySelector('.nav-alerts').onclick=()=>me?location.href='/trade.html?tab=notifications':showToast('سجّل أولًا','اربط حساب Discord لعرض تنبيهاتك.');
-  menu.setAttribute('aria-controls', 'nav-links');
+  menu.setAttribute('aria-controls', matchMedia('(max-width:900px)').matches?'mobile-more-drawer':'nav-links');
   menu.setAttribute('aria-expanded', 'false');
   const closeMenu = () => { $('nav-links').classList.remove('open'); menu.setAttribute('aria-expanded', 'false'); };
-  menu.onclick = () => menu.setAttribute('aria-expanded', String($('nav-links').classList.toggle('open')));
   const mobileMore=$('mobile-more'),moreDrawer=$('mobile-more-drawer');
-  const closeMore=()=>{moreDrawer.hidden=true;mobileMore?.setAttribute('aria-expanded','false');document.body.classList.remove('drawer-open')};
-  mobileMore.onclick=()=>{moreDrawer.hidden=false;mobileMore.setAttribute('aria-expanded','true');document.body.classList.add('drawer-open');moreDrawer.querySelector('[data-close-more]')?.focus()};
+  mobileMore.setAttribute('aria-controls','mobile-more-drawer');
+  const closeMore=()=>{moreDrawer.hidden=true;mobileMore?.setAttribute('aria-expanded','false');menu.setAttribute('aria-expanded','false');document.body.classList.remove('drawer-open')};
+  const openMore=()=>{closeMenu();moreDrawer.hidden=false;mobileMore.setAttribute('aria-expanded','true');menu.setAttribute('aria-controls','mobile-more-drawer');menu.setAttribute('aria-expanded','true');document.body.classList.add('drawer-open');moreDrawer.querySelector('[data-close-more]')?.focus()};
+  mobileMore.onclick=openMore;
+  menu.onclick=()=>{if(matchMedia('(max-width:900px)').matches){menu.setAttribute('aria-controls','mobile-more-drawer');moreDrawer.hidden?openMore():closeMore()}else{menu.setAttribute('aria-controls','nav-links');menu.setAttribute('aria-expanded',String($('nav-links').classList.toggle('open')))}};
   moreDrawer.querySelector('[data-close-more]').onclick=closeMore;moreDrawer.querySelector('.drawer-backdrop').onclick=closeMore;
   moreDrawer.onkeydown=event=>{if(event.key==='Escape'){closeMore();mobileMore.focus()}else trapDialogFocus(event,moreDrawer.querySelector('section'))};
   $('site-nav').onkeydown = event => { if (event.key === 'Escape') { closeMenu(); closeMore(); menu.focus(); } };
@@ -191,7 +193,7 @@ function renderTourComplete(sectionKey,fullCompleted=false){cleanupTour();const 
 const tutorialManager=(()=>{
   const version=4,key='zark-tutorial-v4';
   const sections={
-    basics:{icon:'✨',title:'الأساسيات',route:'/',steps:[['.brand','مرحبًا في Zark','من الشعار تعود للصفحة الرئيسية.'],['#nav-links','التنقل','من هنا تصل إلى الغرف والألعاب وملفك والدعم.']]},
+    basics:{icon:'✨',title:'الأساسيات',route:'/',steps:[['.brand','مرحبًا في Zark','من الشعار تعود للصفحة الرئيسية.'],['#nav-links','التنقل','على الجوال تصل للغرف والألعاب وملفك من الشريط السفلي، وتفتح «المزيد» للفرق والدعم وباقي الصفحات. على الكمبيوتر استخدم القائمة العلوية.']]},
     lfg:{icon:'🎮',title:'إنشاء غرفة LFG',route:'/lfg.html',steps:[['[data-tour="game-selector"]','اختر اللعبة','اختر اللعبة التي تريد التجمع لها؛ أجهزتها تظهر تلقائيًا.'],['[data-tour="players-count"]','عدد اللاعبين','حدد عدد اللاعبين المطلوبين.'],['[data-tour="play-when"]','وقت اللعب','اختر الآن أو لاحقًا؛ اللاحق يفتح الموعد.'],['#create-room-form button[type="submit"]','أنشئ التجمع','اضغط هنا بعد مراجعة الخيارات لإنشاء الغرفة.'],['[data-tour="categories"]','التصنيفات','صفّ الغرف حسب النوع.'],['#rooms .room-card, #rooms .empty-state','الغرف المباشرة','ادخل للغرفة أو اخرج منها وافتح Voice.'],['[data-tour="interests"]','الاهتمامات','فعّل ألعابك لتصلك اقتراحات مناسبة.']]},
     games:{icon:'🏆',title:'ألعاب Zark',route:'/games.html',steps:[['.page-hero','ألعاب البوت','هنا أوامر ألعاب Zark واختصاراتها.'],['.game-stage','ابدأ لعبة','هذا الزر يختار لعبة فقط. انسخ أمرها وشغّله داخل Discord لبدء الجولة.'],['.catalog-toolbar','ابحث واحفظ','فلتر حسب التصنيف وابحث باسم اللعبة، واستخدم النجمة لحفظ المفضلة على هذا الجهاز.'],['#zark-games','كتالوج الألعاب','اختر اللعبة التي تريدها ثم ابدأ من Discord.']]},
     teams:{icon:'👥',title:'فرق Zark',route:'/teams.html',steps:[['#team-account','فريقك','أنشئ فريقاً أو راجع التشكيلة والدعوات والصلاحيات.'],['#team-list','ترتيب الفرق','تتغير نقاط الفريق مع XP والانتصارات وجلسات LFG المكتملة.'],['#team-search','البحث عن فريق','ابحث باسم الفريق أو وصفه.']]},
@@ -212,7 +214,7 @@ const tutorialManager=(()=>{
   let cleanupFns=[],activeTarget=null,raf=0,tourEpoch=0,memory=null,returnFocus=null,restorePage=null;
   const read=()=>{if(memory)return memory;try{const saved=JSON.parse(localStorage.getItem(key)||'{}');return saved&&typeof saved==='object'&&!Array.isArray(saved)?saved:{}}catch{return {}}};
   const write=patch=>{const value={...read(),...patch,version};memory=value;try{localStorage.setItem(key,JSON.stringify(value))}catch{}return value};
-  function rememberPage(){if(restorePage)return;returnFocus=document.activeElement;const menuOpen=$('nav-links')?.classList.contains('open'),createOpen=$('create-room-panel')?.classList.contains('open');restorePage=()=>{if(!menuOpen){$('nav-links')?.classList.remove('open');$('mobile-menu')?.setAttribute('aria-expanded','false')}if(!createOpen)$('close-create-room')?.click();restorePage=null;returnFocus?.isConnected&&returnFocus.focus()};}
+  function rememberPage(){if(restorePage)return;returnFocus=document.activeElement;const menuOpen=$('nav-links')?.classList.contains('open'),drawerOpen=$('mobile-more-drawer')&&!$('mobile-more-drawer').hidden,createOpen=$('create-room-panel')?.classList.contains('open');restorePage=()=>{if(!menuOpen){$('nav-links')?.classList.remove('open');$('mobile-menu')?.setAttribute('aria-expanded','false')}if(!drawerOpen)$('mobile-more-drawer')?.querySelector('[data-close-more]')?.click();if(!createOpen)$('close-create-room')?.click();restorePage=null;returnFocus?.isConnected&&returnFocus.focus()};}
   function pause(){write({status:'paused',pausedVersion:version});clean();restorePage?.();}
   function dialogKeys(layer){layer.setAttribute('role','dialog');layer.setAttribute('aria-modal','true');layer.setAttribute('aria-label','دليل استخدام Zark');layer.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();pause()}else if(event.key==='Tab')trapDialogFocus(event,layer)});}
   const clean=()=>{tourEpoch++;cancelAnimationFrame(raf);cleanupFns.splice(0).forEach(fn=>fn());document.getElementById('zark-tutorial-v4')?.remove();document.querySelectorAll('[data-tour-active]').forEach(n=>n.removeAttribute('data-tour-active'));document.querySelectorAll('[data-tour-nav]').forEach(n=>n.removeAttribute('data-tour-nav'));activeTarget=null};
@@ -241,8 +243,13 @@ const tutorialManager=(()=>{
     if(!me&&(section==='profile'||step[3]==='createTrade'))return fallback(section,index,true);
     if(step[3]==='createTrade')showTradeTab('create');
     if(section==='lfg'&&index<4)$('open-create-room')?.click();else if(section==='lfg')$('close-create-room')?.click();
-    if(step[0]==='#nav-links'&&innerWidth<=1200){$('nav-links')?.classList.add('open');$('mobile-menu')?.setAttribute('aria-expanded','true');}
-    const target=await waitFor(step[0],epoch);if(epoch!==tourEpoch)return;if(!target)return fallback(section,index);
+    let selector=step[0];
+    if(selector==='#nav-links'&&matchMedia('(max-width:900px)').matches){
+      $('nav-links')?.classList.remove('open');
+      if($('mobile-more-drawer')?.hidden)$('mobile-more')?.click();
+      selector='#mobile-more-drawer section';
+    }else if(section==='basics')$('mobile-more-drawer')?.querySelector('[data-close-more]')?.click();
+    const target=await waitFor(selector,epoch);if(epoch!==tourEpoch)return;if(!target)return fallback(section,index);
     target.closest('.site-nav')?.setAttribute('data-tour-nav','true');
     target.scrollIntoView({block:'center',behavior:'auto'});
     if(!visible(target))return fallback(section,index);paint(section,index,target);
@@ -255,7 +262,7 @@ const tutorialManager=(()=>{
     layer.id='zark-tutorial-v4';layer.className='product-tour-layer tutorial-v4-layer';
     layer.innerHTML=`<div class="tour-spotlight"></div><aside class="tour-tooltip"><button class="tour-close" aria-label="إيقاف الشرح" data-pause>×</button><small>${s.title} · ${index+1}/${s.steps.length}</small><progress class="tutorial-progress" max="${s.steps.length}" value="${index+1}" aria-label="تقدم القسم"></progress><h2>${step[1]}</h2><p>${step[2]}</p><div><button class="button ghost small" data-back ${index===0&&!(read().full&&Object.keys(sections).indexOf(section)>0)?'disabled':''}>السابق</button><button class="button ghost small" data-center>الأقسام</button><button class="button primary small" data-next>${index===s.steps.length-1?'إنهاء القسم':'التالي'}</button></div></aside>`;
     document.body.append(layer);dialogKeys(layer.querySelector('.tour-tooltip'));
-    const move=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>position(layer,target))};
+    const move=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{if(step[0]==='#nav-links'&&matchMedia('(max-width:900px)').matches!==Boolean(target.closest('#mobile-more-drawer')))return start(section,index,read().full,read().fullIndex||0);position(layer,target)})};
     const keyboard=e=>{if(e.defaultPrevented||e.target.matches('input,textarea,select,[contenteditable="true"]'))return;if(e.key==='Escape'){e.preventDefault();pause()}else if(e.key==='ArrowLeft'){e.preventDefault();next(section,index)}else if(e.key==='ArrowRight'){e.preventDefault();previous(section,index)}};
     addEventListener('resize',move,{passive:true});addEventListener('scroll',move,true);document.addEventListener('keydown',keyboard);
     const observer=new ResizeObserver(move);observer.observe(target);

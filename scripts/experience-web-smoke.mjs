@@ -56,7 +56,9 @@ try{
  await page.locator('#tutorial-help-fab').click();await page.locator('[data-section="basics"]').click();
  await page.waitForURL('https://zark.local/');await page.waitForSelector('.tour-tooltip');
  await page.locator('[data-next]').click();await page.waitForFunction(()=>document.querySelector('.tour-tooltip h2')?.textContent==='التنقل');
- assert.equal(await page.locator('#mobile-menu').getAttribute('aria-expanded'),'true');
+ assert.equal(await page.locator('#mobile-more').getAttribute('aria-expanded'),'true');
+ assert.equal(await page.locator('#mobile-more-drawer section').getAttribute('data-tour-active'),'true');
+ assert.equal(await page.locator('#nav-links').evaluate(el=>el.classList.contains('open')),false);
  await page.keyboard.press('Escape');assert.equal(await page.locator('.tour-tooltip').count(),0);
  assert.deepEqual(errors,[]);console.log('PASS: responsive pages, signed-in commands/home CTA, completed-user tutorial restart across pages, mobile navigation and Escape.');
 }finally{await browser.close();}
