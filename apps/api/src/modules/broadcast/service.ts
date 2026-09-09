@@ -14,6 +14,21 @@ export async function listBroadcasts() {
   return db.adminBroadcast.findMany({ orderBy: { createdAt: "desc" }, take: 30 });
 }
 
+export async function createGameHelp(admin:WebUser,input:{channelId:string;gameSlug:string;mapName?:string}){
+  const game=await db.lfgGameCatalog.findUnique({where:{slug:input.gameSlug}});
+  if(!game?.enabled)throw new HttpError('اللعبة غير متاحة',400);
+  const map=game.slug==='roblox'&&input.mapName?` — ${input.mapName}`:'';
+  const campaign=await serializable(async tx=>{
+    const recent=await tx.adminBroadcast.findFirst({where:{adminId:admin.userId,targetChannelId:input.channelId,createdAt:{gte:new Date(Date.now()-30_000)}}});
+    if(recent)throw new HttpError('انتظر 30 ثانية قبل إرسال طلب مساعدة آخر لنفس الروم',429);
+    const created=await tx.adminBroadcast.create({data:{adminId:admin.userId,targetChannelId:input.channelId,title:`مساعدة في ${game.name}${map}`.slice(0,80),content:`🎮 مين بدو مساعدة في ${game.name}${map}؟\nاكتب في هذا الروم شو محتاج، واللي يقدر يساعد يرد عليه.`}});
+    await tx.auditLog.create({data:{adminId:admin.userId,action:'game-help.created',targetId:created.id,details:{channelId:input.channelId,gameSlug:game.slug,mapName:input.mapName??null}}});
+    return created;
+  });
+  publish({type:'broadcast.created',broadcastId:campaign.id,adminId:admin.userId});
+  return campaign;
+}
+
 export async function createBroadcast(admin: WebUser, input: { title: string; content: string; confirmation: string }) {
   if (input.confirmation.trim() !== "إرسال") throw new HttpError("اكتب كلمة إرسال للتأكيد", 400);
   const title = cleanBroadcastText(input.title, 80);
@@ -21,9 +36,9 @@ export async function createBroadcast(admin: WebUser, input: { title: string; co
   if (title.length < 2 || content.length < 2) throw new HttpError("اكتب عنوانًا ومحتوى واضحين", 400);
 
   const campaign = await serializable(async (tx) => {
-    const active = await tx.adminBroadcast.findFirst({ where: { status: { in: ["PENDING", "RUNNING"] } } });
+    const active = await tx.adminBroadcast.findFirst({ where: { targetChannelId:null, status: { in: ["PENDING", "RUNNING"] } } });
     if (active) throw new HttpError("توجد رسالة جماعية قيد الإرسال؛ انتظر حتى تنتهي", 409);
-    const recent = await tx.adminBroadcast.findFirst({ where: { createdAt: { gte: new Date(Date.now() - BROADCAST_COOLDOWN_MS) }, status: { in: ["PENDING", "RUNNING", "COMPLETED"] } }, orderBy: { createdAt: "desc" } });
+    const recent = await tx.adminBroadcast.findFirst({ where: { targetChannelId:null, createdAt: { gte: new Date(Date.now() - BROADCAST_COOLDOWN_MS) }, status: { in: ["PENDING", "RUNNING", "COMPLETED"] } }, orderBy: { createdAt: "desc" } });
     if (recent) throw new HttpError("لحماية الأعضاء من الإزعاج، يمكن بدء حملة واحدة كل 30 دقيقة", 429);
     const created = await tx.adminBroadcast.create({ data: { adminId: admin.userId, title, content } });
     await tx.auditLog.create({ data: { adminId: admin.userId, action: "broadcast.created", targetId: created.id, details: { title } } });

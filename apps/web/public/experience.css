@@ -47,3 +47,4 @@ body{background:radial-gradient(ellipse at 0 0,#e5263620,transparent 55%),#0b0c1
 @media(prefers-reduced-motion:reduce){.tutorial-v4-layer .tour-spotlight{transition:none}}
 @media(max-width:700px){.tutorial-v4-layer .tour-tooltip.tour-tooltip-mobile-top{top:max(12px,env(safe-area-inset-top))!important;bottom:auto!important}}
 #mobile-more-drawer section[data-tour-active]{animation:none}
+.security-role-policy{min-inline-size:0;margin:12px 0}.security-role-policy label{min-width:0}.security-role-policy select{max-width:100%}#security-events details{max-width:100%;overflow-wrap:anywhere}#security-events details p{white-space:pre-wrap}

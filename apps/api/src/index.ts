@@ -20,7 +20,9 @@ import { askSupport, diagnoseSupportAi, getSupportStatus } from "./modules/suppo
 import { buyVip, getLoyaltyProfile, listLoyaltyRoleMembers, purchaseLoyaltyReward, startLoyaltyBoost, weeklyLoyaltyLeaderboard } from "./modules/loyalty/service.js";
 import { getSecuritySettings, isSuspended, pendingRestorations, recentTimeoutActions, recordSecurityAction, restoreSuspendedAdmin, securityDashboard, updateSecuritySettings } from "./modules/security/service.js";
 import { answerTradeCompletion, backfillTradeThumbnails, createTrade, decideInterest, deleteTradePermanently, expireDueTrades, expressInterest, getTrade, getTradeConversation, isCurrentTradeModerator, listTradeInbox, listTrades, readTradeNotifications, reportTrade, requestTradeCompletion, resolveTradeReport, reviewTrade, reviseTradeMessage, sendTradeMessage, setTradeDiscordMessage, setTradeStatus, tradeModerationDashboard, tradeNotifications, updateTrade } from "./modules/trade/service.js";
-import { claimBroadcast, createBroadcast, getPendingBroadcast, listBroadcasts, updateBroadcastProgress } from "./modules/broadcast/service.js";
+import { claimBroadcast, createBroadcast, createGameHelp, getPendingBroadcast, listBroadcasts, updateBroadcastProgress } from "./modules/broadcast/service.js";
+import { discordOptions } from './discord-options.js';
+import { moderationSettingsSchema } from '../../../packages/shared/src/moderation.js';
 import { getWebUser, HttpError, isCurrentWebAdmin, isWebOwner, registerDiscordAuth, requireWebAdmin, requireWebOwner, requireWebUser } from "./auth.js";
 
 // A validated 1.5MB image becomes roughly 2MB after base64 encoding; leave
@@ -380,6 +382,14 @@ app.get("/api/web-admin/broadcasts", async (request) => {
   await requireWebAdmin(request);
   return listBroadcasts();
 });
+app.get('/api/web-admin/discord-options',async request=>{await requireWebAdmin(request);return discordOptions()});
+app.post('/api/web-admin/game-help',async request=>{
+  const admin=await requireWebAdmin(request);
+  const body=z.object({channelId:z.string().regex(/^\d{17,20}$/),gameSlug:z.string().min(1).max(100),mapName:z.enum(['Blox Fruits']).optional()}).parse(request.body);
+  const options=await discordOptions();
+  if(!options.channels.some(channel=>channel.id===body.channelId))throw new HttpError('اختر روم كتابة من هذا السيرفر',400);
+  return createGameHelp(admin,body);
+});
 app.post("/api/web-admin/broadcasts", async (request) => {
   const admin = await requireWebAdmin(request);
   const body = z.object({ title: z.string().min(2).max(80), content: z.string().min(2).max(1500), confirmation: z.string().max(20) }).parse(request.body);
@@ -481,6 +491,15 @@ app.put("/api/security/settings", async (request) => {
     operationalExemptUserIds: z.array(z.string().regex(/^\d{17,20}$/)).max(100).default([]),
   }).parse(request.body);
   return updateSecuritySettings(guildId, body);
+});
+app.put('/api/security/moderation-settings',async request=>{
+  await requireWebOwner(request);
+  const guildId=process.env.DISCORD_GUILD_ID;
+  if(!guildId)throw new HttpError('DISCORD_GUILD_ID غير مضبوط',503);
+  const body=moderationSettingsSchema.parse(request.body);
+  const options=await discordOptions();
+  if(body.rolePolicies.some(policy=>!options.roles.some(role=>role.id===policy.roleId)))throw new HttpError('إحدى الرتب المحددة لم تعد موجودة',400);
+  return updateSecuritySettings(guildId,body);
 });
 app.post("/api/security/suspensions/:userId/restore", async (request) => {
   const owner = await requireWebOwner(request);
@@ -884,6 +903,7 @@ app.post("/api/security/actions", { preHandler: requireServiceKey }, async (requ
     actionType: z.enum(["MEMBER_BAN", "MEMBER_KICK", "MEMBER_TIMEOUT", "MEMBER_TIMEOUT_REMOVED", "ROLE_ADDED", "ROLE_REMOVED", "ROLE_CREATED", "ROLE_DELETED", "ROLE_UPDATED", "CHANNEL_CREATED", "CHANNEL_DELETED", "CHANNEL_UPDATED", "WEBHOOK_CREATED", "WEBHOOK_DELETED", "WEBHOOK_UPDATED", "BOT_ADDED", "UNKNOWN"]),
     auditLogId: z.string().max(40).optional(), reason: z.string().max(512).optional(), metadata: z.record(z.string(), z.unknown()).optional(),
     roleSnapshots: z.array(z.object({ roleId: z.string().regex(/^\d{17,20}$/), roleName: z.string().max(100).optional() })).max(100).optional(),
+    executorRoleIds:z.array(z.string().regex(/^\d{17,20}$/)).max(250).optional(),
   }).parse(request.body);
   return recordSecurityAction({ ...body, metadata: body.metadata as Prisma.InputJsonValue | undefined });
 });

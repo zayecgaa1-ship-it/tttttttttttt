@@ -1,7 +1,7 @@
 import "dotenv/config";
 import {
   ActionRowBuilder, AttachmentBuilder, AuditLogEvent, ButtonBuilder, ButtonStyle, ChannelType, Client, EmbedBuilder, Events, GatewayIntentBits, ModalBuilder, PermissionFlagsBits, REST, Routes,
-  MessageFlags, OverwriteType, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
+  MessageFlags, OverwriteType, Partials, SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from "discord.js";
 import { createClient } from "redis";
 import path from "node:path";
@@ -16,6 +16,7 @@ import {trustedSourceMemes,memeSource} from "../../../packages/fun/src/source-me
 import {prop2HateMemes,prop2HateSource,type Prop2HateMeme} from "../../../packages/fun/src/prop2hate-memes.js";
 import {renderJokeCard} from "../../../packages/fun/src/joke-card.js";
 import { apiGet, apiSend } from "./api/client.js";
+import { detectProfanity } from '../../../packages/shared/src/moderation.js';
 
 const token = process.env.DISCORD_TOKEN;
 const guildId = process.env.DISCORD_GUILD_ID;
@@ -93,12 +94,16 @@ for(const game of raceGames.values())for(const alias of game.aliases || [])dotAl
 if (!token) {
   console.warn("DISCORD_TOKEN غير مضبوط؛ تم تخطي تشغيل بوت Discord.");
 } else {
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildVoiceStates] });
+  const client = new Client({ partials:[Partials.Message], intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildVoiceStates] });
   const commands = buildCommands();
   const listingInFlight = new Set<string>();
   const roomSpaceInFlight = new Set<string>();
   const ratingRequestsInFlight = new Set<string>();
   const broadcastsInFlight = new Set<string>();
+  const moderationInFlight=new Set<string>();
+  let moderationConfig:{profanityEnabled:boolean;profanityNotifyOwner:boolean;profanityLogEnabled:boolean;profanityCustomWords:string[];securityLogChannelId?:string|null}|undefined;
+  let moderationConfigAt=0;
+  let moderationConfigRequest:Promise<void>|undefined;
   const roomByVoiceChannel = new Map<string, string>();
   const moderationAlertCooldown = new Map<string, number>();
   let securityReadiness: { checked: boolean; ready: boolean; missingPermissions: string[]; blockedRoles: Array<{ id: string; name: string }> } = { checked: false, ready: false, missingPermissions: [], blockedRoles: [] };
@@ -254,6 +259,9 @@ if (!token) {
     }
   });
 
+  client.on(Events.MessageUpdate,async (_previous,message)=>{
+    try{const current=message.partial?await message.fetch():message;if(!current.author.bot)await enforceMessageSafety(current)}catch(error){console.error('Edited message moderation failed',error)}
+  });
   client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot) {
       if (message.author.id === disboardBotId && isDisboardBumpConfirmation(message)) {
@@ -837,6 +845,13 @@ if (!token) {
       const claim = await apiSend<{ claimed: boolean; campaign: BroadcastCampaign | null }>(`/api/bot/broadcasts/${id}/claim`, "POST", {});
       if (!claim.claimed || !claim.campaign) return;
       const guild = await client.guilds.fetch(guildId);
+      if(claim.campaign.targetChannelId){
+        totalMembers=1;failedCount=1;
+        const channel=await guild.channels.fetch(claim.campaign.targetChannelId);
+        if(!channel||![ChannelType.GuildText,ChannelType.GuildAnnouncement].includes(channel.type)||!channel.isTextBased()||!('send' in channel))throw new Error('روم المساعدة غير متاح أو لا يقبل الرسائل');
+        await channel.send({embeds:[baseEmbed().setTitle(`🎮 ${claim.campaign.title}`).setDescription(claim.campaign.content)],allowedMentions:{parse:[]},nonce:claim.campaign.id.slice(0,25),enforceNonce:true});
+        sentCount=1;failedCount=0;await updateBroadcast('COMPLETED');return;
+      }
       const members = await guild.members.fetch();
       const recipients = [...members.values()].filter((member) => !member.user.bot);
       skippedCount = members.size - recipients.length;
@@ -1226,6 +1241,28 @@ if (!token) {
 
   async function enforceMessageSafety(message: any) {
     if (!message.guildId) return false;
+    if(message.guildId===guildId){
+      if(Date.now()-moderationConfigAt>30_000){
+        if(!moderationConfigRequest)moderationConfigRequest=apiGet<NonNullable<typeof moderationConfig>>('/api/security/settings',true).then(settings=>{moderationConfig=settings}).catch(error=>console.error('Moderation settings unavailable',error)).finally(()=>{moderationConfigAt=Date.now();moderationConfigRequest=undefined});
+        await moderationConfigRequest;
+      }
+      const hit=moderationConfig?.profanityEnabled?detectProfanity(message.content??'',moderationConfig.profanityCustomWords):null;
+      if(hit){
+        if(moderationInFlight.has(message.id))return true;
+        moderationInFlight.add(message.id);
+        try{
+          const deleted=await message.delete().then(()=>true).catch(()=>false);
+          const reason=`مسبة: ${hit.matched} — ${deleted?'تم الحذف':'تعذر الحذف؛ تحقق من صلاحية Manage Messages'}`;
+          await apiSend('/api/security/actions','POST',{guildId:message.guildId,executorId:message.author.id,actionType:'UNKNOWN',reason,metadata:{kind:'PROFANITY',content:String(message.content??'').slice(0,4000),matched:hit.matched,deleted,channelId:message.channelId,messageId:message.id,displayName:message.author.username}}).catch(error=>console.error('Profanity audit failed',error));
+          const embed=baseEmbed().setTitle(deleted?'🛡️ حُذفت مسبة':'⚠️ مسبة لم يتمكن البوت من حذفها').setDescription(reason).addFields({name:'المرسل',value:`${message.author.username} (${message.author.id})`},{name:'الروم',value:message.channelId},{name:'نص الرسالة',value:String(message.content??'').slice(0,1000)||'—'});
+          const payload={embeds:[embed],allowedMentions:{parse:[] as never[]}};
+          if(moderationConfig?.profanityNotifyOwner)await client.users.send(ownerUserId,payload).catch(error=>console.error('Profanity owner DM failed',error));
+          const logId=moderationConfig?.securityLogChannelId||runtimeSettings.reportChannelId;
+          if(moderationConfig?.profanityLogEnabled&&logId){const log=await message.guild.channels.fetch(logId).catch(()=>null);if(log?.isTextBased()&&'send' in log)await log.send(payload).catch((error:unknown)=>console.error('Profanity log failed',error));}
+        }finally{moderationInFlight.delete(message.id)}
+        return true;
+      }
+    }
     const attachments = [...(message.attachments?.values?.() ?? [])];
     const text = `${message.content ?? ""} ${attachments.map((attachment: any) => `${attachment.name ?? ""} ${attachment.url ?? ""}`).join(" ")}`;
     const scam = looksLikeScamBroadcast(text);
@@ -1792,7 +1829,7 @@ if (!token) {
 
   function showRobloxRoomModal(interaction: any, count: number, durationMinutes: number, needsVoice: boolean, platform?: LfgPlatform) {
     const modal = new ModalBuilder().setCustomId(`lfg:roblox:${count}:${durationMinutes}:${needsVoice ? "voice" : "novoice"}:${platform ?? ""}`).setTitle("تفاصيل Roblox").addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("mapName").setLabel("اسم الماب — مطلوب").setPlaceholder("Brookhaven / Blox Fruits / Adopt Me...").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("mapName").setLabel("اسم الماب — مطلوب").setValue("Blox Fruits").setPlaceholder("Blox Fruits / Brookhaven / Adopt Me...").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("gameMode").setLabel("نوع اللعب — اختياري").setPlaceholder("Grinding / Roleplay / PvP").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80)),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("description").setLabel("وصف قصير — اختياري").setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500)),
     );
@@ -2162,6 +2199,7 @@ if (!token) {
     const snapshots = executorId ? await dangerousRoleSnapshots(guild, executorId) : [];
     const result = await apiSend<SecurityResult>("/api/security/actions", "POST", {
       guildId: guild.id, executorId, executorIsBot: Boolean(executor?.bot), targetId, actionType, auditLogId: entry.id,
+      executorRoleIds:executorId?await guild.members.fetch(executorId).then((member:any)=>[...member.roles.cache.keys()]).catch(()=>[]):[],
       reason: entry.reason ?? undefined,
       metadata: { auditAction: entry.action, createdTimestamp: entry.createdTimestamp, targetType: entry.targetType ?? undefined },
       roleSnapshots: snapshots,
@@ -2412,4 +2450,4 @@ type LoyaltyProfile = { points: number; lifetimePoints: number; vipUnlocked: boo
 type UnifiedProfile = { displayName: string; avatarUrl?: string; loyalty?: { points: number; lifetimePoints: number; vipUnlocked: boolean; badge?: string }; settings: { activityVisible: boolean; currentActivity: UserAvailability["currentActivity"]; activityUntil?: string; activityNote?: string }; zark: { level: number; xp: number; wins: number; streak: number }; lfg: { engagement: number; completedSessions: number; uniqueTeammates: number; voiceSeconds: number; favoriteGames: Array<{ name: string; icon?: string; sessions: number }>; interests: Array<{ slug: string; name: string; icon?: string }>; rating: { average: number | null; count: number } } };
 type SecurityActionType = "MEMBER_BAN" | "MEMBER_KICK" | "MEMBER_TIMEOUT" | "MEMBER_TIMEOUT_REMOVED" | "ROLE_ADDED" | "ROLE_REMOVED" | "ROLE_CREATED" | "ROLE_DELETED" | "ROLE_UPDATED" | "CHANNEL_CREATED" | "CHANNEL_DELETED" | "CHANNEL_UPDATED" | "WEBHOOK_CREATED" | "WEBHOOK_DELETED" | "WEBHOOK_UPDATED" | "BOT_ADDED" | "UNKNOWN";
 type SecurityResult = { suspend: boolean; duplicate?: boolean; counts?: { bans: number; timeouts: number; kicks: number; roles: number; channels: number; webhooks: number }; suspension?: { reason: string }; settings?: { securityLogChannelId?: string | null; ownerDmAlertsEnabled?: boolean } };
-type BroadcastCampaign = { id: string; title: string; content: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; totalMembers: number; sentCount: number; failedCount: number; skippedCount: number; createdAt: string };
+type BroadcastCampaign = { id: string; targetChannelId?:string|null; title: string; content: string; status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"; totalMembers: number; sentCount: number; failedCount: number; skippedCount: number; createdAt: string };

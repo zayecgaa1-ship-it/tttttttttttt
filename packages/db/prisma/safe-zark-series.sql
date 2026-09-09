@@ -1,3 +1,18 @@
+DO $moderation_migration$
+BEGIN
+  IF to_regclass('"SecuritySettings"') IS NOT NULL THEN
+    ALTER TABLE "SecuritySettings" ADD COLUMN IF NOT EXISTS "rolePolicies" JSONB NOT NULL DEFAULT '[]';
+    ALTER TABLE "SecuritySettings" ADD COLUMN IF NOT EXISTS "profanityEnabled" BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE "SecuritySettings" ADD COLUMN IF NOT EXISTS "profanityNotifyOwner" BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE "SecuritySettings" ADD COLUMN IF NOT EXISTS "profanityLogEnabled" BOOLEAN NOT NULL DEFAULT true;
+    ALTER TABLE "SecuritySettings" ADD COLUMN IF NOT EXISTS "profanityCustomWords" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+  END IF;
+  IF to_regclass('"AdminBroadcast"') IS NOT NULL THEN
+    ALTER TABLE "AdminBroadcast" ADD COLUMN IF NOT EXISTS "targetChannelId" TEXT;
+  END IF;
+END
+$moderation_migration$;
+
 DO $zark_series_migration$
 BEGIN
   IF to_regclass('"ZarkMatch"') IS NOT NULL THEN

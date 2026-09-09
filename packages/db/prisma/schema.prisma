@@ -1149,6 +1149,7 @@ model AuditLog {
 }
 
 model AdminBroadcast {
+  targetChannelId String?
   id           String               @id @default(cuid())
   adminId      String
   title        String
@@ -1171,6 +1172,11 @@ model AdminBroadcast {
 // Per-guild settings deliberately live in the existing PostgreSQL database.
 // Discord user IDs are strings; no client-controlled ownership is stored here.
 model SecuritySettings {
+  rolePolicies             Json     @default("[]")
+  profanityEnabled         Boolean  @default(true)
+  profanityNotifyOwner     Boolean  @default(true)
+  profanityLogEnabled      Boolean  @default(true)
+  profanityCustomWords     String[] @default([])
   guildId                  String   @id
   enabled                  Boolean  @default(true)
   maxBansPerHour           Int      @default(2)

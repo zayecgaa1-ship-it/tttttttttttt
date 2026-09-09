@@ -1,6 +1,8 @@
 import { AdminSuspensionStatus, Prisma, SecurityActionType, SecuritySeverity } from "@prisma/client";
 import { db } from "../../../../../packages/db/src/client.js";
 import { serializable } from "../../db-transaction.js";
+import { roleLimit, type moderationSettingsSchema } from '../../../../../packages/shared/src/moderation.js';
+import type { z } from 'zod';
 
 export const DEFAULT_OWNER_ID = "492368135144603658";
 
@@ -13,6 +15,7 @@ export type SecurityEventInput = {
   reason?: string;
   metadata?: Prisma.InputJsonValue;
   executorIsBot?: boolean;
+  executorRoleIds?: string[];
   roleSnapshots?: { roleId: string; roleName?: string }[];
 };
 
@@ -46,7 +49,7 @@ export async function updateSecuritySettings(guildId: string, input: Partial<{
   enabled: boolean; maxBansPerHour: number; maxTimeoutsPerHour: number; maxKicksPerHour: number;
   maxRoleChangesPerHour: number; maxChannelDeletesPerHour: number; maxWebhookChangesPerHour: number;
   ownerDmAlertsEnabled: boolean; securityLogChannelId: string | null; operationalExemptUserIds: string[];
-}>) {
+}> & Partial<z.infer<typeof moderationSettingsSchema>>) {
   return db.securitySettings.upsert({ where: { guildId }, update: input, create: { guildId, ...input } });
 }
 
@@ -66,7 +69,7 @@ export async function recordSecurityAction(input: SecurityEventInput) {
     } });
     // Bots are logged as EXEMPT, but never enter a counter or enforcement path.
     const counts = policy.bot ? emptyCounts() : await actionCounts(tx, input.guildId, input.executorId);
-    const threshold = policy.enforce ? reachedThreshold(settings, input.actionType, counts) : undefined;
+    const threshold = policy.enforce ? reachedThreshold(settings, input.actionType, counts, input.executorRoleIds??[]) : undefined;
     const alreadySuspended = input.executorId ? await tx.adminSuspension.findUnique({ where: { guildId_userId: { guildId: input.guildId, userId: input.executorId } } }) : null;
     if (!settings.enabled || !input.executorId || !policy.enforce || alreadySuspended?.status === "SUSPENDED" || !threshold) {
       if (!input.executorId) await tx.securityAlert.create({ data: { guildId: input.guildId, severity: "WARNING", title: "Unconfirmed audit event", message: `${input.actionType} was recorded without a confirmed executor.`, actionId: action.id } });
@@ -85,10 +88,12 @@ export async function recordSecurityAction(input: SecurityEventInput) {
 }
 
 /** One enforcement decision for every audit event: owner → bot → human exemption → human. */
-export function securityPolicy(input: SecurityEventInput, settings: Pick<Awaited<ReturnType<typeof getSecuritySettings>>, "operationalExemptUserIds">) {
+export function securityPolicy(input: SecurityEventInput, settings: Pick<Awaited<ReturnType<typeof getSecuritySettings>>, "operationalExemptUserIds"> & {rolePolicies?:unknown}) {
   const owner = Boolean(input.executorId && isOwnerId(input.executorId));
   const bot = Boolean(input.executorId && input.executorIsBot);
-  const humanExempt = Boolean(input.executorId && !bot && settings.operationalExemptUserIds.includes(input.executorId) && isExemptibleAction(input.actionType));
+  const category=Object.entries(COUNTED_TYPES).find(([,types])=>types.includes(input.actionType))?.[0] as 'bans'|'timeouts'|'kicks'|'roles'|'channels'|'webhooks'|undefined;
+  const explicitRule=category&&roleLimit(settings.rolePolicies,input.executorRoleIds??[],category,-1)!==-1;
+  const humanExempt = Boolean(input.executorId && !bot && !explicitRule && settings.operationalExemptUserIds.includes(input.executorId) && isExemptibleAction(input.actionType));
   return {
     owner,
     bot,
@@ -164,13 +169,10 @@ async function countAll(client: typeof db, guildId: string, since: Date) {
 
 function emptyCounts() { return { bans: 0, timeouts: 0, kicks: 0, roles: 0, channels: 0, webhooks: 0 }; }
 
-function reachedThreshold(settings: Awaited<ReturnType<typeof getSecuritySettings>>, type: SecurityActionType, counts: ReturnType<typeof emptyCounts>) {
-  if (type === "MEMBER_BAN" && counts.bans >= settings.maxBansPerHour) return { reason: `Ban limit reached (${counts.bans}/${settings.maxBansPerHour} in 60m)` };
-  if (type === "MEMBER_TIMEOUT" && counts.timeouts >= settings.maxTimeoutsPerHour) return { reason: `Timeout limit reached (${counts.timeouts}/${settings.maxTimeoutsPerHour} in 60m)` };
-  if (type === "MEMBER_KICK" && counts.kicks >= settings.maxKicksPerHour) return { reason: `Kick limit reached (${counts.kicks}/${settings.maxKicksPerHour} in 60m)` };
-  if (["ROLE_ADDED", "ROLE_REMOVED", "ROLE_CREATED", "ROLE_DELETED", "ROLE_UPDATED"].includes(type) && counts.roles >= settings.maxRoleChangesPerHour) return { reason: `Role-change limit reached (${counts.roles}/${settings.maxRoleChangesPerHour} in 60m)` };
-  if (["CHANNEL_CREATED", "CHANNEL_DELETED", "CHANNEL_UPDATED"].includes(type) && counts.channels >= settings.maxChannelDeletesPerHour) return { reason: `Channel-change limit reached (${counts.channels}/${settings.maxChannelDeletesPerHour} in 60m)` };
-  if (["WEBHOOK_CREATED", "WEBHOOK_DELETED", "WEBHOOK_UPDATED"].includes(type) && counts.webhooks >= settings.maxWebhookChangesPerHour) return { reason: `Webhook-change limit reached (${counts.webhooks}/${settings.maxWebhookChangesPerHour} in 60m)` };
+export function reachedThreshold(settings: Pick<Awaited<ReturnType<typeof getSecuritySettings>>, "maxBansPerHour" | "maxTimeoutsPerHour" | "maxKicksPerHour" | "maxRoleChangesPerHour" | "maxChannelDeletesPerHour" | "maxWebhookChangesPerHour" | "rolePolicies">, type: SecurityActionType, counts: ReturnType<typeof emptyCounts>, roleIds:string[]) {
+  const category=Object.entries(COUNTED_TYPES).find(([,types])=>types.includes(type))?.[0] as keyof typeof counts|undefined;
+  const defaults={bans:settings.maxBansPerHour,timeouts:settings.maxTimeoutsPerHour,kicks:settings.maxKicksPerHour,roles:settings.maxRoleChangesPerHour,channels:settings.maxChannelDeletesPerHour,webhooks:settings.maxWebhookChangesPerHour};
+  if(category){const limit=roleLimit(settings.rolePolicies,roleIds,category,defaults[category]);return counts[category]>limit?{reason:`${category}: تجاوز الحد المسموح (${counts[category]}/${limit} خلال ساعة)`}:undefined;}
   return undefined;
 }
 

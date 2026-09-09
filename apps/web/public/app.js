@@ -320,6 +320,8 @@ async function bindSecurity(){
     $('security-events').innerHTML=dashboard.actions.length?dashboard.actions.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.severity)} · ${escapeHtml(item.actionType)}</b><small>${escapeHtml(item.executorId||'غير مؤكد')} ← ${escapeHtml(item.targetId||'-')} · ${new Date(item.timestamp).toLocaleString('ar')}</small><small>${escapeHtml(item.reason||'بدون سبب')}</small></div></article>`).join(''):empty('لا توجد أحداث حماية بعد.');
     $('security-suspensions').innerHTML=dashboard.suspensions.length?dashboard.suspensions.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.userId)} · ${escapeHtml(item.status)}</b><small>${escapeHtml(item.reason)} · ${new Date(item.suspendedAt).toLocaleString('ar')}</small><small>الرتب المحفوظة: ${item.roleSnapshots.map(role=>escapeHtml(role.roleName||role.roleId)).join('، ')||'لا توجد'}</small></div>${item.status==='SUSPENDED'?`<button class="button primary small" data-security-restore="${item.userId}">استرجاع الرتب</button>`:'<span class="live-chip">تم الاسترجاع</span>'}</article>`).join(''):empty('لا توجد إدارات معلّقة.');
     const s=dashboard.settings;['enabled','maxBansPerHour','maxTimeoutsPerHour','maxKicksPerHour','maxRoleChangesPerHour','maxChannelDeletesPerHour','maxWebhookChangesPerHour','ownerDmAlertsEnabled','securityLogChannelId'].forEach(key=>{const input=$(`security-${key}`);if(!input)return;input.type==='checkbox'?input.checked=Boolean(s[key]):input.value=s[key]??''});$('security-operationalExemptUserIds').value=(s.operationalExemptUserIds||[]).join(', ');
+    void bindSecurityModeration(s).catch(error=>{$('security-moderation-result').textContent=error.message});
+    dashboard.actions.forEach((item,index)=>{if(item.metadata?.kind==='PROFANITY')$('security-events').children[index]?.insertAdjacentHTML('beforeend',`<details><summary>نص الرسالة — ${escapeHtml(item.metadata.displayName)} في ${escapeHtml(item.metadata.channelId)}</summary><p dir="auto">${escapeHtml(item.metadata.content)}</p></details>`)});
     $('security-settings-form').onsubmit=async event=>{event.preventDefault();const body={enabled:$('security-enabled').checked,maxBansPerHour:Number($('security-maxBansPerHour').value),maxTimeoutsPerHour:Number($('security-maxTimeoutsPerHour').value),maxKicksPerHour:Number($('security-maxKicksPerHour').value),maxRoleChangesPerHour:Number($('security-maxRoleChangesPerHour').value),maxChannelDeletesPerHour:Number($('security-maxChannelDeletesPerHour').value),maxWebhookChangesPerHour:Number($('security-maxWebhookChangesPerHour').value),ownerDmAlertsEnabled:$('security-ownerDmAlertsEnabled').checked,securityLogChannelId:$('security-securityLogChannelId').value.trim()||null,operationalExemptUserIds:$('security-operationalExemptUserIds').value.split(/[\s,،]+/).filter(Boolean)};try{await api('/api/security/settings',{method:'PUT',body});$('security-result').textContent='✅ تم حفظ إعدادات الحماية.';}catch(error){$('security-result').textContent=`❌ ${error.message}`;}};
     document.querySelectorAll('[data-security-restore]').forEach(button=>button.onclick=async()=>{if(!confirm('استرجاع الرتب الأصلية القابلة للإدارة فقط؟'))return;await api(`/api/security/suspensions/${button.dataset.securityRestore}/restore`,{method:'POST'});await bindSecurity();});
   }catch(error){gate.innerHTML=`<span>🔒</span><h1>الحماية للمالك فقط</h1><p>${escapeHtml(error.message)}</p>`;}
@@ -740,7 +742,32 @@ async function bindAdmin(){
   $('admin-question-cancel').onclick=resetAdminQuestionForm;
 }
 
+async function bindGameHelpForm(){
+  const options=await api('/api/web-admin/discord-options'),games=state.lfgGames||[];
+  $('game-help-channel').innerHTML='<option value="">اختر الروم</option>'+options.channels.map(item=>`<option value="${escapeHtml(item.id)}">#${escapeHtml(item.name)}</option>`).join('');
+  $('game-help-game').innerHTML=games.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.name)}</option>`).join('');
+  const preview=()=>{const slug=$('game-help-game').value;$('game-help-map-label').hidden=slug!=='roblox';$('game-help-preview').textContent=`مين بدو مساعدة في ${$('game-help-game').selectedOptions[0]?.textContent||'لعبة'}${slug==='roblox'&&$('game-help-map').value?' — '+$('game-help-map').value:''}؟`};
+  $('game-help-game').onchange=preview;$('game-help-map').onchange=preview;preview();$('game-help-send').disabled=!games.length||!options.channels.length;
+  $('admin-game-help-form').onsubmit=async event=>{event.preventDefault();const button=$('game-help-send'),result=$('game-help-result');if(button.disabled)return;button.disabled=true;try{const campaign=await api('/api/web-admin/game-help',{method:'POST',body:{channelId:$('game-help-channel').value,gameSlug:$('game-help-game').value,mapName:$('game-help-game').value==='roblox'?$('game-help-map').value||undefined:undefined}});result.textContent='✅ تم تسجيل الرسالة للإرسال. تابع نتيجة وصولها في سجل الحملات.';await loadAdminBroadcasts();}catch(error){result.textContent=`❌ ${error.message}`}finally{button.disabled=false}};
+}
+async function bindSecurityModeration(settings){
+  const options=await api('/api/web-admin/discord-options');
+  const keys={bans:'Ban',timeouts:'Timeout',kicks:'Kick',roles:'تعديلات الرتب',channels:'تعديلات القنوات',webhooks:'Webhook'};
+  const list=$('security-role-policies');list.innerHTML='';
+  function addRow(policy={}){
+    const row=document.createElement('fieldset');row.className='surface security-role-policy';
+    const roles=options.roles.some(role=>role.id===policy.roleId)||!policy.roleId?options.roles:[...options.roles,{id:policy.roleId,name:'رتبة محفوظة غير متاحة'}];
+    row.innerHTML=`<label>الرتبة<select data-policy-role required><option value="">اختر رتبة</option>${roles.map(role=>`<option value="${escapeHtml(role.id)}" ${policy.roleId===role.id?'selected':''}>${escapeHtml(role.name)}</option>`).join('')}</select></label><div class="settings-grid three">${Object.entries(keys).map(([key,label])=>`<label>${label} / ساعة<input data-policy-limit="${key}" type="number" min="0" max="1000" placeholder="الحد العام" value="${escapeHtml(policy[key]??'')}"></label>`).join('')}</div><button class="button danger small" type="button" data-remove-policy>حذف القاعدة</button>`;
+    row.querySelector('[data-remove-policy]').onclick=()=>row.remove();list.append(row);
+  }
+  (Array.isArray(settings.rolePolicies)?settings.rolePolicies:[]).forEach(addRow);
+  $('security-add-role').onclick=()=>addRow();
+  $('profanity-enabled').checked=settings.profanityEnabled!==false;$('profanity-owner').checked=settings.profanityNotifyOwner!==false;$('profanity-log').checked=settings.profanityLogEnabled!==false;$('profanity-custom').value=(settings.profanityCustomWords||[]).join('\n');
+  $('security-save-moderation').disabled=false;
+  $('security-moderation-form').onsubmit=async event=>{event.preventDefault();const button=$('security-save-moderation'),result=$('security-moderation-result');button.disabled=true;try{const rolePolicies=[...list.children].map(row=>({roleId:row.querySelector('[data-policy-role]').value,...Object.fromEntries([...row.querySelectorAll('[data-policy-limit]')].filter(input=>input.value!=='').map(input=>[input.dataset.policyLimit,Number(input.value)]))}));await api('/api/security/moderation-settings',{method:'PUT',body:{rolePolicies,profanityEnabled:$('profanity-enabled').checked,profanityNotifyOwner:$('profanity-owner').checked,profanityLogEnabled:$('profanity-log').checked,profanityCustomWords:$('profanity-custom').value.split(/\r?\n/).map(word=>word.trim()).filter(Boolean)}});result.textContent='✅ حُفظت القواعد. يلتقط البوت إعدادات الفلترة خلال 30 ثانية.'}catch(error){result.textContent=`❌ ${error.message}`}finally{button.disabled=false}};
+}
 function bindAdminBroadcastForm(){
+  void bindGameHelpForm().catch(error=>{$('game-help-result').textContent=error.message});
   const form=$('admin-broadcast-form'),title=$('admin-broadcast-title'),content=$('admin-broadcast-content'),button=$('admin-broadcast-submit'),result=$('admin-broadcast-result');
   const preview=()=>{$('admin-broadcast-preview-title').textContent=title.value.trim()||'عنوان الرسالة';$('admin-broadcast-preview-content').textContent=content.value.trim()||'سيظهر محتوى الإعلان هنا.';};
   title.oninput=preview;content.oninput=preview;

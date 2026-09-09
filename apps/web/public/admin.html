@@ -26,7 +26,7 @@
       <nav class="admin-tabs surface" aria-label="أقسام لوحة الإدارة">
         <button class="active" type="button" data-admin-tab="overview">📊 النظرة العامة</button>
         <button type="button" data-admin-tab="settings">⚙️ إعدادات البوت</button>
-        <button type="button" data-admin-tab="broadcasts">📣 الرسائل الجماعية</button>
+        <button type="button" data-admin-tab="broadcasts">📣 الرسائل ومساعدة الألعاب</button>
         <button type="button" data-admin-tab="reports">🛡️ البلاغات</button>
         <button type="button" data-admin-tab="trade">🔄 إدارة Trade</button>
         <button type="button" data-admin-tab="rooms">🛰️ الغرف</button>
@@ -116,6 +116,7 @@
       </section>
 
       <section class="admin-section" data-admin-panel="broadcasts" hidden>
+        <form id="admin-game-help-form" class="surface admin-settings"><h2>🎮 مين بدو مساعدة في لعبة؟</h2><p>أرسل رسالة واحدة إلى روم تختاره. لن تُرسل رسالة جماعية في الخاص.</p><div class="settings-grid three"><label>روم الرسالة<select id="game-help-channel" required><option value="">جارِ تحميل الرومات...</option></select></label><label>اللعبة<select id="game-help-game" required></select></label><label id="game-help-map-label" hidden>ماب Roblox<select id="game-help-map"><option value="">Roblox بشكل عام</option><option value="Blox Fruits">Blox Fruits — بلوكس فروت</option></select></label></div><p id="game-help-preview" class="section-note"></p><button class="button primary" id="game-help-send" type="submit" disabled>إرسال إلى الروم</button><p id="game-help-result" class="form-result" role="status"></p></form>
         <div class="admin-section-title"><div><span>📣</span><div><h2>الرسائل الجماعية</h2><p>أرسل إعلانًا خاصًا واحدًا لكل عضو حقيقي في السيرفر، مع متابعة الوصول بدون مراسلة البوتات.</p></div></div></div>
         <div class="admin-content-grid">
           <form id="admin-broadcast-form" class="surface">
