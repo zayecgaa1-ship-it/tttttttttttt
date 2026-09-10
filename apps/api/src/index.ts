@@ -385,7 +385,7 @@ app.get("/api/web-admin/broadcasts", async (request) => {
 app.get('/api/web-admin/discord-options',async request=>{await requireWebAdmin(request);return discordOptions()});
 app.post('/api/web-admin/game-help',async request=>{
   const admin=await requireWebAdmin(request);
-  const body=z.object({channelId:z.string().regex(/^\d{17,20}$/),gameSlug:z.string().min(1).max(100),mapName:z.enum(['Blox Fruits']).optional(),dailyCapacity:z.number().int().min(1).max(100),days:z.number().int().min(1).max(30)}).parse(request.body);
+  const body=z.object({channelId:z.string().regex(/^\d{17,20}$/),gameSlug:z.string().min(1).max(100),mapName:z.enum(['Blox Fruits']).optional(),dailyCapacity:z.number().int().min(1).max(100),days:z.number().int().min(1).max(365)}).parse(request.body);
   const options=await discordOptions();
   if(!options.channels.some(channel=>channel.id===body.channelId))throw new HttpError('اختر روم كتابة من هذا السيرفر',400);
   return createGameHelp(admin,body);

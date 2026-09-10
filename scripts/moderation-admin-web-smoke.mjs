@@ -52,8 +52,8 @@ try{
   },{html:readFileSync('apps/web/public/admin.html','utf8'),games});
   await page.locator('#game-help-channel').selectOption(channelId);
   await page.locator('#game-help-game').selectOption('roblox');await page.locator('#game-help-map').selectOption('Blox Fruits');
-  assert.match(await page.locator('#game-help-preview').innerText(),/Blox Fruits/);
   await page.locator('#game-help-daily').fill('3');await page.locator('#game-help-days').fill('7');
+  assert.match(await page.locator('#game-help-preview').innerText(),/Blox Fruits/);
   assert.match(await page.locator('#game-help-preview').innerText(),/21/);
   await page.locator('#game-help-send').click();await page.waitForFunction(()=>document.querySelector('#game-help-result').textContent.includes('تم إرسال'));
   assert.deepEqual(help,{channelId,gameSlug:'roblox',mapName:'Blox Fruits',dailyCapacity:3,days:7});
