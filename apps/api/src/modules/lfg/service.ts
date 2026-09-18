@@ -32,6 +32,8 @@ function defaultPlatformsFor(slug: string): LfgPlatform[] {
   return allPlatforms;
 }
 
+const maxRoomPlayers = 30;
+
 const catalog = [
   { slug: "minecraft", name: "Minecraft", icon: "⛏️", category: "sandbox", minPlayers: 2, maxPlayers: 10 },
   { slug: "roblox", name: "Roblox", icon: "🟥", category: "sandbox", minPlayers: 2, maxPlayers: 12 },
@@ -223,7 +225,7 @@ export async function createLfgRoom(input: { userId: string; displayName: string
   if (!game.enabled) throw new Error("هذه اللعبة غير متاحة في LFG حاليًا");
   const mapName = input.mapName?.trim();
   if (game.slug === "roblox" && !mapName) throw new Error("اكتب اسم ماب Roblox قبل إنشاء الغرفة");
-  const maxPlayers = Math.min(game.maxPlayers, Math.max(game.minPlayers, input.maxPlayers));
+  const maxPlayers = Math.min(maxRoomPlayers, Math.max(game.minPlayers, input.maxPlayers));
   const settings = await getGuildRuntimeSettings();
   const durationMinutes = Math.min(360, Math.max(15, input.durationMinutes ?? settings.defaultRoomDurationMinutes));
   const scheduledFor = normalizeSchedule(input.scheduledFor);
@@ -567,7 +569,7 @@ export async function updateLfgRoom(roomId: string, actorId: string, input: { ti
   const current = await assertRoomHost(roomId, actorId);
   if (!["SCHEDULED", "OPEN", "FULL", "ACTIVE"].includes(current.status)) throw new Error("لا يمكن تعديل غرفة منتهية");
   const game = await db.lfgGameCatalog.findUniqueOrThrow({ where: { id: current.lfgGameId } });
-  const maxPlayers = input.maxPlayers === undefined ? current.maxPlayers : Math.min(game.maxPlayers, Math.max(game.minPlayers, input.maxPlayers));
+  const maxPlayers = input.maxPlayers === undefined ? current.maxPlayers : Math.min(maxRoomPlayers, Math.max(game.minPlayers, input.maxPlayers));
   if (maxPlayers < current.memberCount) throw new Error("العدد الجديد أقل من عدد اللاعبين الموجودين");
   const room = await db.lfgRoom.update({
     where: { id: roomId },

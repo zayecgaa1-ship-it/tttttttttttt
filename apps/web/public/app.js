@@ -1,5 +1,84 @@
 const page = document.body.dataset.page;
 const $ = (id) => document.getElementById(id);
+
+async function loadHomeStats() {
+  if (page !== 'home') return;
+  const statNodes = {
+    members: document.querySelector('[data-stat="members"]'),
+    activeLfgRooms: document.querySelector('[data-stat="activeLfgRooms"]'),
+    games: document.querySelector('[data-stat="games"]'),
+    completedSessions: document.querySelector('[data-stat="completedSessions"]'),
+  };
+  const botStatusNode = document.querySelector('[data-bot-status]');
+  const botIndicatorNode = document.querySelector('[data-bot-indicator]');
+
+  const setBotStatus = (online) => {
+    if (!botStatusNode) return;
+    if (online === true) {
+      botStatusNode.textContent = 'متصل الآن';
+      botStatusNode.style.color = '#9fe3bd';
+      botIndicatorNode && (botIndicatorNode.style.background = '#4ff0a0');
+      botIndicatorNode && (botIndicatorNode.style.boxShadow = '0 0 12px rgba(79, 240, 160, 0.8)');
+      return;
+    }
+    botStatusNode.textContent = 'غير متاح';
+    botStatusNode.style.color = '#b8aa84';
+    botIndicatorNode && (botIndicatorNode.style.background = '#7a7a7a');
+    botIndicatorNode && (botIndicatorNode.style.boxShadow = '0 0 12px rgba(122, 122, 122, 0.35)');
+  };
+
+  const setState = (key, value) => {
+    const node = statNodes[key];
+    if (!node) return;
+    if (value === null || value === undefined || value === '') {
+      node.textContent = '—';
+      node.classList.add('is-error');
+      node.classList.remove('is-loading');
+      return;
+    }
+    if (!Number.isFinite(Number(value)) && value !== 0) {
+      node.textContent = '—';
+      node.classList.add('is-error');
+      node.classList.remove('is-loading');
+      return;
+    }
+    node.textContent = Number(value).toLocaleString('ar-EG');
+    node.classList.remove('is-loading', 'is-error');
+  };
+
+  Object.values(statNodes).forEach((node) => {
+    if (!node) return;
+    node.textContent = '—';
+    node.classList.add('is-loading');
+    node.classList.remove('is-error');
+  });
+
+  try {
+    const response = await fetch('/api/public/stats', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    setBotStatus(Boolean(data.botOnline));
+    setState('members', data.members ?? null);
+    setState('activeLfgRooms', data.activeLfgRooms ?? null);
+    setState('games', data.games ?? null);
+    setState('completedSessions', data.completedSessions ?? null);
+  } catch (error) {
+    console.warn('Failed to load public stats', error);
+    setBotStatus(false);
+    Object.entries(statNodes).forEach(([key, node]) => {
+      if (!node) return;
+      node.textContent = '—';
+      node.classList.add('is-error');
+      node.classList.remove('is-loading');
+      if (key === 'members') node.title = 'غير متاح حاليًا';
+    });
+  }
+}
+
+function safeSetText(id, value){ const el = document.getElementById(id); if(el) el.textContent = value; }
+function safeSetHTML(id, value){ const el = document.getElementById(id); if(el) el.innerHTML = value; }
+function safeGetValue(id){ const el = document.getElementById(id); return el ? el.value : undefined; }
+function safeHide(id, hidden){ const el = document.getElementById(id); if(el) el.hidden = hidden; }
 let state;
 let me;
 let roomFilter = 'all';
@@ -14,7 +93,7 @@ let activeUserTicket;
 let activeAdminTicket;
 let reportPresenceTimer;
 let reportPresenceBound=false;
-let adminZarkContent=[];
+let admin3PalContent=[];
 let adminBroadcastTimer;
 let activeTradeConversationId;
 const roomSearchAliases={
@@ -34,6 +113,7 @@ boot().catch(showFatal);
 
 async function boot() {
   renderShell();
+  if (page === 'home') void loadHomeStats();
   me = (await api('/api/me')).user;
   if(me)void api('/api/me/activity',{method:'POST'}).catch(()=>undefined);
   renderShell();
@@ -41,6 +121,7 @@ async function boot() {
   state = ['profile','teams'].includes(page) ? {} : await api('/api/state');
   await renderPage();
   await tutorialManager.autoStart();
+
   const stream = new EventSource('/api/stream');
   let timer,refreshRunning=false,refreshPending=false;
   const refresh=async()=>{
@@ -75,42 +156,50 @@ async function boot() {
 }
 
 function renderShell() {
-const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games','/games.html','الألعاب'],['teams','/teams.html','الفرق'],['trade','/trade.html','Trade'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','جدولي وحالتي'],['reports','/reports.html','الدعم'],['commands','/commands.html','البوت']];
+const links = [['home','/','الرئيسية'],['lfg','/lfg.html','LFG'],['games','/games.html','الألعاب'],['teams','/teams.html','الفرق'],['trade','/trade.html','Trade'],['leaderboard','/leaderboard.html','التصنيف'],['profile','/profile.html','ملفي'],['reports','/reports.html','الدعم'],['commands','/commands.html','البوت']];
   if (me?.isAdmin) links.push(['admin','/admin.html','الإدارة']);
   if (me?.isOwner) links.push(['security','/security.html','الحماية']);
   const desktopLinks=links.filter(([key])=>!['commands'].includes(key));
   const moreLinks=links.filter(([key])=>['teams','commands','reports','leaderboard','admin','security'].includes(key));
   const mobileLinks=[['home','/','⌂','الرئيسية'],['lfg','/lfg.html','⚔','LFG'],['games','/games.html','◈','الألعاب'],['trade','/trade.html','⇄','Trade'],['profile','/profile.html','●','حالتي']];
-  $('site-nav').innerHTML = `<nav class="site-nav shell"><a class="brand" data-tour-id="brand" href="/"><img class="brand-logo" src="/assets/zark-bot-avatar.png" alt="Zark"><span>ZARK<small>PLAY · CONNECT · COMPETE</small></span></a><div class="nav-links" id="nav-links">${desktopLinks.map(([key,href,label]) => `<a data-tour-id="${key==='lfg'?'lfg-button':key==='profile'?'profile-link':''}" class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user"><button class="nav-alerts" type="button" aria-label="الإشعارات" title="الإشعارات">●</button>${me ? `<a class="nav-account" href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:'<span class="avatar-fallback">Z</span>'}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small logout-link" href="/auth/logout">خروج</a>` : `<a class="button primary small" href="/auth/discord">دخول Discord</a>`}<button class="mobile-menu" id="mobile-menu" aria-label="المزيد">•••</button></div></nav><nav class="mobile-bottom-nav" aria-label="التنقل المحمول">${mobileLinks.map(([key,href,icon,label])=>`<a class="${page===key?'active':''}" href="${href}" ${page===key?'aria-current="page"':''}><i>${icon}</i><span>${label}</span></a>`).join('')}<button id="mobile-more" type="button" aria-label="المزيد" aria-expanded="false"><i>•••</i><span>المزيد</span></button></nav><div id="mobile-more-drawer" class="mobile-more-drawer" hidden><button class="drawer-backdrop" type="button" aria-label="إغلاق"></button><section role="dialog" aria-modal="true" aria-label="روابط إضافية"><header><b>استكشف Zark</b><button type="button" data-close-more aria-label="إغلاق">×</button></header>${moreLinks.map(([key,href,label])=>`<a class="${page===key?'active':''}" href="${href}">${label}<span>←</span></a>`).join('')}<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">مجتمع Discord <span>↗</span></a></section></div>`;
+  const shellHeader = `<a class="brand" data-tour-id="brand" href="/" aria-label="3PAL GAMES — الرئيسية"><img class="brand-logo" data-brand-logo src="/assets/3pal-icon.png" alt=""><span>3PAL GAMES<small>PLAY • CONNECT • COMPETE</small></span></a><div class="nav-links" id="nav-links">${desktopLinks.map(([key,href,label]) => `<a data-tour-id="${key==='lfg'?'lfg-button':key==='profile'?'profile-link':''}" class="${page===key?'active':''}" href="${href}">${label}</a>`).join('')}</div><div class="nav-user"><button class="nav-alerts" type="button" aria-label="الإشعارات" title="الإشعارات">●</button>${me ? `<a class="nav-account" href="/profile.html">${me.avatarUrl?`<img src="${escapeHtml(me.avatarUrl)}" alt="">`:'<span class="avatar-fallback">3P</span>'}<span>${escapeHtml(me.displayName)}</span></a><a class="button ghost small logout-link" href="/auth/logout">خروج</a>` : `<a class="button ghost small" href="/auth/discord">تسجيل الدخول</a><a class="button primary small nav-join" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم الآن</a>`}<button class="mobile-menu" id="mobile-menu" type="button" aria-label="فتح قائمة التنقل">☰</button></div>`;
+  $('site-nav').innerHTML = `<nav class="site-nav shell" aria-label="التنقل الرئيسي">${shellHeader}</nav><nav class="mobile-bottom-nav" aria-label="التنقل المحمول">${mobileLinks.map(([key,href,icon,label])=>`<a class="${page===key?'active':''}" href="${href}" ${page===key?'aria-current="page"':''}><i>${icon}</i><span>${label}</span></a>`).join('')}<button id="mobile-more" type="button" aria-label="المزيد" aria-expanded="false"><i>•••</i><span>المزيد</span></button></nav><div id="mobile-more-drawer" class="mobile-more-drawer" hidden><button class="drawer-backdrop" type="button" aria-label="إغلاق"></button><section role="dialog" aria-modal="true" aria-label="روابط إضافية"><header><b>استكشف 3PAL GAMES</b><button type="button" data-close-more aria-label="إغلاق">×</button></header>${moreLinks.map(([key,href,label])=>`<a class="${page===key?'active':''}" href="${href}">${label}<span>←</span></a>`).join('')}<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">مجتمع Discord <span>↗</span></a></section></div>`;
   document.querySelectorAll('body > .mobile-bottom-nav, body > .mobile-more-drawer').forEach(node=>node.remove());
   document.body.append(document.querySelector('.mobile-bottom-nav'),$('mobile-more-drawer'));
-  $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><div><span class="footer-brand">ZARK</span><p>مساحتك العربية للعب والتنافس وتكوين الفريق.</p></div><div class="footer-links"><a href="/">الرئيسية</a><a href="/lfg.html">LFG</a><a href="/games.html">الألعاب</a><a href="/teams.html">الفرق</a><a href="/trade.html">Trade</a><a href="/leaderboard.html">التصنيف</a><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div><div class="footer-community"><b>PLAY · CONNECT · COMPETE</b><a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a></div></div></div>`;
-  $('nav-links').insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
-  $('mobile-menu').insertAdjacentHTML('beforebegin', '<button class="nav-tutorial-button" id="open-onboarding" type="button">؟ كيف أستخدمه</button>');
+  $('site-footer').innerHTML = `<div class="site-footer"><div class="footer-inner shell"><div><span class="footer-brand"><img data-brand-logo src="/assets/3pal-logo.png" alt="" loading="lazy" decoding="async">3PAL GAMES</span><p>مساحتك العربية للعب والتنافس وتكوين الفريق.</p></div><div class="footer-links"><a href="/">الرئيسية</a><a href="/lfg.html">LFG</a><a href="/games.html">الألعاب</a><a href="/teams.html">الفرق</a><a href="/trade.html">Trade</a><a href="/leaderboard.html">التصنيف</a><a href="/reports.html">الدعم</a>${me?.isAdmin?'<a href="/admin.html">الإدارة</a>':''}${me?.isOwner?'<a href="/security.html">الحماية</a>':''}</div><div class="footer-community"><b>PLAY · CONNECT · COMPETE</b><a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a></div></div></div>`;
+  const navLinks = $('nav-links');
+  navLinks?.insertAdjacentHTML('beforeend', '<a class="discord-nav-link" href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">Discord ↗</a>');
+  const mobileMenu = $('mobile-menu');
   if (!$('tutorial-help-fab')) document.body.insertAdjacentHTML('beforeend','<button id="tutorial-help-fab" class="tutorial-help-fab" type="button" aria-label="فتح مركز الشرح">؟<span>الشرح</span></button><span id="realtime-status" class="realtime-status offline" title="حالة التحديث المباشر">● جارِ الاتصال</span>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="https://discord.gg/jXpQDhhdaB" target="_blank" rel="noopener noreferrer">انضم إلى Discord ↗</a>');
   document.querySelector('.footer-links')?.insertAdjacentHTML('beforeend', '<a href="/status.html">حالة النظام</a>');
-  const menu = $('mobile-menu');
-  document.querySelector('.nav-alerts').onclick=()=>me?location.href='/trade.html?tab=notifications':showToast('سجّل أولًا','اربط حساب Discord لعرض تنبيهاتك.');
-  menu.setAttribute('aria-controls', matchMedia('(max-width:900px)').matches?'mobile-more-drawer':'nav-links');
-  menu.setAttribute('aria-expanded', 'false');
-  const closeMenu = () => { $('nav-links').classList.remove('open'); menu.setAttribute('aria-expanded', 'false'); };
+  document.querySelectorAll('img[data-brand-logo]').forEach(image => {
+    const hideBrokenLogo = () => { image.hidden = true; image.closest('.arena-mark')?.classList.add('logo-missing'); };
+    if (image.complete && image.naturalWidth === 0) hideBrokenLogo();
+    else image.addEventListener('error', hideBrokenLogo, { once: true });
+  });
+  const navAlerts = document.querySelector('.nav-alerts');
+  navAlerts && (navAlerts.onclick=()=>me?location.href='/trade.html?tab=notifications':showToast('سجّل أولًا','اربط حساب Discord لعرض تنبيهاتك.'));
+  if (mobileMenu) {
+    mobileMenu.setAttribute('aria-controls', matchMedia('(max-width:900px)').matches ? 'mobile-more-drawer' : 'nav-links');
+    mobileMenu.setAttribute('aria-expanded', 'false');
+  }
+  const closeMenu = () => { const links = $('nav-links'); if (links) links.classList.remove('open'); if (mobileMenu) mobileMenu.setAttribute('aria-expanded', 'false'); };
   const mobileMore=$('mobile-more'),moreDrawer=$('mobile-more-drawer');
-  mobileMore.setAttribute('aria-controls','mobile-more-drawer');
-  const closeMore=()=>{moreDrawer.hidden=true;mobileMore?.setAttribute('aria-expanded','false');menu.setAttribute('aria-expanded','false');document.body.classList.remove('drawer-open')};
-  const openMore=()=>{closeMenu();moreDrawer.hidden=false;mobileMore.setAttribute('aria-expanded','true');menu.setAttribute('aria-controls','mobile-more-drawer');menu.setAttribute('aria-expanded','true');document.body.classList.add('drawer-open');moreDrawer.querySelector('[data-close-more]')?.focus()};
-  mobileMore.onclick=openMore;
-  menu.onclick=()=>{if(matchMedia('(max-width:900px)').matches){menu.setAttribute('aria-controls','mobile-more-drawer');moreDrawer.hidden?openMore():closeMore()}else{menu.setAttribute('aria-controls','nav-links');menu.setAttribute('aria-expanded',String($('nav-links').classList.toggle('open')))}};
-  moreDrawer.querySelector('[data-close-more]').onclick=closeMore;moreDrawer.querySelector('.drawer-backdrop').onclick=closeMore;
-  moreDrawer.onkeydown=event=>{if(event.key==='Escape'){closeMore();mobileMore.focus()}else trapDialogFocus(event,moreDrawer.querySelector('section'))};
-  $('site-nav').onkeydown = event => { if (event.key === 'Escape') { closeMenu(); closeMore(); menu.focus(); } };
+  if (mobileMore) mobileMore.setAttribute('aria-controls','mobile-more-drawer');
+  const closeMore=()=>{if (moreDrawer) moreDrawer.hidden=true;mobileMore?.setAttribute('aria-expanded','false');mobileMenu?.setAttribute('aria-expanded','false');document.body.classList.remove('drawer-open')};
+  const openMore=()=>{closeMenu();if (moreDrawer){moreDrawer.hidden=false;mobileMore?.setAttribute('aria-expanded','true');mobileMenu?.setAttribute('aria-controls','mobile-more-drawer');mobileMenu?.setAttribute('aria-expanded','true');document.body.classList.add('drawer-open');moreDrawer.querySelector('[data-close-more]')?.focus();}};
+  mobileMore && (mobileMore.onclick=openMore);
+  mobileMenu && (mobileMenu.onclick=()=>{if(matchMedia('(max-width:900px)').matches){mobileMenu.setAttribute('aria-controls','mobile-more-drawer');if (moreDrawer) moreDrawer.hidden?openMore():closeMore();}else{mobileMenu.setAttribute('aria-controls','nav-links');mobileMenu.setAttribute('aria-expanded',String($('nav-links')?.classList.toggle('open') ?? false));}});
+  if (moreDrawer) { moreDrawer.querySelector('[data-close-more]')?.addEventListener('click',closeMore); moreDrawer.querySelector('.drawer-backdrop')?.addEventListener('click',closeMore); moreDrawer.onkeydown=event=>{if(event.key==='Escape'){closeMore();mobileMore?.focus()}else trapDialogFocus(event,moreDrawer.querySelector('section'))}; }
+  $('site-nav').onkeydown = event => { if (event.key === 'Escape') { closeMenu(); closeMore(); mobileMenu?.focus(); } };
   document.querySelector('main').onclick = closeMenu;
   document.querySelector('.nav-links a.active')?.setAttribute('aria-current', 'page');
   if (!$('skip-content')) { document.body.insertAdjacentHTML('afterbegin', '<a id="skip-content" class="skip-link" href="#main-content">انتقل إلى المحتوى</a>'); document.querySelector('main').id = 'main-content'; document.querySelector('main').tabIndex = -1; }
-  $('open-onboarding').onclick = () => tutorialManager.openCenter();
+  $('open-onboarding') && ($('open-onboarding').onclick = () => tutorialManager.openCenter());
   $('tutorial-help-fab').onclick = () => tutorialManager.openCenter();
   if(me&&!$('zark-ai-widget')){
-    document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد Zark"><img src="/assets/zark-bot-avatar.png" alt=""><span>اسأل Zark</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/zark-bot-avatar.png" alt=""><div><b>مساعد Zark</b><small id="floating-ai-status">دعم ذكي</small></div><button id="floating-ai-clear" type="button" title="حذف المحادثة">🗑️</button><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
+    document.body.insertAdjacentHTML('beforeend',`<aside id="zark-ai-widget" class="zark-ai-widget"><button id="zark-ai-fab" class="zark-ai-fab" type="button" aria-label="مساعد 3Pal"><img src="/assets/3pal-logo.png" alt=""><span>اسأل 3Pal</span></button><section id="zark-ai-panel" class="zark-ai-panel" hidden><header><img src="/assets/3pal-logo.png" alt=""><div><b>مساعد 3Pal</b><small id="floating-ai-status">دعم ذكي</small></div><button id="floating-ai-clear" type="button" title="حذف المحادثة">🗑️</button><button id="zark-ai-close" type="button">×</button></header><div id="floating-ai-log" class="floating-ai-log"><article class="chat-message assistant">أهلًا ${escapeHtml(me.displayName)}! اسألني عن الغرف أو الألعاب المتاحة الآن.</article></div><form id="floating-ai-form"><input id="floating-ai-input" maxlength="500" placeholder="ماذا أستطيع أن ألعب الآن؟" required><button type="submit">إرسال</button></form></section></aside>`);
     bindFloatingSupport().catch(console.error);
   }
 }
@@ -121,10 +210,10 @@ function renderOnboarding(force=false) {
   document.getElementById('zark-onboarding')?.remove();
   const steps = [
     {icon:'🔐',title:'سجّل دخولك عبر Discord',text:'اضغط «دخول Discord» لربط حسابك بأمان. هذا يفتح ملفك، الإشعارات، إنشاء الغرف والتقييم.',link:'/auth/discord',cta:'تسجيل الدخول'},
-    {icon:'👤',title:'جهّز ملفك ووقت فراغك',text:'من «ملفي» اختر حالتك الآن وحدد الأيام والساعات التي تكون فيها متفرغًا. هذا يساعد Zark على ترشيح التجمعات المناسبة.',link:'/profile.html',cta:'فتح ملفي'},
-    {icon:'❤️',title:'اختر الألعاب التي تهمك',text:'من صفحة LFG اضغط «مهتم» بجانب ألعابك. فعّل الإشعارات أو الغفوة، واختر إن كنت تريد دعوات Zark التلقائية.',link:'/lfg.html#interests',cta:'اختيار الاهتمامات'},
+    {icon:'👤',title:'جهّز ملفك ووقت فراغك',text:'من «ملفي» اختر حالتك الآن وحدد الأيام والساعات التي تكون فيها متفرغًا. هذا يساعد 3Pal على ترشيح التجمعات المناسبة.',link:'/profile.html',cta:'فتح ملفي'},
+    {icon:'❤️',title:'اختر الألعاب التي تهمك',text:'من صفحة LFG اضغط «مهتم» بجانب ألعابك. فعّل الإشعارات أو الغفوة، واختر إن كنت تريد دعوات 3Pal التلقائية.',link:'/lfg.html#interests',cta:'اختيار الاهتمامات'},
     {icon:'⚡',title:'أنشئ غرفة أو ادخل غرفة',text:'في LFG اختر اللعبة وعدد اللاعبين ووقت البدء. «الآن» لا يحتاج وقتًا، و«لاحقًا» يطلب موعد التجمع. بعدها يرسل البوت الدعوات ويجهز Voice عند الحاجة.',link:'/lfg.html',cta:'فتح LFG'},
-    {icon:'🏆',title:'العب، قيّم، واطلب الدعم',text:'بعد الجلسة يصل التقييم في الخاص. استخدم الدعم أو البلاغات عند أي مشكلة، ويمكنك سؤال مساعد Zark من الزر أسفل الصفحة.',link:'/reports.html',cta:'فتح الدعم'},
+    {icon:'🏆',title:'العب، قيّم، واطلب الدعم',text:'بعد الجلسة يصل التقييم في الخاص. استخدم الدعم أو البلاغات عند أي مشكلة، ويمكنك سؤال مساعد 3Pal من الزر أسفل الصفحة.',link:'/reports.html',cta:'فتح الدعم'},
   ];
   let index=0;
   const modal=document.createElement('section');
@@ -146,13 +235,13 @@ function renderOnboarding(force=false) {
 
 const productTourKey='zark-tutorial-center-v3';
 const tourSections={
-  basics:{icon:'✨',title:'الأساسيات',route:'/',steps:[{id:'brand',target:'.brand',title:'مرحبًا في Zark',text:'الشعار يعيدك دائمًا إلى الصفحة الرئيسية.'},{id:'navigation',target:'#nav-links',title:'التنقل الرئيسي',text:'من هذه القائمة تصل إلى LFG وTrade والألعاب وملفك والدعم.'}]},
-  lfg:{icon:'🎮',title:'إنشاء غرفة LFG',route:'/lfg.html',steps:[{id:'game',target:'[data-tour-id="game-selector"]',title:'اختر اللعبة',text:'اختر اللعبة من الكتالوج الحقيقي.'},{id:'players',target:'[data-tour-id="players-count"]',title:'عدد اللاعبين',text:'حدد العدد المطلوب للتجمع.'},{id:'when',target:'[data-tour-id="play-when"]',title:'الآن أو لاحقًا',text:'الآن لا يطلب رقمًا. لاحقًا يفتح الساعة وAM صباحًا أو PM مساءً.'},{id:'create',target:'#create-room-form button[type="submit"]',title:'أنشئ التجمع',text:'بعد المراجعة اضغط هنا، وسيتولى Zark إنشاء التجمع وربطه بـDiscord.'}]},
+  basics:{icon:'✨',title:'الأساسيات',route:'/',steps:[{id:'brand',target:'.brand',title:'مرحبًا في 3PAL GAMES',text:'الشعار يعيدك دائمًا إلى الصفحة الرئيسية.'},{id:'navigation',target:'#nav-links',title:'التنقل الرئيسي',text:'من هذه القائمة تصل إلى LFG وTrade والألعاب وملفك والدعم.'}]},
+  lfg:{icon:'🎮',title:'إنشاء غرفة LFG',route:'/lfg.html',steps:[{id:'game',target:'[data-tour-id="game-selector"]',title:'اختر اللعبة',text:'اختر اللعبة من الكتالوج الحقيقي.'},{id:'players',target:'[data-tour-id="players-count"]',title:'عدد اللاعبين',text:'حدد العدد المطلوب للتجمع.'},{id:'when',target:'[data-tour-id="play-when"]',title:'الآن أو لاحقًا',text:'الآن لا يطلب رقمًا. لاحقًا يفتح الساعة وAM صباحًا أو PM مساءً.'},{id:'create',target:'#create-room-form button[type="submit"]',title:'أنشئ التجمع',text:'بعد المراجعة اضغط هنا، وسيتولى 3Pal إنشاء التجمع وربطه بـDiscord.'}]},
   categories:{icon:'🗂️',title:'التصنيفات والغرف',route:'/lfg.html',steps:[{id:'categories',target:'[data-tour-id="categories"]',title:'فلترة التصنيفات',text:'هذه أزرار التصنيفات الفعلية، وتعرض الغرف المطابقة فقط.'},{id:'rooms',target:'#rooms .room-card, #rooms .empty-state',title:'بطاقات الغرف',text:'من البطاقة تدخل أو تخرج أو تفتح Voice، وصاحب الغرفة يرى أدوات الإدارة.'}]},
-  interests:{icon:'❤️',title:'الاهتمامات والتنبيهات',route:'/lfg.html',steps:[{id:'interests',target:'.interest-section .section-heading',title:'اختر اهتماماتك مرة واحدة',text:'هذا قسم اهتماماتك. فعّل الألعاب التي تهمك ليقترح Zark تجمعات مناسبة.'},{id:'notifications',target:'#interest-games .interest-card:first-child',title:'التنبيهات والغفوة',text:'داخل كل بطاقة تستطيع تشغيل التنبيه، إيقافه، أو عمل غفوة بدون تغيير اهتمامك.'}]},
+  interests:{icon:'❤️',title:'الاهتمامات والتنبيهات',route:'/lfg.html',steps:[{id:'interests',target:'.interest-section .section-heading',title:'اختر اهتماماتك مرة واحدة',text:'هذا قسم اهتماماتك. فعّل الألعاب التي تهمك ليقترح 3Pal تجمعات مناسبة.'},{id:'notifications',target:'#interest-games .interest-card:first-child',title:'التنبيهات والغفوة',text:'داخل كل بطاقة تستطيع تشغيل التنبيه، إيقافه، أو عمل غفوة بدون تغيير اهتمامك.'}]},
   profile:{icon:'👤',title:'الملف ووقت الفراغ',route:'/profile.html',steps:[{id:'profile',target:'#profile-head',title:'ملفك الشخصي',text:'يعرض الحالة والتقييم والفوز وXP ونشاط LFG.'},{id:'availability',target:'#availability-form',title:'وقت فراغك',text:'اختر حالتك بسرعة أو حدد ساعات أسبوعية حتى تتحسن اقتراحات الغرف.'}]},
-  trade:{icon:'🔄',title:'Zark Player Trading',route:'/trade.html',steps:[{id:'trade-overview',target:'[data-tour-id="trade-overview"]',title:'سوق Trade',text:'كل صفقة لها رقم واضح، حالة، وصاحب موثّق بحساب Discord.'},{id:'trade-search',target:'[data-tour-id="trade-search"]',title:'ابحث وصفِّ النتائج',text:'ابحث بالغرض أو اللعبة ورتب حسب الأحدث أو النشاط.'},{id:'trade-create',target:'[data-tour-tab="create"]',title:'أنشئ عرضًا',text:'ارفع صورة من جهازك وحدد I HAVE وI WANT. المحادثة تفتح فقط بعد قبول المهتم.'}]},
-  others:{icon:'🧭',title:'الألعاب والدعم',route:'/games.html',steps:[{id:'games',target:'.page-hero',title:'ألعاب Zark',text:'هنا تجد ألعاب البوت واختصاراتها؛ وقت الإجابة يختاره اللاعب من 10 إلى 60 ثانية.'},{id:'commands',target:'.command-strip',title:'اختصارات سريعة',text:'استخدم /play أو الاختصارات العربية الظاهرة لتبدأ بسرعة.'}]},
+  trade:{icon:'🔄',title:'3Pal Player Trading',route:'/trade.html',steps:[{id:'trade-overview',target:'[data-tour-id="trade-overview"]',title:'سوق Trade',text:'كل صفقة لها رقم واضح، حالة، وصاحب موثّق بحساب Discord.'},{id:'trade-search',target:'[data-tour-id="trade-search"]',title:'ابحث وصفِّ النتائج',text:'ابحث بالغرض أو اللعبة ورتب حسب الأحدث أو النشاط.'},{id:'trade-create',target:'[data-tour-tab="create"]',title:'أنشئ عرضًا',text:'ارفع صورة من جهازك وحدد I HAVE وI WANT. المحادثة تفتح فقط بعد قبول المهتم.'}]},
+  others:{icon:'🧭',title:'الألعاب والدعم',route:'/games.html',steps:[{id:'games',target:'.page-hero',title:'ألعاب 3Pal',text:'هنا تجد ألعاب البوت واختصاراتها؛ وقت الإجابة يختاره اللاعب من 10 إلى 60 ثانية.'},{id:'commands',target:'.command-strip',title:'اختصارات سريعة',text:'استخدم /play أو الاختصارات العربية الظاهرة لتبدأ بسرعة.'}]},
 };
 function readProductTour(){try{return JSON.parse(localStorage.getItem(productTourKey)||'{}')}catch{return {}}}
 function writeProductTour(value){localStorage.setItem(productTourKey,JSON.stringify({...readProductTour(),...value}));}
@@ -160,7 +249,7 @@ function renderProductTour(openCenter=false){const saved=readProductTour();if(op
 function renderTourCenter(firstVisit=false){
   cleanupTour();const saved=readProductTour(),completed=saved.completedSections||{};const currentSection=Object.entries(tourSections).find(([,section])=>section.route===location.pathname)?.[0];
   const modal=document.createElement('section');modal.id='zark-product-tour';modal.className='tour-invite tutorial-center';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');
-  modal.innerHTML=`<article><button class="onboarding-skip" data-tour-close type="button">إغلاق ×</button><span>📚</span><h2>مركز شرح Zark</h2><p>ابدأ بشرح الموقع كاملًا وبالترتيب. بعد انتهائه تستطيع اختيار أي قسم وإعادته وحده.</p><button class="tutorial-full-start" type="button" data-tour-full><i>🚀</i><span><b>شرح الموقع كاملًا</b><small>جولة مرتبة تشمل LFG والاهتمامات والملف وTrade والألعاب</small></span></button><div class="tutorial-section-title">أو اختر قسمًا محددًا</div><div class="tutorial-section-grid">${Object.entries(tourSections).map(([key,section])=>`<button type="button" data-tour-section="${key}"><i>${section.icon}</i><b>${section.title}</b><small>${completed[key]?'✅ مكتمل':`${section.steps.length} خطوات`}</small></button>`).join('')}</div><div class="tutorial-center-actions">${currentSection?`<button class="button primary" data-explain-page>اشرح هذه الصفحة</button>`:''}<button class="button ghost" data-tour-dismiss>${firstVisit?'لاحقًا':'إغلاق'}</button></div></article>`;
+  modal.innerHTML=`<article><button class="onboarding-skip" data-tour-close type="button">إغلاق ×</button><span>📚</span><h2>مركز شرح 3Pal</h2><p>ابدأ بشرح الموقع كاملًا وبالترتيب. بعد انتهائه تستطيع اختيار أي قسم وإعادته وحده.</p><button class="tutorial-full-start" type="button" data-tour-full><i>🚀</i><span><b>شرح الموقع كاملًا</b><small>جولة مرتبة تشمل LFG والاهتمامات والملف وTrade والألعاب</small></span></button><div class="tutorial-section-title">أو اختر قسمًا محددًا</div><div class="tutorial-section-grid">${Object.entries(tourSections).map(([key,section])=>`<button type="button" data-tour-section="${key}"><i>${section.icon}</i><b>${section.title}</b><small>${completed[key]?'✅ مكتمل':`${section.steps.length} خطوات`}</small></button>`).join('')}</div><div class="tutorial-center-actions">${currentSection?`<button class="button primary" data-explain-page>اشرح هذه الصفحة</button>`:''}<button class="button ghost" data-tour-dismiss>${firstVisit?'لاحقًا':'إغلاق'}</button></div></article>`;
   modal.querySelector('[data-tour-full]').onclick=startFullTour;modal.querySelectorAll('[data-tour-section]').forEach(button=>button.onclick=()=>startTourSection(button.dataset.tourSection));modal.querySelector('[data-explain-page]')?.addEventListener('click',()=>startTourSection(currentSection));modal.querySelector('[data-tour-close]').onclick=()=>modal.remove();modal.querySelector('[data-tour-dismiss]').onclick=()=>{writeProductTour({dismissed:true,status:'idle'});modal.remove();};document.body.appendChild(modal);
 }
 function startTourSection(sectionKey,keepFullTour=false){const section=tourSections[sectionKey];if(!section)return;writeProductTour({status:'active',section:sectionKey,step:0,dismissed:true,...(keepFullTour?{}:{fullTour:false,fullIndex:0})});cleanupTour();if(location.pathname!==section.route){location.href=section.route;return;}renderTourStep(sectionKey,0);}
@@ -185,7 +274,7 @@ function waitForTourTarget(selector){return new Promise(resolve=>{let frames=0;c
 function waitForStableTarget(target){return new Promise(resolve=>{let previous='',stable=0,frames=0;const inspect=()=>{const rect=target.getBoundingClientRect(),current=`${Math.round(rect.top)}:${Math.round(rect.left)}:${Math.round(rect.width)}:${Math.round(rect.height)}`;stable=current===previous?stable+1:0;previous=current;if(stable>=3||++frames>120)return resolve();requestAnimationFrame(inspect);};inspect();});}
 function cleanupTour(){document.getElementById('zark-product-tour')?.remove();document.querySelectorAll('[data-tour-active]').forEach(node=>node.removeAttribute('data-tour-active'));document.querySelectorAll('[data-tour-nav]').forEach(node=>node.removeAttribute('data-tour-nav'));}
 function tourEscape(event){if(event.key==='Escape'){writeProductTour({status:'idle',fullTour:false,fullIndex:0});cleanupTour();}}
-function renderTourComplete(sectionKey,fullCompleted=false){cleanupTour();const done=document.createElement('section');done.id='zark-product-tour';done.className='tour-invite';done.innerHTML=`<article><span>🎉</span><h2>${fullCompleted?'اكتمل شرح موقع Zark كاملًا':`اكتمل قسم ${escapeHtml(tourSections[sectionKey]?.title||'الشرح')}`}</h2><p>${fullCompleted?'أصبحت تعرف إنشاء الغرف والاهتمامات والملف وTrade والألعاب. اختر الآن أي قسم إذا أردت مراجعته.':'تم حفظ تقدمك. تستطيع فتح أي قسم آخر من مركز الشرح.'}</p><div><button class="button ghost" data-tour-close>إغلاق</button><button class="button primary" data-tour-center>اختيارات الشرح</button></div></article>`;done.querySelector('[data-tour-close]').onclick=()=>done.remove();done.querySelector('[data-tour-center]').onclick=renderTourCenter;document.body.appendChild(done);}
+function renderTourComplete(sectionKey,fullCompleted=false){cleanupTour();const done=document.createElement('section');done.id='zark-product-tour';done.className='tour-invite';done.innerHTML=`<article><span>🎉</span><h2>${fullCompleted?'اكتمل شرح موقع 3Pal كاملًا':`اكتمل قسم ${escapeHtml(tourSections[sectionKey]?.title||'الشرح')}`}</h2><p>${fullCompleted?'أصبحت تعرف إنشاء الغرف والاهتمامات والملف وTrade والألعاب. اختر الآن أي قسم إذا أردت مراجعته.':'تم حفظ تقدمك. تستطيع فتح أي قسم آخر من مركز الشرح.'}</p><div><button class="button ghost" data-tour-close>إغلاق</button><button class="button primary" data-tour-center>اختيارات الشرح</button></div></article>`;done.querySelector('[data-tour-close]').onclick=()=>done.remove();done.querySelector('[data-tour-center]').onclick=renderTourCenter;document.body.appendChild(done);}
 
 // v4 replaces the old static spotlight.  It is intentionally the only manager
 // used by boot/navigation; old helpers are retained only for backward-compatible
@@ -193,17 +282,17 @@ function renderTourComplete(sectionKey,fullCompleted=false){cleanupTour();const 
 const tutorialManager=(()=>{
   const version=4,key='zark-tutorial-v4';
   const sections={
-    basics:{icon:'✨',title:'الأساسيات',route:'/',steps:[['.brand','مرحبًا في Zark','من الشعار تعود للصفحة الرئيسية.'],['#nav-links','التنقل','على الجوال تصل للغرف والألعاب وملفك من الشريط السفلي، وتفتح «المزيد» للفرق والدعم وباقي الصفحات. على الكمبيوتر استخدم القائمة العلوية.']]},
+    basics:{icon:'✨',title:'الأساسيات',route:'/',steps:[['.brand','مرحبًا في 3PAL GAMES','من الشعار تعود للصفحة الرئيسية.'],['#nav-links','التنقل','على الجوال تصل للغرف والألعاب وملفك من الشريط السفلي، وتفتح «المزيد» للفرق والدعم وباقي الصفحات. على الكمبيوتر استخدم القائمة العلوية.']]},
     lfg:{icon:'🎮',title:'إنشاء غرفة LFG',route:'/lfg.html',steps:[['[data-tour="game-selector"]','اختر اللعبة','اختر اللعبة التي تريد التجمع لها؛ أجهزتها تظهر تلقائيًا.'],['[data-tour="players-count"]','عدد اللاعبين','حدد عدد اللاعبين المطلوبين.'],['[data-tour="play-when"]','وقت اللعب','اختر الآن أو لاحقًا؛ اللاحق يفتح الموعد.'],['#create-room-form button[type="submit"]','أنشئ التجمع','اضغط هنا بعد مراجعة الخيارات لإنشاء الغرفة.'],['[data-tour="categories"]','التصنيفات','صفّ الغرف حسب النوع.'],['#rooms .room-card, #rooms .empty-state','الغرف المباشرة','ادخل للغرفة أو اخرج منها وافتح Voice.'],['[data-tour="interests"]','الاهتمامات','فعّل ألعابك لتصلك اقتراحات مناسبة.']]},
-    games:{icon:'🏆',title:'ألعاب Zark',route:'/games.html',steps:[['.page-hero','ألعاب البوت','هنا أوامر ألعاب Zark واختصاراتها.'],['.game-stage','ابدأ لعبة','هذا الزر يختار لعبة فقط. انسخ أمرها وشغّله داخل Discord لبدء الجولة.'],['.catalog-toolbar','ابحث واحفظ','فلتر حسب التصنيف وابحث باسم اللعبة، واستخدم النجمة لحفظ المفضلة على هذا الجهاز.'],['#zark-games','كتالوج الألعاب','اختر اللعبة التي تريدها ثم ابدأ من Discord.']]},
-    teams:{icon:'👥',title:'فرق Zark',route:'/teams.html',steps:[['#team-account','فريقك','أنشئ فريقاً أو راجع التشكيلة والدعوات والصلاحيات.'],['#team-list','ترتيب الفرق','تتغير نقاط الفريق مع XP والانتصارات وجلسات LFG المكتملة.'],['#team-search','البحث عن فريق','ابحث باسم الفريق أو وصفه.']]},
+    games:{icon:'🏆',title:'ألعاب 3Pal',route:'/games.html',steps:[['.page-hero','ألعاب البوت','هنا أوامر ألعاب 3Pal واختصاراتها.'],['.game-stage','ابدأ لعبة','هذا الزر يختار لعبة فقط. انسخ أمرها وشغّله داخل Discord لبدء الجولة.'],['.catalog-toolbar','ابحث واحفظ','فلتر حسب التصنيف وابحث باسم اللعبة، واستخدم النجمة لحفظ المفضلة على هذا الجهاز.'],['#zark-games','كتالوج الألعاب','اختر اللعبة التي تريدها ثم ابدأ من Discord.']]},
+    teams:{icon:'👥',title:'فرق 3Pal',route:'/teams.html',steps:[['#team-account','فريقك','أنشئ فريقاً أو راجع التشكيلة والدعوات والصلاحيات.'],['#team-list','ترتيب الفرق','تتغير نقاط الفريق مع XP والانتصارات وجلسات LFG المكتملة.'],['#team-search','البحث عن فريق','ابحث باسم الفريق أو وصفه.']]},
     profile:{icon:'👤',title:'جدولي وحالتي',route:'/profile.html',steps:[['[data-tour="profile-head"]','ملفك الشخصي','يعرض التقييم وXP ونشاطك.'],['[data-tour="profile-stats"]','إحصاءاتك','هنا نقاط الولاء والجلسات ووقت Voice.'],['#profile-loyalty','متجر الولاء وVIP','تكسب الولاء من الفوز والتحدي اليومي والجلسات. VIP يعطي ×1.5 للولاء وXP لمدة 3 أيام؛ الشراء مجددًا يمدد المدة المتبقية.'],['[data-tour="availability-status"]','حالتك الآن','يعرض حالة الجدول وآخر نشاط ووقت الفراغ القادم.'],['[data-tour="availability-quick"]','اختصارات الحالة','اختر فاضي أو ألعب الآن أو مشغول.'],['[data-tour="availability-weekly"]','الجدول الأسبوعي','أضف عدة فترات لكل يوم، بما فيها الفترات التي تتجاوز منتصف الليل.']]},
     commands:{icon:'⌘',title:'النكت والميمز وأوامر البوت',route:'/commands.html',steps:[['#command-search','ابحث عن أمر','اكتب نكت أو ميمز أو لوبي للعثور على الأمر المناسب.'],['#command-category','صفّ الأوامر','اختر الترفيه أو الألعاب أو الغرف أو الملف والولاء.'],['#command-grid','انسخ وشغّل في Discord','زر النسخ ينسخ الأمر فقط. افتح Discord والصقه لتشغيله. النكت داخل صور، والميمز بتعليقات مرتبطة بقوالبها.']]},
     trade:{icon:'🔄',title:'Trade',route:'/trade.html',steps:[['[data-tour-id="trade-overview"]','سوق Trade','تصفح عروض اللاعبين بأمان.'],['[data-tour-id="trade-search"]','البحث والفلترة','ابحث باسم الغرض أو اللعبة.'],['[data-tour-tab="create"]','أنشئ عرضًا','ارفع صورة وحدد ما لديك وما تريد.','createTrade']]},
     leaderboard:{icon:'🥇',title:'التصنيف',route:'/leaderboard.html',steps:[['.page-hero','لوحة التصنيف','تابع أفضل اللاعبين.'],['#leader-tabs','أنواع التصنيف','بدّل بين الألعاب والتفاعل والجلسات والتقييم.']]},
-    support:{icon:'🛟',title:'الدعم والبلاغات',route:'/reports.html',steps:[['.support-chat','مساعد Zark','اسأل عن ميزات الموقع والغرف.'],['.feedback-grid','إرسال بلاغ','أرسل بلاغ لاعب أو تقرير خطأ بشكل سري.']]}
+    support:{icon:'🛟',title:'الدعم والبلاغات',route:'/reports.html',steps:[['.support-chat','مساعد 3Pal','اسأل عن ميزات الموقع والغرف.'],['.feedback-grid','إرسال بلاغ','أرسل بلاغ لاعب أو تقرير خطأ بشكل سري.']]}
   };
-  sections.lfg.steps.push(['#smart-match','المطابقة الذكية','يقترح Zark غرفة حسب اهتماماتك والزملاء المتاحين. إذا لم يجد غرفة مناسبة، يمكنه إنشاء تجمع جديد.']);
+  sections.lfg.steps.push(['#smart-match','المطابقة الذكية','يقترح 3Pal غرفة حسب اهتماماتك والزملاء المتاحين. إذا لم يجد غرفة مناسبة، يمكنه إنشاء تجمع جديد.']);
   sections.trade.steps.splice(2,0,
     ['#trade-how-it-works','أبدي اهتمامك بعرض','افتح تفاصيل عرض لاعب آخر واضغط «أنا مهتم». ستظهر حالة الطلب داخل تفاصيل العرض؛ لا يمكنك إرسال اهتمام لعرضك أنت.'],
     ['[data-trade-tab="mine"]','قبول طلبات الاهتمام','من «عروضي» افتح عرضك لمراجعة المهتمين. زر «قبول وفتح محادثة» يتيح المحادثة بينك وبين صاحب الطلب.'],
@@ -222,7 +311,7 @@ const tutorialManager=(()=>{
   const write=patch=>{const value={...read(),...patch,version};memory=value;try{localStorage.setItem(key,JSON.stringify(value))}catch{}return value};
   function rememberPage(){if(restorePage)return;returnFocus=document.activeElement;const menuOpen=$('nav-links')?.classList.contains('open'),drawerOpen=$('mobile-more-drawer')&&!$('mobile-more-drawer').hidden,createOpen=$('create-room-panel')?.classList.contains('open');restorePage=()=>{if(!menuOpen){$('nav-links')?.classList.remove('open');$('mobile-menu')?.setAttribute('aria-expanded','false')}if(!drawerOpen)$('mobile-more-drawer')?.querySelector('[data-close-more]')?.click();if(!createOpen)$('close-create-room')?.click();restorePage=null;returnFocus?.isConnected&&returnFocus.focus()};}
   function pause(){write({status:'paused',pausedVersion:version});clean();restorePage?.();}
-  function dialogKeys(layer){layer.setAttribute('role','dialog');layer.setAttribute('aria-modal','true');layer.setAttribute('aria-label','دليل استخدام Zark');layer.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();pause()}else if(event.key==='Tab')trapDialogFocus(event,layer)});}
+  function dialogKeys(layer){layer.setAttribute('role','dialog');layer.setAttribute('aria-modal','true');layer.setAttribute('aria-label','دليل استخدام 3Pal');layer.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();pause()}else if(event.key==='Tab')trapDialogFocus(event,layer)});}
   const clean=()=>{tourEpoch++;cancelAnimationFrame(raf);cleanupFns.splice(0).forEach(fn=>fn());document.getElementById('zark-tutorial-v4')?.remove();document.querySelectorAll('[data-tour-active]').forEach(n=>n.removeAttribute('data-tour-active'));document.querySelectorAll('[data-tour-nav]').forEach(n=>n.removeAttribute('data-tour-nav'));activeTarget=null};
   const account=async completed=>{if(!me)return;try{await api('/api/me/tutorial',{method:'PUT',body:{completed,version}})}catch(error){console.warn('tutorial_account_save_failed',error)}};
   const completed=async()=>{const remote=me?await api('/api/me/tutorial').catch(()=>null):null,saved=read();return Boolean((remote?.tutorialCompleted&&remote.tutorialVersion>=version)||(saved.completed&&saved.version>=version))};
@@ -233,7 +322,7 @@ const tutorialManager=(()=>{
     const saved=read(),done=saved.completedSections||{},current=Object.entries(sections).find(([,s])=>s.route===location.pathname)?.[0];
     const resume=sections[saved.section]&&['paused','active'].includes(saved.status);
     const layer=document.createElement('section');layer.id='zark-tutorial-v4';layer.className='tour-invite tutorial-center tutorial-v4-center';
-    layer.innerHTML=`<article><button class="onboarding-skip" data-close>إغلاق ×</button><span>📚</span><h2>دليل استخدام Zark</h2><p>شرح عملي داخل الموقع. اختر قسماً، أو اتبع الجولة الكاملة. يُحفظ تقدمك على هذا الجهاز.</p><div class="tutorial-progress-label">${Object.keys(sections).filter(id=>done[id]).length} من ${Object.keys(sections).length} أقسام مكتملة</div>${resume?`<button class="button primary tutorial-resume" data-resume>أكمل من حيث توقفت · ${sections[saved.section].title}</button>`:''}<button class="tutorial-full-start" data-full><i>🚀</i><span><b>ابدأ الشرح الكامل</b><small>السابق والتالي للتنقل · Escape للإيقاف</small></span></button><div class="tutorial-section-title">الأقسام</div><div class="tutorial-section-grid">${Object.entries(sections).map(([id,s])=>`<button data-section="${id}"><i>${s.icon}</i><b>${s.title}</b><small>${done[id]?'✅ مكتمل':`${s.steps.length} خطوات`}${!me&&['profile','trade'].includes(id)?' · يحتاج دخول':''}</small></button>`).join('')}</div><div class="tutorial-center-actions">${current?'<button class="button primary" data-page>اشرح هذه الصفحة</button>':''}<button class="button ghost" data-later>${first?'لاحقًا':'إلغاء'}</button></div></article>`;
+    layer.innerHTML=`<article><button class="onboarding-skip" data-close>إغلاق ×</button><span>📚</span><h2>دليل استخدام 3Pal</h2><p>شرح عملي داخل الموقع. اختر قسماً، أو اتبع الجولة الكاملة. يُحفظ تقدمك على هذا الجهاز.</p><div class="tutorial-progress-label">${Object.keys(sections).filter(id=>done[id]).length} من ${Object.keys(sections).length} أقسام مكتملة</div>${resume?`<button class="button primary tutorial-resume" data-resume>أكمل من حيث توقفت · ${sections[saved.section].title}</button>`:''}<button class="tutorial-full-start" data-full><i>🚀</i><span><b>ابدأ الشرح الكامل</b><small>السابق والتالي للتنقل · Escape للإيقاف</small></span></button><div class="tutorial-section-title">الأقسام</div><div class="tutorial-section-grid">${Object.entries(sections).map(([id,s])=>`<button data-section="${id}"><i>${s.icon}</i><b>${s.title}</b><small>${done[id]?'✅ مكتمل':`${s.steps.length} خطوات`}${!me&&['profile','trade'].includes(id)?' · يحتاج دخول':''}</small></button>`).join('')}</div><div class="tutorial-center-actions">${current?'<button class="button primary" data-page>اشرح هذه الصفحة</button>':''}<button class="button ghost" data-later>${first?'لاحقًا':'إلغاء'}</button></div></article>`;
     layer.querySelector('[data-close]').onclick=pause;layer.querySelector('[data-later]').onclick=pause;
     layer.querySelector('[data-full]').onclick=()=>start('basics',0,true,0);
     layer.querySelector('[data-resume]')?.addEventListener('click',()=>start(saved.section,saved.step||0,Boolean(saved.full),saved.fullIndex||0));
@@ -320,7 +409,7 @@ async function bindSecurity(){
     $('security-events').innerHTML=dashboard.actions.length?dashboard.actions.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.severity)} · ${escapeHtml(item.actionType)}</b><small>${escapeHtml(item.executorId||'غير مؤكد')} ← ${escapeHtml(item.targetId||'-')} · ${new Date(item.timestamp).toLocaleString('ar')}</small><small>${escapeHtml(item.reason||'بدون سبب')}</small></div></article>`).join(''):empty('لا توجد أحداث حماية بعد.');
     $('security-suspensions').innerHTML=dashboard.suspensions.length?dashboard.suspensions.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.userId)} · ${escapeHtml(item.status)}</b><small>${escapeHtml(item.reason)} · ${new Date(item.suspendedAt).toLocaleString('ar')}</small><small>الرتب المحفوظة: ${item.roleSnapshots.map(role=>escapeHtml(role.roleName||role.roleId)).join('، ')||'لا توجد'}</small></div>${item.status==='SUSPENDED'?`<button class="button primary small" data-security-restore="${item.userId}">استرجاع الرتب</button>`:'<span class="live-chip">تم الاسترجاع</span>'}</article>`).join(''):empty('لا توجد إدارات معلّقة.');
     const s=dashboard.settings;['enabled','maxBansPerHour','maxTimeoutsPerHour','maxKicksPerHour','maxRoleChangesPerHour','maxChannelDeletesPerHour','maxWebhookChangesPerHour','ownerDmAlertsEnabled','securityLogChannelId'].forEach(key=>{const input=$(`security-${key}`);if(!input)return;input.type==='checkbox'?input.checked=Boolean(s[key]):input.value=s[key]??''});$('security-operationalExemptUserIds').value=(s.operationalExemptUserIds||[]).join(', ');
-    void bindSecurityModeration(s).catch(error=>{$('security-moderation-result').textContent=error.message});
+    void bindSecurityModeration(s).catch(error=>{const _secModRes = $('security-moderation-result'); if(_secModRes) _secModRes.textContent = error.message;});
     dashboard.actions.forEach((item,index)=>{if(item.metadata?.kind==='PROFANITY')$('security-events').children[index]?.insertAdjacentHTML('beforeend',`<details><summary>نص الرسالة — ${escapeHtml(item.metadata.displayName)} في ${escapeHtml(item.metadata.channelId)}</summary><p dir="auto">${escapeHtml(item.metadata.content)}</p></details>`)});
     $('security-settings-form').onsubmit=async event=>{event.preventDefault();const body={enabled:$('security-enabled').checked,maxBansPerHour:Number($('security-maxBansPerHour').value),maxTimeoutsPerHour:Number($('security-maxTimeoutsPerHour').value),maxKicksPerHour:Number($('security-maxKicksPerHour').value),maxRoleChangesPerHour:Number($('security-maxRoleChangesPerHour').value),maxChannelDeletesPerHour:Number($('security-maxChannelDeletesPerHour').value),maxWebhookChangesPerHour:Number($('security-maxWebhookChangesPerHour').value),ownerDmAlertsEnabled:$('security-ownerDmAlertsEnabled').checked,securityLogChannelId:$('security-securityLogChannelId').value.trim()||null,operationalExemptUserIds:$('security-operationalExemptUserIds').value.split(/[\s,،]+/).filter(Boolean)};try{await api('/api/security/settings',{method:'PUT',body});$('security-result').textContent='✅ تم حفظ إعدادات الحماية.';}catch(error){$('security-result').textContent=`❌ ${error.message}`;}};
     document.querySelectorAll('[data-security-restore]').forEach(button=>button.onclick=async()=>{if(!confirm('استرجاع الرتب الأصلية القابلة للإدارة فقط؟'))return;await api(`/api/security/suspensions/${button.dataset.securityRestore}/restore`,{method:'POST'});await bindSecurity();});
@@ -338,18 +427,18 @@ async function renderStatus(){
   clearTimeout(window.zarkStatusTimer);window.zarkStatusTimer=setTimeout(()=>renderStatus().catch(()=>undefined),30000);
 }
 
+function homeGameArt(slug){return {'valorant':'valorant','apex-legends':'apex','call-of-duty-warzone':'warzone','league-of-legends':'lol','minecraft':'minecraft','ea-sports-fc-24':'fc','fc-24':'fc'}[slug] || null;}
+
 function renderHome() {
-  const homeAction=document.querySelector('.cta a');
-  if(homeAction){homeAction.href=me?'/lfg.html':'/auth/discord';homeAction.textContent=me?'افتح غرف اللعب':'سجّل عبر Discord';}
-  const rooms = state.rooms || [];
-  const active = rooms.reduce((sum, room) => sum + room.currentPlayers, 0);
-  $('hero-active').textContent = `${active} لاعب نشط`;
-  $('stat-active').textContent = active;
-  $('stat-rooms').textContent = rooms.length;
-  $('stat-games').textContent = state.lfgGames?.length || 0;
-  $('stat-zark').textContent = state.zarkGames?.length || 0;
-  $('home-rooms').innerHTML = rooms.length ? rooms.slice(0,3).map(roomCard).join('') : empty('لا توجد غرف الآن — كن أول من يبدأ تجمعًا.');
-  $('home-leaderboard').innerHTML = rankingRows(state.leaderboard || [], 'gamePoints', 'XP');
+  const primaryAction=document.querySelector('.landing-actions .neon-button');
+  if(primaryAction&&me){primaryAction.href='/lfg.html';primaryAction.removeAttribute('target');primaryAction.removeAttribute('rel');primaryAction.innerHTML='افتح غرف اللعب <span>←</span>';}
+  const rooms = (state.rooms || []).filter(room => ['OPEN','FULL','ACTIVE','SCHEDULED'].includes(room.status));
+  const target = $('landing-rooms');
+  if (target) target.innerHTML = rooms.length ? rooms.slice(0,4).map(room => `<article class="preview-room"><div class="preview-host">${avatar(room.hostAvatarUrl,room.hostName,'host')}<div><b>${escapeHtml(room.hostName)}</b><small>${escapeHtml(room.title||'يبحث عن فريق')}</small></div></div><div class="preview-tags"><span>${escapeHtml(room.gameName)}</span><span>${room.currentPlayers}/${room.maxPlayers}</span><span>${room.needsVoice?'مايك':'بدون مايك'}</span></div><p>${escapeHtml(room.description||'انضم وابدأ اللعب مع المجتمع')}</p><a href="/lfg.html">عرض الغرفة ←</a></article>`).join('') : `<div class="preview-empty"><span>♧</span><h3>فريقك القادم ينتظرك</h3><p>لا توجد غرف مفتوحة حاليًا.<br>ابدأ تجمعًا وادعُ اللاعبين للانضمام.</p><a class="outline-button" href="/lfg.html">أنشئ أول غرفة ←</a></div>`;
+  const games = state.lfgGames || [];
+  const priorities = ['valorant','ea-sports-fc-24','apex-legends','call-of-duty-warzone','league-of-legends','minecraft'];
+  const sorted = [...games].sort((a,b)=>(priorities.includes(a.slug)?priorities.indexOf(a.slug):99)-(priorities.includes(b.slug)?priorities.indexOf(b.slug):99));
+  if ($('landing-games')) $('landing-games').innerHTML = sorted.length ? sorted.slice(0,6).map((game,index)=>`<a class="popular-game game-tone-${index} ${homeGameArt(game.slug)?'has-art':''}" ${homeGameArt(game.slug)?`style="background-image:linear-gradient(0deg,#070c19db,transparent),url('/assets/home/game-${homeGameArt(game.slug)}.webp')"`:''} href="/lfg.html"><span>${escapeHtml(game.icon||'◆')}</span><strong>${escapeHtml(game.name)}</strong><small>استكشف غرف اللعبة <i></i></small></a>`).join('') : '<p class="catalog-empty">لا توجد ألعاب متاحة حاليًا.</p>';
 }
 
 async function renderLfg(realtime) {
@@ -358,7 +447,8 @@ async function renderLfg(realtime) {
   if (!realtime) {
     $('room-game').dataset.tourId='game-selector';$('room-game').dataset.tour='game-selector';$('room-size').dataset.tourId='players-count';$('room-size').dataset.tour='players-count';$('room-when').dataset.tourId='play-when';$('room-when').dataset.tour='play-when';$('room-schedule-label').dataset.tourId='schedule-time';$('lfg-filters').dataset.tourId='categories';$('lfg-filters').dataset.tour='categories';$('interest-games').dataset.tourId='interests';$('interest-games').dataset.tour='interests';
     $('room-game').innerHTML = games.map(game => `<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||'🎮')} ${escapeHtml(game.name)} — ${escapeHtml(gamePlatformsLabel(game))}</option>`).join('');
-    const updateSelectedGame=()=>{updateRobloxMapField();const game=games.find(item=>item.slug===$('room-game').value);$('room-game-platforms').textContent=gamePlatformsLabel(game);};$('room-game').onchange=updateSelectedGame;updateSelectedGame();
+    initGamePicker(games);
+    const updateSelectedGame=()=>{updateRobloxMapField();const game=games.find(item=>item.slug===$('room-game')?.value);const _roomGamePlatforms = $('room-game-platforms'); if(_roomGamePlatforms) _roomGamePlatforms.textContent = gamePlatformsLabel(game);};$('room-game').onchange=updateSelectedGame;updateSelectedGame();
     $('room-platform-filter').onchange=renderRoomList;
 
     $('room-mic-filter').onchange=renderRoomList;
@@ -371,7 +461,7 @@ async function renderLfg(realtime) {
     const closeCreate=()=>{createPanel.classList.remove('open');createBackdrop.hidden=true;document.body.classList.remove('drawer-open');$('open-create-room').setAttribute('aria-expanded','false')};
     $('open-create-room').setAttribute('aria-controls','create-room-panel');$('open-create-room').setAttribute('aria-expanded','false');
     $('open-create-room').onclick=()=>{createPanel.classList.add('open');createBackdrop.hidden=false;document.body.classList.add('drawer-open');$('open-create-room').setAttribute('aria-expanded','true');createPanel.querySelector('select,input,button')?.focus()};
-    $('smart-match').onclick=async()=>{if(!me){location.href='/auth/discord';return}const button=$('smart-match'),result=$('smart-match-result');button.disabled=true;result.textContent='يحلل Zark اهتماماتك واللاعبين المتاحين والغرف الآن...';try{const matched=await api('/api/me/lfg/smart-match',{method:'POST',body:{}});state=await api('/api/state');renderRoomList();result.textContent=`✅ ${matched.recommendation?.reason||`تم اختيار ${matched.room.gameName}`}`;showToast(matched.joinedExisting?'انضممت إلى أفضل غرفة':'أنشأ Zark غرفة مناسبة',matched.recommendation?.reason||matched.room.gameName,'success');}catch(error){result.textContent=`❌ ${error.message}`;}finally{button.disabled=false;}};
+    $('smart-match').onclick=async()=>{if(!me){location.href='/auth/discord';return}const button=$('smart-match'),result=$('smart-match-result');button.disabled=true;result.textContent='يحلل 3Pal اهتماماتك واللاعبين المتاحين والغرف الآن...';try{const matched=await api('/api/me/lfg/smart-match',{method:'POST',body:{}});state=await api('/api/state');renderRoomList();result.textContent=`✅ ${matched.recommendation?.reason||`تم اختيار ${matched.room.gameName}`}`;showToast(matched.joinedExisting?'انضممت إلى أفضل غرفة':'أنشأ 3Pal غرفة مناسبة',matched.recommendation?.reason||matched.room.gameName,'success');}catch(error){result.textContent=`❌ ${error.message}`;}finally{button.disabled=false;}};
     $('close-create-room').onclick=closeCreate;createBackdrop.onclick=closeCreate;
     createPanel.setAttribute('role','dialog');createPanel.setAttribute('aria-modal','true');
     createPanel.onkeydown=event=>{if(event.key==='Escape'){closeCreate();$('open-create-room').focus()}else trapDialogFocus(event,createPanel)};
@@ -393,14 +483,19 @@ function renderRoomList() {
     if (!roomSearch) return true;
     return smartRoomMatch(room,roomSearch);
   });
-  $('room-count').textContent = `${rooms.length} LIVE`;
+  const _roomCount = $('room-count'); if(_roomCount) _roomCount.textContent = `${rooms.length} LIVE`;
   $('rooms').innerHTML = rooms.length ? rooms.map(room => {
+    const roomArt=homeGameArt(room.gameSlug);
     const finished=['COMPLETED','CLOSED'].includes(room.status);
     const status=room.status==='SCHEDULED'?'مجدولة':room.status==='ACTIVE'?'يلعبون الآن':room.status==='COMPLETED'?'انتهت':room.status==='CLOSED'?'مغلقة':room.status==='FULL'?'مكتملة':'تجمع';
     const players=(room.members||[]).map(member=>`<span class="room-player ${member.voiceActive?'voice':''}">${avatar(member.avatarUrl,member.displayName,'mini')}${member.id===room.hostId?'👑':member.voiceActive?'🎙️':'●'} ${escapeHtml(member.displayName)}</span>`).join('')||'<span class="room-player muted">بانتظار اللاعبين</span>';
     const remaining=formatRoomTiming(room);
-    return `<article class="room-card detailed" style="--room-accent:${escapeHtml(room.accentColor||'#e50914')}"><div><div class="room-top"><span class="game-icon">${escapeHtml(room.roomEmoji||room.gameIcon||'🎮')}</span><span class="room-status status-${room.status.toLowerCase()}">${status}</span></div><h3>${escapeHtml(room.title||room.gameName)}</h3>${room.hostPriority?'<span class="priority-badge">🚀 أولوية</span>':''}<span class="platform-badge">${escapeHtml(gamePlatformsLabel(room))}</span><div class="room-meta host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')}<span>${escapeHtml(room.gameName)} · Host: <b>${escapeHtml(room.hostName)}</b> · ${room.needsVoice?'🎙️ Voice':'💬 Text'} ${room.mapName?`· 🗺️ ${escapeHtml(room.mapName)}`:''} ${room.gameMode?`· ${escapeHtml(room.gameMode)}`:''}</span></div><div class="room-players">${players}</div><div class="room-progress"><i style="width:${Math.min(100,room.currentPlayers/room.maxPlayers*100)}%"></i></div><div class="room-bottom"><span>${room.currentPlayers}/${room.maxPlayers} لاعبين</span><span>⏱️ ${remaining}</span></div></div><div class="room-actions"><button class="button primary small" data-join="${room.id}" ${finished||room.locked||room.currentPlayers>=room.maxPlayers?'disabled':''}>${room.status==='SCHEDULED'?'تسجيل':'دخول'}</button><button class="button ghost small" data-leave="${room.id}" ${finished?'disabled':''}>${room.status==='SCHEDULED'?'إلغاء التسجيل':'خروج'}</button>${room.voiceChannelId&&state.guildId?`<a class="button ghost small" href="https://discord.com/channels/${escapeHtml(state.guildId)}/${escapeHtml(room.voiceChannelId)}" target="_blank" rel="noreferrer">Voice</a>`:''}${me?.userId===room.hostId&&!finished?`<button class="button ghost small" data-manage="${room.id}">إدارة</button>`:''}</div></article>`;
-  }).join('') : empty(roomSearch?'لا توجد نتيجة مطابقة للبحث.':'لا توجد غرف ضمن هذا التصنيف.');
+    return `<article class="room-card detailed ${roomArt?'has-cover':''}" style="--room-accent:${escapeHtml(room.accentColor||'#8b5cf6')};${roomArt?`--room-cover:url('/assets/home/game-${roomArt}.webp')`:''}"><div><div class="room-top"><span class="game-icon">${escapeHtml(room.roomEmoji||room.gameIcon||'🎮')}</span><span class="room-status status-${room.status.toLowerCase()}">${status}</span></div><h3>${escapeHtml(room.title||room.gameName)}</h3>${room.hostPriority?'<span class="priority-badge">🚀 أولوية</span>':''}<span class="platform-badge">${escapeHtml(gamePlatformsLabel(room))}</span><div class="room-meta host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')}<span>${escapeHtml(room.gameName)} · Host: <b>${escapeHtml(room.hostName)}</b> · ${room.needsVoice?'🎙️ Voice':'💬 Text'} ${room.mapName?`· 🗺️ ${escapeHtml(room.mapName)}`:''} ${room.gameMode?`· ${escapeHtml(room.gameMode)}`:''}</span></div><div class="room-players">${players}</div><div class="room-progress"><i style="width:${Math.min(100,room.currentPlayers/room.maxPlayers*100)}%"></i></div><div class="room-bottom"><span>${room.currentPlayers}/${room.maxPlayers} لاعبين</span><span>⏱️ ${remaining}</span></div></div><div class="room-actions"><button class="button primary small" data-join="${room.id}" ${finished||room.locked||room.currentPlayers>=room.maxPlayers?'disabled':''}>${room.status==='SCHEDULED'?'تسجيل':'دخول'}</button><button class="button ghost small" data-leave="${room.id}" ${finished?'disabled':''}>${room.status==='SCHEDULED'?'إلغاء التسجيل':'خروج'}</button>${room.voiceChannelId&&state.guildId?`<a class="button ghost small" href="https://discord.com/channels/${escapeHtml(state.guildId)}/${escapeHtml(room.voiceChannelId)}" target="_blank" rel="noreferrer">Voice</a>`:''}${me?.userId===room.hostId&&!finished?`<button class="button ghost small" data-manage="${room.id}">إدارة</button>`:''}</div></article>`;
+  }).join('') : roomSearch
+    ? '<div class="lfg-empty"><span>⌕</span><h3>لم نجد غرفة مطابقة</h3><p>جرّب اسم لعبة أو منصة مختلفة، أو امسح البحث لعرض كل الغرف.</p><button class="button ghost" type="button" data-reset-room-search>مسح البحث</button></div>'
+    : `<div class="lfg-empty"><span>♟</span><h3>لا توجد غرف مفتوحة حاليًا</h3><p>كن أول من يبدأ تجمعًا جديدًا، وسيظهر هنا فور إنشائه.</p>${me?'<button class="button primary" type="button" data-empty-create>＋ إنشاء غرفة</button>':'<a class="button primary" href="/auth/discord">سجّل وأنشئ غرفة</a>'}</div>`;
+  document.querySelector('[data-empty-create]')?.addEventListener('click',()=>$('open-create-room')?.click());
+  document.querySelector('[data-reset-room-search]')?.addEventListener('click',()=>{roomSearch='';$('room-search').value='';renderRoomList();});
   document.querySelectorAll('[data-join]').forEach(button => button.onclick = () => roomAction(button.dataset.join,'join',button));
   document.querySelectorAll('[data-leave]').forEach(button => button.onclick = () => roomAction(button.dataset.leave,'leave',button));
   document.querySelectorAll('[data-manage]').forEach(button => button.onclick = () => openRoomManager(button.dataset.manage));
@@ -409,7 +504,7 @@ function renderRoomList() {
 function bindCreateRoom() {
   if (!me) { $('create-room-form').querySelectorAll('input,select,textarea,button').forEach(control=>control.disabled=true); return; }
   $('login-hint').hidden = true;
-  const updateSchedule=()=>{const later=$('room-when').value==='later';$('room-schedule-label').hidden=!later;if(later){const date=nextScheduledDate(Number($('room-schedule-hour').value),$('room-schedule-period').value);$('room-schedule-preview').textContent=`الموعد تلقائيًا: ${date.toLocaleString('ar',{weekday:'long',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}`;}};
+  const updateSchedule=()=>{const later=$('room-when')?.value==='later';const _roomScheduleLabel = $('room-schedule-label'); if(_roomScheduleLabel) _roomScheduleLabel.hidden = !later; if(later){const date=nextScheduledDate(Number($('room-schedule-hour')?.value),$('room-schedule-period')?.value);const _roomSchedulePreview = $('room-schedule-preview'); if(_roomSchedulePreview) _roomSchedulePreview.textContent = `الموعد تلقائيًا: ${date.toLocaleString('ar',{weekday:'long',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}`;}};
   $('room-when').onchange=updateSchedule;$('room-schedule-hour').onchange=updateSchedule;$('room-schedule-period').onchange=updateSchedule;updateSchedule();
   $('create-room-form').onsubmit = async event => {
     event.preventDefault();
@@ -447,13 +542,26 @@ async function saveRoomManager(event){event.preventDefault();const id=$('manage-
 
 async function hostRoomAction(action){const id=$('manage-room-id').value;const result=$('room-manager-result');result.textContent='جارِ تنفيذ الإجراء...';try{await api(`/api/me/lfg/${id}/${action}`,{method:'POST'});state=await api('/api/state');renderRoomList();if(['complete','close'].includes(action))$('room-manager').hidden=true;result.textContent='✅ تم تنفيذ الإجراء.';}catch(error){result.textContent=`❌ ${error.message}`;}}
 
+// Local publisher artwork; unknown games retain a readable, image-free fallback.
+const lfgArtworkSlugs = new Set(['minecraft','roblox','terraria','valorant','cs2','overwatch-2','rainbow-six-siege','warzone','rust','ark-survival-ascended','palworld','dead-by-daylight','fortnite','pubg','pubg-mobile','apex-legends','gta-v','red-dead-online','rocket-league','ea-sports-fc','forza-horizon-5','league-of-legends','dota-2','among-us','fall-guys']);
+function renderInterestArtwork(game) {
+  if (!lfgArtworkSlugs.has(game.slug)) return '';
+  const base = `/assets/lfg/${game.slug}`;
+  return `<div class="interest-art"><img class="interest-backdrop" src="${base}-background.webp" alt="" loading="lazy"><img class="interest-logo" src="${base}-logo.webp" alt="شعار ${escapeHtml(game.name)}" loading="lazy"></div>`;
+}
+
+
 async function renderInterests(games) {
   const prefs = me ? await api('/api/me/lfg-preferences') : [];
   const map = new Map(prefs.map(pref=>[pref.game.slug,pref]));
-  $('interest-games').innerHTML = games.map(game=>{const pref=map.get(game.slug);const interested=pref?.interestStatus==='INTERESTED';const sleeping=pref?.mutedUntil&&new Date(pref.mutedUntil)>new Date();const autoInvites=pref?.autoInvitesEnabled!==false;return `<article class="interest-card"><header><span>${escapeHtml(game.icon||'🎮')}</span><h3>${escapeHtml(game.name)}</h3></header><span class="platform-badge">${escapeHtml(gamePlatformsLabel(game))}</span>${sleeping?`<small class="snooze-status">😴 غفوة حتى ${new Date(pref.mutedUntil).toLocaleString('ar',{timeStyle:'short',dateStyle:'short'})}</small>`:''}<div class="interest-actions"><button class="${interested?'on':''}" data-interest="${game.slug}" data-interested="${interested}">❤️ ${interested?'إلغاء الاهتمام':'مهتم'}</button><button class="${pref?.notificationsEnabled?'on':''}" data-notify="${game.slug}">${pref?.notificationsEnabled?'🔔 إيقاف الإشعار':'🔕 تشغيل الإشعار'}</button></div><div class="interest-actions"><button class="${autoInvites?'on':''}" data-auto-invite="${game.slug}">🤖 ${autoInvites?'دعوات Zark مفعلة':'دعوات Zark متوقفة'}</button></div><div class="snooze-actions"><select data-snooze-select="${game.slug}"><option value="60">ساعة</option><option value="480">8 ساعات</option><option value="1440">يوم</option><option value="10080">أسبوع</option></select><button data-snooze="${game.slug}">😴 غفوة</button></div></article>`}).join('');
+  $('interest-games').innerHTML = games.map(game=>{const pref=map.get(game.slug);const interested=pref?.interestStatus==='INTERESTED';const sleeping=pref?.mutedUntil&&new Date(pref.mutedUntil)>new Date();return `<article class="interest-card">${renderInterestArtwork(game)}<header><h3>${escapeHtml(game.name)}</h3></header><span class="platform-badge">${escapeHtml(gamePlatformsLabel(game))}</span>${sleeping?`<small class="snooze-status">😴 غفوة حتى ${new Date(pref.mutedUntil).toLocaleString('ar',{timeStyle:'short',dateStyle:'short'})}</small>`:''}<div class="interest-actions"><button class="${interested?'on':''}" data-interest="${game.slug}" data-interested="${interested}">❤️ ${interested?'إلغاء الاهتمام':'مهتم'}</button><button class="${pref?.notificationsEnabled?'on':''}" data-notify="${game.slug}">${pref?.notificationsEnabled?'🔔 إيقاف الإشعار':'🔕 تشغيل الإشعار'}</button></div><div class="snooze-actions"><select data-snooze-select="${game.slug}"><option value="60">ساعة</option><option value="480">8 ساعات</option><option value="1440">يوم</option><option value="10080">أسبوع</option></select><button data-snooze="${game.slug}">😴 غفوة</button></div></article>`}).join('');
   document.querySelectorAll('[data-interest]').forEach(button=>button.onclick=()=>{const next=button.dataset.interested!=='true';setWebPreference(button.dataset.interest,next,next,button)});
   document.querySelectorAll('[data-notify]').forEach(button=>button.onclick=()=>setWebPreference(button.dataset.notify,true,!map.get(button.dataset.notify)?.notificationsEnabled,button));
-  document.querySelectorAll('[data-auto-invite]').forEach(button=>button.onclick=()=>setWebPreference(button.dataset.autoInvite,true,Boolean(map.get(button.dataset.autoInvite)?.notificationsEnabled),button,!Boolean(map.get(button.dataset.autoInvite)?.autoInvitesEnabled)));
+  document.querySelectorAll('.interest-art img').forEach(image=>{
+    const hideBrokenImage=()=>{image.hidden=true;};
+    image.addEventListener('error',hideBrokenImage,{once:true});
+    if(image.complete&&!image.naturalWidth)hideBrokenImage();
+  });
   document.querySelectorAll('[data-snooze]').forEach(button=>button.onclick=()=>snoozeWebPreference(button.dataset.snooze,Number(document.querySelector(`[data-snooze-select="${button.dataset.snooze}"]`).value),button));
 }
 
@@ -473,11 +581,11 @@ function renderGames() {
   const favoritesOnly=$('game-favorites')?.getAttribute('aria-pressed')==='true';
   const filtered = games.filter(game => (!favoritesOnly||favoriteGames.has(game.slug)) && ($('game-category')?.value === 'all' || game.category === category) && normalize([game.name, game.description, game.slug, ...(game.aliases || [])].join(' ')).includes(query));
   filtered.sort((a,b)=>$('game-sort')?.value==='questions' ? (b.questionCount||0)-(a.questionCount||0) : a.name.localeCompare(b.name,'ar'));
-  if($('catalog-total'))$('catalog-total').textContent=games.length;
-  if($('catalog-questions'))$('catalog-questions').textContent=games.reduce((sum,game)=>sum+(Number(game.questionCount)||0),0).toLocaleString('ar');
-  if($('catalog-categories'))$('catalog-categories').textContent=new Set(games.map(game=>game.category)).size;
-  $('zark-games').innerHTML = filtered.map((game,index)=>`<article class="game-entry"><button type="button" class="game-save" data-save-game="${escapeHtml(game.slug)}" aria-label="حفظ ${escapeHtml(game.name)} في المفضلة" aria-pressed="${favoriteGames.has(game.slug)}">${favoriteGames.has(game.slug)?'★':'☆'}</button><button type="button" class="game-tile" data-tone="${index%4}" data-game="${escapeHtml(game.slug)}" aria-pressed="${$('race-command')?.dataset.game === game.slug}"><div class="game-cover"><span>${escapeHtml(game.icon||gameIcon(game.slug))}</span><small>${escapeHtml(game.category || 'تحدي جماعي')}</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>${Number.isFinite(Number(game.questionCount)) && Number(game.questionCount)>0 ? `${Number(game.questionCount).toLocaleString('ar')} سؤال` : 'تحدٍ داخل Discord'}</span><span>اختر اللعبة ↖</span></footer></button></article>`).join('') || empty(games.length ? 'ما لقينا لعبة بهذه الفلاتر. جرّب بحثًا ثانيًا أو احفظ ألعابًا في المفضلة.' : 'لا توجد ألعاب متاحة حاليًا. ارجع قريبًا.');
-  if ($('game-count')) $('game-count').textContent = `${filtered.length} لعبة متاحة`;
+  safeSetText('catalog-total', String(games.length));
+  safeSetText('catalog-questions', String(games.reduce((sum,game)=>sum+(Number(game.questionCount)||0),0).toLocaleString('ar')));
+  safeSetText('catalog-categories', String(new Set(games.map(game=>game.category)).size));
+  $('zark-games').innerHTML = filtered.map((game,index)=>`<article class="game-entry"><button type="button" class="game-save" data-save-game="${escapeHtml(game.slug)}" aria-label="حفظ ${escapeHtml(game.name)} في المفضلة" aria-pressed="${favoriteGames.has(game.slug)}">${favoriteGames.has(game.slug)?'★':'☆'}</button><button type="button" class="game-tile" data-tone="${index%4}" data-game="${escapeHtml(game.slug)}" aria-pressed="${$('race-command')?.dataset.game === game.slug}"><div class="game-cover">${renderInterestArtwork(game)||`<span>${escapeHtml(game.icon||gameIcon(game.slug))}</span>`}<small>${escapeHtml(game.category || 'تحدي جماعي')}</small></div><h3>${escapeHtml(game.name)}</h3><p>${escapeHtml(game.description||'تحدٍ سريع داخل Discord')}</p><footer><span>${Number.isFinite(Number(game.questionCount)) && Number(game.questionCount)>0 ? `${Number(game.questionCount).toLocaleString('ar')} سؤال` : 'تحدٍ داخل Discord'}</span><span>اختر اللعبة ↖</span></footer></button></article>`).join('') || empty(games.length ? 'ما لقينا لعبة بهذه الفلاتر. جرّب بحثًا ثانيًا أو احفظ ألعابًا في المفضلة.' : 'لا توجد ألعاب متاحة حاليًا. ارجع قريبًا.');
+  safeSetText('game-count', `${filtered.length} لعبة متاحة`);
   if ($('game-search')) $('game-search').oninput = renderGames;
   if ($('game-sort')) $('game-sort').onchange = renderGames;
   if ($('game-favorites')) $('game-favorites').onclick = () => {$('game-favorites').setAttribute('aria-pressed',String(!favoritesOnly));renderGames();};
@@ -494,7 +602,7 @@ function renderGames() {
     document.querySelector(`[data-save-game="${CSS.escape(slug)}"]`)?.focus();
   });
   const linked=new URLSearchParams(location.search).get('game');
-  if($('save-selected-game'))$('save-selected-game').textContent=favoriteGames.has($('race-command').dataset.game)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';
+  const _saveSelectedGameQuick = $('save-selected-game'); if(_saveSelectedGameQuick) _saveSelectedGameQuick.textContent = favoriteGames.has($('race-command')?.dataset.game)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';
   if(linked&&!$('race-command').dataset.game&&games.some(game=>game.slug===linked))startRace(linked);
 }
 
@@ -502,23 +610,18 @@ async function startRace(gameSlug){
   const games = state.zarkGames || [];
   const game = gameSlug ? games.find(item=>item.slug===gameSlug) : games[Math.floor(Math.random()*games.length)];
   if (!game) return;
-  $('race-title').textContent = `${game.icon || gameIcon(game.slug)} ${game.name}`;
-  $('race-prompt').textContent = game.description || 'تحدٍ سريع داخل Discord';
-  if($('race-details'))$('race-details').textContent=`${game.category||'تحدي'} · ${Math.round((game.durationMs||15000)/1000)} ثانية افتراضيًا · ${game.questionCount||0} سؤال`;
-  $('race-note').textContent = 'انسخ الأمر وأرسله في قناة الألعاب داخل Discord لبدء الجولة واحتساب النقاط.';
+  const _raceTitle = $('race-title'); if(_raceTitle) _raceTitle.textContent = `${game.icon || gameIcon(game.slug)} ${game.name}`;
+  const _racePrompt = $('race-prompt'); if(_racePrompt) _racePrompt.textContent = game.description || 'تحدٍ سريع داخل Discord';
+  const _raceDetails = $('race-details'); if(_raceDetails) _raceDetails.textContent = `${game.category||'تحدي'} · ${Math.round((game.durationMs||15000)/1000)} ثانية افتراضيًا · ${game.questionCount||0} سؤال`;
+  const _raceNote = $('race-note'); if(_raceNote) _raceNote.textContent = 'انسخ الأمر وأرسله في قناة الألعاب داخل Discord لبدء الجولة واحتساب النقاط.';
   const command = game.aliases?.[0] ? `.${game.aliases[0]}` : '/play';
-  $('race-command').textContent = command;
-  $('race-command').dataset.game = game.slug;
-  $('race-actions').hidden = false;
+  const _raceCommand = $('race-command'); if(_raceCommand){ _raceCommand.textContent = command; _raceCommand.dataset.game = game.slug; }
+  const _raceActions = $('race-actions'); if(_raceActions) _raceActions.hidden = false;
   if($('save-selected-game')){
-    $('save-selected-game').textContent=favoriteGames.has(game.slug)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';
-    $('save-selected-game').onclick=()=>{favoriteGames.has(game.slug)?favoriteGames.delete(game.slug):favoriteGames.add(game.slug);try{localStorage.setItem('zark-favorite-games',JSON.stringify([...favoriteGames]));}catch{}renderGames();$('save-selected-game').textContent=favoriteGames.has(game.slug)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';};
+    const _saveSelectedGame = $('save-selected-game'); _saveSelectedGame.textContent = favoriteGames.has(game.slug)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';
+    _saveSelectedGame.onclick=()=>{favoriteGames.has(game.slug)?favoriteGames.delete(game.slug):favoriteGames.add(game.slug);try{localStorage.setItem('zark-favorite-games',JSON.stringify([...favoriteGames]));}catch{}renderGames();_saveSelectedGame.textContent=favoriteGames.has(game.slug)?'★ محفوظة بالمفضلة':'☆ أضف للمفضلة';};
   }
-  $('copy-game-command').textContent = 'نسخ الأمر';
-  $('copy-game-command').onclick = async () => {
-    try { await navigator.clipboard.writeText($('race-command').textContent); $('copy-game-command').textContent = 'تم النسخ ✓'; }
-    catch { $('copy-game-command').textContent = 'حدد الأمر لنسخه يدويًا'; }
-  };
+  const _copyGameCommand = $('copy-game-command'); if(_copyGameCommand){ _copyGameCommand.textContent = 'نسخ الأمر'; _copyGameCommand.onclick = async () => { try { await navigator.clipboard.writeText(_raceCommand?.textContent || ''); _copyGameCommand.textContent = 'تم النسخ ✓'; } catch { _copyGameCommand.textContent = 'حدد الأمر لنسخه يدويًا'; } }; }
   document.querySelectorAll('.game-tile').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.game === game.slug)));
   document.querySelector('.game-stage').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block:'center'});
 }
@@ -559,9 +662,12 @@ async function renderProfile(){
   if(profileResult.status==='rejected')throw profileResult.reason;
   const data=profileResult.value,availability=availabilityResult.value,team=teamResult.value;
   $('profile-guest').hidden=true;$('profile-content').hidden=false;
-  $('profile-name').textContent=data.displayName+(data.loyalty?.badge==='GOLD'?' 🏅':'');$('profile-level').textContent=`LV ${data.zark.level}`;$('profile-rating').textContent=data.lfg.rating.average?`${data.lfg.rating.average} ⭐ من ${data.lfg.rating.count} تقييم`:'لا يوجد تقييم بعد';$('profile-bio').textContent=data.settings.bio||'أضف نبذة قصيرة عن أسلوب لعبك.';
+  const _profileName = $('profile-name'); if(_profileName) _profileName.textContent = data.displayName+(data.loyalty?.badge==='GOLD'?' 🏅':'');
+  const _profileLevel = $('profile-level'); if(_profileLevel) _profileLevel.textContent = `LV ${data.zark.level}`;
+  const _profileRating = $('profile-rating'); if(_profileRating) _profileRating.textContent = data.lfg.rating.average?`${data.lfg.rating.average} ⭐ من ${data.lfg.rating.count} تقييم`:'لا يوجد تقييم بعد';
+  const _profileBio = $('profile-bio'); if(_profileBio) _profileBio.textContent = data.settings.bio||'أضف نبذة قصيرة عن أسلوب لعبك.';
   $('profile-avatar').src=data.avatarUrl||'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23222"/%3E%3C/svg%3E';$('profile-head').style.setProperty('--profile-accent',data.settings.profileAccent);
-  $('profile-stats').innerHTML=statCards([[data.zark.xp,'Zark XP'],[data.loyalty?.points||0,'نقاط الولاء'],[formatDuration(data.lfg.voiceSeconds),'وقت Voice'],[data.lfg.completedSessions,'جلسة مكتملة']]);
+  $('profile-stats').innerHTML=statCards([[data.zark.xp,'3Pal XP'],[data.loyalty?.points||0,'نقاط الولاء'],[formatDuration(data.lfg.voiceSeconds),'وقت Voice'],[data.lfg.completedSessions,'جلسة مكتملة']]);
   if(loyaltyResult.status==='fulfilled')renderLoyaltyShop(loyaltyResult.value);
   else $('profile-loyalty').innerHTML=empty('تعذر تحميل متجر الولاء مؤقتاً. أعد تحميل الصفحة للمحاولة.');
   $('profile-zark-games').innerHTML=data.zark.games.length?data.zark.games.slice(0,8).map(game=>dataRow(game.name,`${game.xp} XP · ${game.wins}W`)).join(''):empty('لا توجد مباريات بعد');
@@ -585,7 +691,7 @@ function bindAvailability(availability){
   const days=[{id:6,name:'السبت'},{id:0,name:'الأحد'},{id:1,name:'الاثنين'},{id:2,name:'الثلاثاء'},{id:3,name:'الأربعاء'},{id:4,name:'الخميس'},{id:5,name:'الجمعة'}];
   $('availability-activity').value=availability.currentActivity;$('availability-mentions').value=availability.mentionPolicy;$('availability-note').value=availability.activityNote||'';$('availability-until').value=availability.activityUntil?localDateTime(availability.activityUntil):'';
   $('availability-timezone').value=availability.timezoneConfigured?availability.timezone:(Intl.DateTimeFormat().resolvedOptions().timeZone||availability.timezone||'Asia/Jerusalem');
-  const snapshot=availability.snapshot;$('availability-current').textContent=`الحالة الآن: ${availabilityText(snapshot?.activity||availability.currentActivity)}${snapshot?.activeNow?' · نشط الآن':snapshot?.lastActiveAt?` · آخر نشاط ${relativeTime(snapshot.lastActiveAt)}`:''}${snapshot?.nextFree&&snapshot.activity!=='FREE'?` · الفراغ القادم ${relativeTime(snapshot.nextFree.startsAt)}`:''}`;
+  const snapshot=availability.snapshot; const _availabilityCurrent = $('availability-current'); if(_availabilityCurrent) _availabilityCurrent.textContent = `الحالة الآن: ${availabilityText(snapshot?.activity||availability.currentActivity)}${snapshot?.activeNow?' · نشط الآن':snapshot?.lastActiveAt?` · آخر نشاط ${relativeTime(snapshot.lastActiveAt)}`:''}${snapshot?.nextFree&&snapshot.activity!=='FREE'?` · الفراغ القادم ${relativeTime(snapshot.nextFree.startsAt)}`:''}`;
   const privacy=availability.privacy||{};$('privacy-current').checked=privacy.showCurrentStatus!==false;$('privacy-mention').checked=privacy.mentionStatusEnabled!==false;$('privacy-last-active').checked=privacy.showLastActive!==false;$('privacy-free').checked=privacy.showFreeTime!==false;$('privacy-study').checked=Boolean(privacy.showStudyTime);$('privacy-sleep').checked=Boolean(privacy.showSleepTime);
   const dnd=availability.doNotDisturb||{};$('dnd-sleep').checked=dnd.sleep!==false;$('dnd-study').checked=dnd.study!==false;$('dnd-busy').checked=Boolean(dnd.busy);
   document.querySelectorAll('[data-availability-quick]').forEach(button=>button.onclick=async()=>{const[activity,minutesText]=button.dataset.availabilityQuick.split(':'),minutes=Number(minutesText);const result=$('availability-result');result.textContent='جارِ تحديث حالتك...';try{const saved=await api('/api/me/availability',{method:'PUT',body:{currentActivity:activity,activityUntil:minutes?new Date(Date.now()+minutes*60_000).toISOString():null,activityNote:null,mentionPolicy:availability.mentionPolicy}});bindAvailability(saved);result.textContent='✅ تم تحديث حالتك فورًا.';}catch(error){result.textContent=`❌ ${error.message}`;}});
@@ -607,7 +713,7 @@ async function renderTeamList(){
   try{
     const teams=await api(`/api/teams${query?`?search=${encodeURIComponent(query)}`:''}`);
     if(version!==teamSearchVersion)return;
-    $('team-list').innerHTML=teams.length?teams.map((team,index)=>teamCard(team,index+1)).join(''):empty('لا توجد فرق مطابقة. أنشئ أول فريق في Zark.');
+    $('team-list').innerHTML=teams.length?teams.map((team,index)=>teamCard(team,index+1)).join(''):empty('لا توجد فرق مطابقة. أنشئ أول فريق في 3Pal.');
   }catch(error){
     if(version===teamSearchVersion)$('team-list').innerHTML=empty(`تعذر تحميل الفرق: ${error.message}`);
   }
@@ -618,14 +724,14 @@ async function renderTeams(){
   if(!me){account.innerHTML='<div class="auth-gate compact"><span>👥</span><h2>ادخل إلى مجتمع الفرق</h2><p>سجّل بحساب Discord لإنشاء فريق أو قبول دعوة.</p><a class="button primary" href="/auth/discord">دخول Discord</a></div>';}
   else if(myTeam){account.innerHTML=teamDashboard(myTeam);bindTeamDashboard(myTeam);}
   else{
-    account.innerHTML=`<div class="team-start"><div><span class="eyebrow">YOUR SQUAD</span><h2>أنشئ فريقك الأول</h2><p>يمكنك الانضمام إلى فريق واحد، وتصل الدعوة لمدة 7 أيام.</p></div><form id="team-create-form"><label>اسم الفريق<input id="team-name" minlength="2" maxlength="32" required placeholder="مثال: Zark Legends"></label><label>وصف مختصر<input id="team-description" maxlength="240" placeholder="الألعاب وأسلوب الفريق"></label><label>لون الفريق<input id="team-accent" type="color" value="#e50914"></label><button class="button primary" type="submit">إنشاء الفريق</button></form></div>${invites.length?`<div class="team-invites"><h3>دعواتك</h3>${invites.map(teamInviteCard).join('')}</div>`:''}<p id="team-action-result" class="form-result" aria-live="polite"></p>`;
+    account.innerHTML=`<div class="team-start"><div><span class="eyebrow">YOUR SQUAD</span><h2>أنشئ فريقك الأول</h2><p>يمكنك الانضمام إلى فريق واحد، وتصل الدعوة لمدة 7 أيام.</p></div><form id="team-create-form"><label>اسم الفريق<input id="team-name" minlength="2" maxlength="32" required placeholder="مثال: 3Pal Legends"></label><label>وصف مختصر<input id="team-description" maxlength="240" placeholder="الألعاب وأسلوب الفريق"></label><label>لون الفريق<input id="team-accent" type="color" value="#e50914"></label><button class="button primary" type="submit">إنشاء الفريق</button></form></div>${invites.length?`<div class="team-invites"><h3>دعواتك</h3>${invites.map(teamInviteCard).join('')}</div>`:''}<p id="team-action-result" class="form-result" aria-live="polite"></p>`;
     $('team-create-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{await api('/api/me/teams',{method:'POST',body:{name:$('team-name').value,description:$('team-description').value||undefined,accentColor:$('team-accent').value}});showToast('تم إنشاء الفريق','أصبحت مالك الفريق ويمكنك دعوة اللاعبين.','success');await renderTeams();}catch(error){$('team-action-result').textContent=`❌ ${error.message}`;button.disabled=false;}};
     document.querySelectorAll('[data-team-invite-response]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{await api(`/api/me/team-invites/${button.dataset.inviteId}/respond`,{method:'POST',body:{accept:button.dataset.teamInviteResponse==='accept'}});await renderTeams();}catch(error){$('team-action-result').textContent=`❌ ${error.message}`;button.disabled=false;}});
   }
   if($('team-search')&&!$('team-search').dataset.bound){$('team-search').dataset.bound='true';let timer;$('team-search').oninput=()=>{++teamSearchVersion;clearTimeout(timer);timer=setTimeout(renderTeamList,280)}}
 }
 
-function teamCard(team,rank){return `<article class="team-card" style="--team-accent:${escapeHtml(team.accentColor)}"><header><span class="team-rank">#${rank}</span>${team.logoUrl?`<img src="${escapeHtml(team.logoUrl)}" alt="">`:`<i>${escapeHtml(team.name.slice(0,2).toUpperCase())}</i>`}<div><h3>${escapeHtml(team.name)}</h3><small>بقيادة ${escapeHtml(team.owner.displayName)}</small></div></header><p>${escapeHtml(team.description||'فريق جديد يستعد للمنافسة في Zark.')}</p><div class="team-numbers"><span><b>${formatValue(team.memberCount)}</b> عضو</span><span><b>${formatValue(team.totals.wins)}</b> فوز</span><span><b>${formatValue(team.totals.sessions)}</b> جلسة</span><span><b>${formatValue(team.score)}</b> نقطة فريق</span></div><footer>${team.members.slice(0,5).map(member=>avatar(member.avatarUrl,member.displayName,'mini')).join('')}<span>${team.memberCount}/${team.maxMembers}</span></footer></article>`}
+function teamCard(team,rank){return `<article class="team-card" style="--team-accent:${escapeHtml(team.accentColor)}"><header><span class="team-rank">#${rank}</span>${team.logoUrl?`<img src="${escapeHtml(team.logoUrl)}" alt="">`:`<i>${escapeHtml(team.name.slice(0,2).toUpperCase())}</i>`}<div><h3>${escapeHtml(team.name)}</h3><small>بقيادة ${escapeHtml(team.owner.displayName)}</small></div></header><p>${escapeHtml(team.description||'فريق جديد يستعد للمنافسة في 3Pal.')}</p><div class="team-numbers"><span><b>${formatValue(team.memberCount)}</b> عضو</span><span><b>${formatValue(team.totals.wins)}</b> فوز</span><span><b>${formatValue(team.totals.sessions)}</b> جلسة</span><span><b>${formatValue(team.score)}</b> نقطة فريق</span></div><footer>${team.members.slice(0,5).map(member=>avatar(member.avatarUrl,member.displayName,'mini')).join('')}<span>${team.memberCount}/${team.maxMembers}</span></footer></article>`}
 function teamInviteCard(invite){return `<article class="team-invite"><div><b>${escapeHtml(invite.team.name)}</b><small>دعوة من ${escapeHtml(invite.inviter.displayName)} · تنتهي ${relativeTime(invite.expiresAt)}</small></div><button class="button primary small" data-team-invite-response="accept" data-invite-id="${invite.id}">قبول</button><button class="button ghost small" data-team-invite-response="decline" data-invite-id="${invite.id}">رفض</button></article>`}
 function teamDashboard(team){const canManage=['OWNER','CAPTAIN'].includes(team.myRole);return `<div class="team-dashboard" style="--team-accent:${escapeHtml(team.accentColor)}"><header><div class="team-logo">${team.logoUrl?`<img src="${escapeHtml(team.logoUrl)}" alt="">`:escapeHtml(team.name.slice(0,2).toUpperCase())}</div><div><span class="eyebrow">MY TEAM · ${escapeHtml(team.myRole)}</span><h2>${escapeHtml(team.name)}</h2><p>${escapeHtml(team.description||'فريقك جاهز للمنافسة.')}</p></div><strong>${formatValue(team.score)}<small>نقطة فريق</small></strong></header>${canManage?`<form id="team-invite-form" class="team-invite-form"><label>Discord ID للاعب<input id="team-invite-user" inputmode="numeric" pattern="[0-9]{17,20}" maxlength="20" required placeholder="123456789012345678"></label><button class="button primary" type="submit">إرسال دعوة</button></form>`:''}<div class="team-member-list">${team.members.map(member=>`<article>${avatar(member.avatarUrl,member.displayName,'mini')}<div><b>${escapeHtml(member.displayName)}</b><small>${teamRole(member.role)} · ${member.xp} XP · ${member.completedSessions} جلسة</small></div>${team.myRole==='OWNER'&&member.role!=='OWNER'?`<button class="button ghost small" data-team-role="${member.id}" data-next-role="${member.role==='CAPTAIN'?'MEMBER':'CAPTAIN'}">${member.role==='CAPTAIN'?'إلغاء القيادة':'تعيين قائد'}</button>`:''}${canManage&&member.role==='MEMBER'&&member.id!==me.userId?`<button class="button danger small" data-team-remove="${member.id}">إزالة</button>`:''}</article>`).join('')}</div><footer>${team.myRole==='OWNER'?'<button id="team-delete" class="button danger" type="button">حذف الفريق</button>':'<button id="team-leave" class="button danger" type="button">مغادرة الفريق</button>'}<a class="button ghost" href="/lfg.html">ابحث عن غرفة للفريق</a></footer><p id="team-action-result" class="form-result" aria-live="polite"></p></div>`}
 function teamRole(role){return role==='OWNER'?'المالك':role==='CAPTAIN'?'قائد':'عضو'}
@@ -647,10 +753,15 @@ async function runTeamAction(button,message,path,method){
 async function renderLeaderboard(board){document.querySelectorAll('[data-board]').forEach(button=>{button.classList.toggle('active',button.dataset.board===board);button.onclick=()=>renderLeaderboard(button.dataset.board)});let rows,key,label;if(board==='game'||board==='engagement'){rows=await api(`/api/leaderboard?period=all&metric=${board}`);key=board==='game'?'gamePoints':'engagementPoints';label=board==='game'?'XP':'نقطة';}else{rows=await api(`/api/lfg/top?metric=${board}`);key=board==='sessions'?'completedSessions':'rating';label=board==='sessions'?'جلسة':'⭐';}const top=rows.slice(0,3);$('podium').innerHTML=[top[1],top[0],top[2]].map((row,index)=>row?`<article class="podium-card ${index===1?'first':''}">${avatar(row.avatarUrl,row.displayName,'podium')}<span>${index===1?'🥇':index===0?'🥈':'🥉'}</span><b>${escapeHtml(row.displayName)}</b><small>${formatValue(row[key])} ${label}</small></article>`:'').join('');$('full-leaderboard').innerHTML=rankingRows(rows,key,label);}
 
 async function renderReports(){
-  if(!me){['support-chat-form','bug-form','player-report-form'].forEach(id=>$(id).innerHTML='<div class="auth-gate compact"><p>سجّل عبر Discord لاستخدام الدعم.</p><a class="button primary" href="/auth/discord">تسجيل الدخول</a></div>');return;}
+  if(!me){
+    document.querySelector('.support-chat').innerHTML='<div id="support-chat-form" class="auth-gate compact support-guest"><span>✦</span><h2>مساعد 3PAL جاهز لك</h2><p>سجّل عبر Discord واسأل عن الغرف أو الحساب أو الإشعارات.</p><a class="button primary" href="/auth/discord">تسجيل الدخول</a></div>';
+    document.querySelector('.feedback-grid').innerHTML='<article id="bug-form" class="support-option"><span>⌁</span><div><h2>مشكلة تقنية</h2><p>افتح تذكرة، أرفق التفاصيل، وتابع رد الإدارة من نفس الصفحة.</p></div></article><article id="player-report-form" class="support-option"><span>⚑</span><div><h2>بلاغ عن لاعب</h2><p>بلاغ سري مرتبط بالجلسة يصل إلى إدارة 3PAL.</p></div></article>';
+    $('my-reports').innerHTML='<div class="empty-state">سجّل عبر Discord لعرض تذاكرك ومتابعة ردود الإدارة.</div>';
+    return;
+  }
   const support=await api('/api/me/support/status');
-  $('support-ai-status').textContent=supportTokenLabel(support);
-  $('support-ai-clear').onclick=()=>{if(!confirm('حذف محادثة مساعد Zark من هذه الصفحة؟'))return;$('support-chat-log').innerHTML='<article class="chat-message assistant">تم مسح المحادثة. كيف أقدر أساعدك الآن؟</article>';$('support-suggestions').innerHTML='';};
+  const _supportAiStatus = $('support-ai-status'); if(_supportAiStatus) _supportAiStatus.textContent = supportTokenLabel(support);
+  $('support-ai-clear').onclick=()=>{if(!confirm('حذف محادثة مساعد 3Pal من هذه الصفحة؟'))return;$('support-chat-log').innerHTML='<article class="chat-message assistant">تم مسح المحادثة. كيف أقدر أساعدك الآن؟</article>';$('support-suggestions').innerHTML='';};
   $('support-chat-form').onsubmit=async event=>{event.preventDefault();const input=$('support-chat-input');const message=input.value.trim();if(!message)return;appendChat(message,'user');input.value='';input.disabled=true;try{const reply=await api('/api/me/support/chat',{method:'POST',body:{message}});appendChat(reply.answer,'assistant');$('support-ai-status').textContent=supportTokenLabel(reply);$('support-suggestions').innerHTML=(reply.suggestions||[]).map(item=>`<button data-support-room="${item.roomId}">${escapeHtml(item.label)}</button>`).join('');document.querySelectorAll('[data-support-room]').forEach(button=>button.onclick=()=>location.href=`/lfg.html?room=${button.dataset.supportRoom}`);}catch(error){appendChat(error.message,'assistant error');}finally{input.disabled=false;input.focus();}};
   $('bug-form').onsubmit=async event=>{event.preventDefault();const result=$('bug-result');result.textContent='جارِ فتح التذكرة...';try{const report=await api('/api/me/reports/bug',{method:'POST',body:{title:$('bug-title').value,description:$('bug-description').value,context:'Website'}});event.target.reset();result.textContent='✅ تم فتح تذكرة الخطأ وإرسالها للإدارة.';await loadMyReports();await openMyReport('BUG',report.id);}catch(error){result.textContent=`❌ ${error.message}`;}};
   $('player-report-form').onsubmit=async event=>{event.preventDefault();const result=$('report-result');result.textContent='جارِ فتح التذكرة...';try{const report=await api('/api/me/reports/player',{method:'POST',body:{reportedId:$('reported-id').value,roomId:$('reported-room').value||undefined,reason:$('reported-reason').value,description:$('reported-description').value||undefined}});event.target.reset();result.textContent='✅ تم فتح البلاغ بسرية وإرسال تنبيه للإدارة.';await loadMyReports();await openMyReport('PLAYER',report.id);}catch(error){result.textContent=`❌ ${error.message}`;}};
@@ -675,7 +786,7 @@ async function openMyReport(kind,id){
   await setMyReportPresence(true);
   clearInterval(reportPresenceTimer);reportPresenceTimer=setInterval(()=>{if(activeUserTicket&&document.visibilityState==='visible')setMyReportPresence(true).catch(()=>undefined);},25000);
   const closed=kind==='PLAYER'?['RESOLVED','REJECTED','DISMISSED'].includes(thread.status):['RESOLVED','CLOSED'].includes(thread.status);
-  $('my-report-reply').hidden=closed;$('my-report-result').textContent=closed?'هذه التذكرة مغلقة.':'';
+  const _myReportReply = $('my-report-reply'); if(_myReportReply) _myReportReply.hidden = closed; const _myReportResult = $('my-report-result'); if(_myReportResult) _myReportResult.textContent = closed?'هذه التذكرة مغلقة.':'';
   $('my-report-reply').onsubmit=async event=>{event.preventDefault();const input=$('my-report-message'),result=$('my-report-result');result.textContent='جارِ إرسال الرسالة...';try{const updated=await api(`/api/me/reports/${kind}/${id}/messages`,{method:'POST',body:{message:input.value}});input.value='';renderTicketThread(updated,'my');result.textContent='✅ وصلت رسالتك إلى الإدارة.';await loadMyReports();}catch(error){result.textContent=`❌ ${error.message}`;}};
 }
 
@@ -684,7 +795,7 @@ function appendChat(message,type){const article=document.createElement('article'
 async function bindFloatingSupport(){
   const panel=$('zark-ai-panel'),fab=$('zark-ai-fab'),close=$('zark-ai-close'),clear=$('floating-ai-clear'),form=$('floating-ai-form'),input=$('floating-ai-input'),log=$('floating-ai-log'),status=$('floating-ai-status');
   fab.onclick=()=>{panel.hidden=!panel.hidden;if(!panel.hidden)input.focus()};close.onclick=()=>panel.hidden=true;
-  clear.onclick=()=>{if(!confirm('حذف محادثة مساعد Zark؟'))return;log.innerHTML=`<article class="chat-message assistant">تم مسح المحادثة. كيف أقدر أساعدك يا ${escapeHtml(me.displayName)}؟</article>`;};
+  clear.onclick=()=>{if(!confirm('حذف محادثة مساعد 3Pal؟'))return;log.innerHTML=`<article class="chat-message assistant">تم مسح المحادثة. كيف أقدر أساعدك يا ${escapeHtml(me.displayName)}؟</article>`;};
   try{const support=await api('/api/me/support/status');status.textContent=supportTokenLabel(support);}catch{status.textContent='الدعم متاح';}
   form.onsubmit=async event=>{event.preventDefault();const message=input.value.trim();if(!message)return;floatingChatMessage(log,message,'user');input.value='';input.disabled=true;try{const reply=await api('/api/me/support/chat',{method:'POST',body:{message}});floatingChatMessage(log,reply.answer,'assistant');if(reply.action?.type==='LFG_CREATED')floatingChatAction(log,`فتح غرفة ${reply.action.gameSlug}`,`/lfg.html?room=${encodeURIComponent(reply.action.roomId)}`);if(reply.action?.type==='REPORT_CREATED')floatingChatAction(log,'فتح التذكرة',`/reports.html?reportKind=${reply.action.reportKind}&reportId=${encodeURIComponent(reply.action.reportId)}`);status.textContent=supportTokenLabel(reply);}catch(error){floatingChatMessage(log,error.message,'assistant error');}finally{input.disabled=false;input.focus();}};
 }
@@ -694,26 +805,26 @@ function floatingChatAction(log,label,href){const link=document.createElement('a
 async function bindAdmin(){
   const gate=$('admin-gate');
   const content=$('admin-content');
-  if(!me){gate.innerHTML='<span>🔐</span><h1>سجّل الدخول أولًا</h1><p>استخدم حساب Discord المرتبط بسيرفر Zark.</p><a class="button primary" href="/auth/discord">دخول Discord</a>';return;}
-  if(!me.isAdmin){gate.innerHTML='<span>⛔</span><h1>لا تملك صلاحية الإدارة</h1><p>هذه اللوحة تظهر فقط لأعضاء رتب إدارة Zark المعتمدة.</p><a class="button ghost" href="/">العودة للرئيسية</a>';return;}
+  if(!me){gate.innerHTML='<span>🔐</span><h1>سجّل الدخول أولًا</h1><p>استخدم حساب Discord المرتبط بسيرفر 3Pal.</p><a class="button primary" href="/auth/discord">دخول Discord</a>';return;}
+  if(!me.isAdmin){gate.innerHTML='<span>⛔</span><h1>لا تملك صلاحية الإدارة</h1><p>هذه اللوحة تظهر فقط لأعضاء رتب إدارة 3Pal المعتمدة.</p><a class="button ghost" href="/">العودة للرئيسية</a>';return;}
   try{
     const [dashboard,smartRooms,smartHistory,audit]=await Promise.all([api('/api/web-admin/dashboard'),api('/api/web-admin/smart-rooms'),api('/api/web-admin/smart-rooms/history'),api('/api/web-admin/audit')]);
     gate.hidden=true;content.hidden=false;
     const stats=dashboard.stats;
     $('admin-stats').innerHTML=statCards([[stats.users,'مستخدم'],[stats.openRooms,'غرفة مفتوحة'],[stats.completedRooms,'جلسة مكتملة'],[stats.pendingReports+stats.openBugs,'بلاغ يحتاج مراجعة'],[stats.failedDeliveries||0,'DM فاشلة / 24س']]);
-    $('admin-system-status').textContent=dashboard.system.botOnline?'● البوت Online':'● البوت Offline';$('admin-system-status').classList.toggle('offline',!dashboard.system.botOnline);
+    const _adminSystemStatus = $('admin-system-status'); if(_adminSystemStatus){ _adminSystemStatus.textContent = dashboard.system.botOnline ? '● البوت Online' : '● البوت Offline'; _adminSystemStatus.classList.toggle('offline', !dashboard.system.botOnline); }
     $('admin-service-grid').innerHTML=[['API',dashboard.system.apiOnline,'متصل'],['PostgreSQL',dashboard.system.databaseOnline,'متصل'],['Discord Bot',dashboard.system.botOnline,'متصل'],['Redis',dashboard.system.realtime?.redisOnline,dashboard.system.realtime?.redisOnline?'التحديث المباشر جاهز':'غير متصل أو غير مهيأ'],[dashboard.system.aiProvider||'AI مجاني',dashboard.system.aiConfigured,dashboard.system.aiConfigured?'تحويل تلقائي مفعّل':'أضف مفتاح Gemini أو Groq أو OpenRouter']].map(([name,online,label])=>`<article><span class="service-dot ${online?'online':'offline'}"></span><b>${name}</b><small>${online?label:label||'غير متصل'}</small></article>`).join('');
     $('admin-audit-log').innerHTML=audit.length?audit.map(item=>`<article class="admin-room"><div><b>${escapeHtml(auditActionLabel(item.action))}</b><small>بواسطة: ${escapeHtml(item.adminName)} · ${new Date(item.createdAt).toLocaleString('ar')}</small>${item.targetId?`<small>${escapeHtml(auditTargetLabel(item.action))}: ${escapeHtml(item.targetId)}</small>`:''}</div><span class="trade-code">${escapeHtml(item.id.slice(-6).toUpperCase())}</span></article>`).join(''):empty('لا توجد عمليات مسجلة بعد.');
     const days=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
     const recommendations=smartRooms.recommendations.map(item=>`<article class="admin-room"><div><b>${escapeHtml(item.gameIcon||'🎮')} ${escapeHtml(item.gameName)}</b><small>${item.availableNowCount} متفرغ الآن · ${item.interestedCount} مهتم · حد الإنشاء ${item.autoMinAvailable} · ${item.interestPercent}%</small></div><span class="live-chip ${item.availableNowCount>=item.autoMinAvailable?'':'offline'}">${item.availableNowCount>=item.autoMinAvailable?'جاهزة للتجمع':'بانتظار لاعبين'}</span></article>`).join('');
     const peaks=smartRooms.peakTimes.map(slot=>`<span class="chip">🕒 ${days[slot.dayOfWeek]} ${String(slot.hour).padStart(2,'0')}:00 · ${slot.players} متفرغ</span>`).join('');
     $('admin-smart-rooms').innerHTML=`${recommendations||empty('لا توجد اهتمامات كافية بعد.')}<div class="room-players">${peaks||'<span class="subtle">لا توجد جداول فراغ محفوظة بعد.</span>'}</div>`;
-    $('admin-smart-history').innerHTML=smartHistory.length?smartHistory.map(room=>`<article class="admin-room"><div><b>${escapeHtml(room.gameIcon||'🎮')} ${escapeHtml(room.gameName)}</b><small>${escapeHtml(room.description||'تجمع تلقائي')} · ${new Date(room.createdAt).toLocaleString('ar')}</small><div class="room-players"><span class="chip">📨 ${room.invited} دعوة</span><span class="chip">✅ ${room.sent} وصلت</span><span class="chip">🙈 ${room.ignored} تجاهل</span></div></div><span class="live-chip">${escapeHtml(room.status)}</span></article>`).join(''):empty('لم ينشئ Zark تجمعات تلقائية بعد.');
+    $('admin-smart-history').innerHTML=smartHistory.length?smartHistory.map(room=>`<article class="admin-room"><div><b>${escapeHtml(room.gameIcon||'🎮')} ${escapeHtml(room.gameName)}</b><small>${escapeHtml(room.description||'تجمع تلقائي')} · ${new Date(room.createdAt).toLocaleString('ar')}</small><div class="room-players"><span class="chip">📨 ${room.invited} دعوة</span><span class="chip">✅ ${room.sent} وصلت</span><span class="chip">🙈 ${room.ignored} تجاهل</span></div></div><span class="live-chip">${escapeHtml(room.status)}</span></article>`).join(''):empty('لم ينشئ 3Pal تجمعات تلقائية بعد.');
     $('admin-active-rooms').innerHTML=dashboard.activeRooms.length?dashboard.activeRooms.map(room=>`<article class="admin-room"><div><b>${escapeHtml(room.gameIcon||'🎮')} ${escapeHtml(room.gameName)}</b><small class="host-meta">${avatar(room.hostAvatarUrl,room.hostName,'host')} ${escapeHtml(room.hostName)} · ${room.currentPlayers}/${room.maxPlayers} · ${escapeHtml(room.status)}</small><div class="room-players">${room.members.map(member=>`<span class="room-player">${avatar(member.avatarUrl,member.displayName,'mini')}${escapeHtml(member.displayName)}</span>`).join('')}</div></div><button class="button danger small" data-admin-close-room="${room.id}">إغلاق</button></article>`).join(''):empty('لا توجد غرف نشطة الآن.');
     document.querySelectorAll('[data-admin-close-room]').forEach(button=>button.onclick=async()=>{if(!confirm('إغلاق هذه الغرفة؟'))return;await api(`/api/web-admin/lfg/${button.dataset.adminCloseRoom}/close`,{method:'POST'});await bindAdmin();});
     fillAdminSettings(dashboard.settings);
     bindAdminTabs();
-    await loadAdminZarkContent();
+    await loadAdmin3PalContent();
     await loadAdminReports();
     await loadAdminTradeModeration();
     await loadAdminTeams();
@@ -834,9 +945,9 @@ function showAdminTab(tab){
   history.replaceState(null,'',`${location.pathname}${location.search}#${selected}`);
 }
 
-async function loadAdminZarkContent(selectedSlug){
-  adminZarkContent=await api('/api/web-admin/zark-games');
-  const manageable=adminZarkContent;
+async function loadAdmin3PalContent(selectedSlug){
+  admin3PalContent=await api('/api/web-admin/zark-games');
+  const manageable=admin3PalContent;
   const select=$('admin-zark-game-filter'),formSelect=$('admin-question-game');
   const current=selectedSlug||select.value||manageable[0]?.slug;
   const options=manageable.map(game=>`<option value="${escapeHtml(game.slug)}">${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)} (${game.questionCount}+)</option>`).join('');
@@ -849,7 +960,7 @@ async function loadAdminZarkContent(selectedSlug){
 }
 
 function renderAdminQuestions(){
-  const game=adminZarkContent.find(item=>item.slug===$('admin-zark-game-filter').value);
+  const game=admin3PalContent.find(item=>item.slug===$('admin-zark-game-filter').value);
   if(!game){$('admin-question-list').innerHTML=empty('لا توجد ألعاب قابلة للإدارة.');return;}
   $('admin-zark-game-summary').innerHTML=`<b>${escapeHtml(game.icon||gameIcon(game.slug))} ${escapeHtml(game.name)}</b><small>${game.builtInQuestionCount||0} سؤال داخلي · ${game.enabledCustomQuestionCount||0}/${game.customQuestionCount||0} سؤال إداري مفعّل</small><p>${escapeHtml(game.description||'لعبة تحدي داخل Discord')}</p>`;
   $('admin-question-count').textContent=`${game.questionCount}+ سؤال`;
@@ -859,7 +970,7 @@ function renderAdminQuestions(){
 }
 
 function editAdminQuestion(id){
-  const game=adminZarkContent.find(item=>item.slug===$('admin-zark-game-filter').value),question=game?.questions.find(item=>item.id===id);if(!question)return;
+  const game=admin3PalContent.find(item=>item.slug===$('admin-zark-game-filter').value),question=game?.questions.find(item=>item.id===id);if(!question)return;
   $('admin-question-id').value=question.id;$('admin-question-game').value=game.slug;$('admin-question-prompt').value=question.prompt;$('admin-question-answers').value=question.acceptedAnswers.join(', ');$('admin-question-media').value='';$('admin-question-difficulty').value=question.difficulty;$('admin-question-enabled').checked=question.enabled;
   $('admin-question-form-title').textContent=`✏️ تعديل سؤال ${game.name}`;$('admin-question-submit').textContent='حفظ التعديلات';$('admin-question-cancel').hidden=false;$('admin-question-form').scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -874,12 +985,12 @@ async function saveAdminQuestion(event){
   try{mediaUrl=file?await imageFileToDataUrl(file):(id?undefined:undefined);}catch(error){result.textContent=`❌ ${error.message}`;return;}
   const body={prompt:$('admin-question-prompt').value.trim(),acceptedAnswers:$('admin-question-answers').value.split(/[,،]/).map(item=>item.trim()).filter(Boolean),mediaUrl,difficulty:Number($('admin-question-difficulty').value),enabled:$('admin-question-enabled').checked};
   result.textContent=id?'جارِ حفظ التعديلات...':'جارِ إضافة السؤال...';
-  try{await api(`/api/web-admin/zark-games/${slug}/questions${id?`/${id}`:''}`,{method:id?'PUT':'POST',body});await loadAdminZarkContent(slug);resetAdminQuestionForm();result.textContent=id?'✅ تم تعديل السؤال.':'✅ تمت إضافة السؤال.';}catch(error){result.textContent=`❌ ${error.message}`;}
+  try{await api(`/api/web-admin/zark-games/${slug}/questions${id?`/${id}`:''}`,{method:id?'PUT':'POST',body});await loadAdmin3PalContent(slug);resetAdminQuestionForm();result.textContent=id?'✅ تم تعديل السؤال.':'✅ تمت إضافة السؤال.';}catch(error){result.textContent=`❌ ${error.message}`;}
 }
 
 async function deleteAdminQuestion(id){
   const slug=$('admin-zark-game-filter').value;if(!confirm('حذف هذا السؤال نهائيًا من قاعدة البيانات؟'))return;
-  try{await api(`/api/web-admin/zark-games/${slug}/questions/${id}`,{method:'DELETE'});await loadAdminZarkContent(slug);resetAdminQuestionForm();}catch(error){alert(`تعذر حذف السؤال: ${error.message}`);}
+  try{await api(`/api/web-admin/zark-games/${slug}/questions/${id}`,{method:'DELETE'});await loadAdmin3PalContent(slug);resetAdminQuestionForm();}catch(error){alert(`تعذر حذف السؤال: ${error.message}`);}
 }
 
 async function loadAdminReports(){
@@ -939,13 +1050,57 @@ function dataRow(label,value){return `<div class="data-row"><b>${escapeHtml(labe
 function gameIcon(slug){return {'translate':'🌐','flags':'🚩','capitals':'🌍','fast-type':'⌨️','complete-word':'🧩','word-order':'🔤','math':'🧮','quick-choice':'🔘','logos':'🏢','anime-silhouette':'🎭','game-logos':'🎮','true-false':'✅','letter-order':'🔡','who-am-i':'👤','trivia':'❓','riddles':'🧠','gaming-quiz':'🎯','animals':'🐾','science':'🔬','space':'🪐','football':'⚽','technology':'💻','food':'🍕','nature':'🌿','colors':'🎨','languages':'🗣️','history':'🏛️','inventions':'💡','internet':'🌐','logic':'🧩','synonyms':'📝','antonyms':'↔️','countries':'🗺️','sports':'🏅','geography':'🌍','books':'📚'}[slug]||'🎮'}
 function normalizeRoomSearch(value){return String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[^\p{L}\p{N}\s-]/gu,' ').replace(/\s+/g,' ').trim()}
 function smartRoomMatch(room,query){if(!query)return true;const canonical=Object.entries(roomSearchAliases).find(([,aliases])=>aliases.some(alias=>{const normalized=normalizeRoomSearch(alias);return query.includes(normalized)||normalized.includes(query)}))?.[0];const haystack=normalizeRoomSearch([room.id,room.gameName,room.gameSlug,room.hostName,room.title,room.gameMode,room.mapName,room.description,...(room.members||[]).map(member=>member.displayName)].filter(Boolean).join(' '));return haystack.includes(query)||(canonical&&room.gameSlug===canonical)}
+const gamePickerState={bound:false,games:[],items:[],activeIndex:0};
+function initGamePicker(games){
+  const picker=$('game-picker'),input=$('room-game-search'),list=$('game-picker-list'),toggle=$('game-picker-toggle'),thumb=$('game-picker-thumb'),select=$('room-game');
+  if(!picker||!input)return;
+  gamePickerState.games=games;
+  const setThumb=game=>{thumb.innerHTML=`<img src="/assets/lfg/${escapeHtml(game.slug)}-logo.webp" alt="" onerror="this.replaceWith(document.createTextNode('${escapeHtml(game.icon||'🎮')}'))">`;thumb.hidden=false};
+  const syncSelection=()=>{const game=games.find(item=>item.slug===select.value);if(!game)return;input.value=game.name;setThumb(game)};
+  if(gamePickerState.bound){syncSelection();return}
+  gamePickerState.bound=true;
+  picker.dataset.tourId='game-selector';picker.dataset.tour='game-selector';
+  const aliasBridge={cs2:'counter-strike-2',warzone:'call-of-duty-warzone'};
+  const aliasesFor=slug=>roomSearchAliases[slug]||roomSearchAliases[aliasBridge[slug]]||[];
+  const platformIcons=game=>{const list=Array.isArray(game.platforms)&&game.platforms.length?game.platforms:null;const icons={MOBILE:'📱',PC:'💻',PLAYSTATION:'🎮'};return list?list.map(platform=>icons[platform]||'🎮').join(''):escapeHtml(gamePlatformsLabel(game))};
+  const renderList=(query='')=>{
+    const q=normalizeRoomSearch(query);
+    const entries=games.map(game=>{
+      if(!q)return{game,score:0};
+      const haystacks=[game.name,game.slug,...aliasesFor(game.slug)].map(normalizeRoomSearch).filter(Boolean);
+      const hit=haystacks.findIndex(hay=>hay.includes(q)||q.includes(hay));
+      return hit<0?null:{game,score:haystacks[hit]===q?hit-9:hit};
+    }).filter(Boolean).sort((a,b)=>a.score-b.score);
+    gamePickerState.items=entries.map(entry=>entry.game);
+    list.innerHTML=entries.length?entries.map(({game})=>`<button type="button" class="game-option" role="option" data-slug="${escapeHtml(game.slug)}"><img src="/assets/lfg/${escapeHtml(game.slug)}-logo.webp" alt="" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="game-option-emoji" hidden>${escapeHtml(game.icon||'🎮')}</span><span class="game-option-name">${escapeHtml(game.name)}</span><small class="game-option-platforms">${platformIcons(game)}</small></button>`).join(''):'<p class="game-picker-empty">ما لقينا لعبة بهذا الاسم — جرّب اسم ثاني</p>';
+    gamePickerState.activeIndex=0;
+    list.querySelectorAll('.game-option').forEach((option,index)=>option.classList.toggle('active',index===0));
+  };
+  const setActive=index=>{const options=list.querySelectorAll('.game-option');if(!options.length)return;gamePickerState.activeIndex=(index+options.length)%options.length;options.forEach((option,i)=>option.classList.toggle('active',i===gamePickerState.activeIndex));options[gamePickerState.activeIndex].scrollIntoView({block:'nearest'})};
+  const open=()=>{const current=games.find(item=>item.slug===select.value);renderList(input.value&&current&&input.value!==current.name?input.value:'');list.hidden=false;input.setAttribute('aria-expanded','true');picker.classList.add('open')};
+  const close=()=>{list.hidden=true;input.setAttribute('aria-expanded','false');picker.classList.remove('open')};
+  const choose=game=>{if(!game)return;select.value=game.slug;input.value=game.name;setThumb(game);close();select.dispatchEvent(new Event('change'))};
+  input.addEventListener('input',()=>open());
+  input.addEventListener('focus',()=>{open();input.select()});
+  input.addEventListener('click',()=>{open();input.select()});
+  input.addEventListener('keydown',event=>{
+    if(event.key==='ArrowDown'){event.preventDefault();list.hidden?open():setActive(gamePickerState.activeIndex+1)}
+    else if(event.key==='ArrowUp'){event.preventDefault();setActive(gamePickerState.activeIndex-1)}
+    else if(event.key==='Enter'){event.preventDefault();if(!list.hidden)choose(gamePickerState.items[gamePickerState.activeIndex])}
+    else if(event.key==='Escape'){close()}
+  });
+  toggle.addEventListener('click',()=>list.hidden?open():close());
+  list.addEventListener('click',event=>{const option=event.target.closest('.game-option');if(!option)return;choose(games.find(item=>item.slug===option.dataset.slug))});
+  document.addEventListener('click',event=>{if(!picker.contains(event.target))close()});
+  syncSelection();
+}
 function availabilityText(value){return{FREE:'🟢 فاضي للعب',PLAYING:'🎮 ألعب الآن',STUDYING:'📚 أدرس',WORKING:'💼 أعمل',BUSY:'⛔ مشغول',SLEEPING:'😴 نايم',AWAY:'🌙 غير متاح'}[value]||'غير محدد'}
 function auditActionLabel(action){return({
   'loyalty.boost_started':'بدأ تعزيز نقاط الولاء','loyalty.vip_purchased':'تم شراء رتبة VIP','guild.settings_updated':'تم تعديل إعدادات السيرفر','guild.auto_smart_rooms_changed':'تم تغيير الإنشاء التلقائي للغرف','lfg.admin_closed':'أغلقت الإدارة غرفة LFG','report.status_changed':'تم تحديث حالة بلاغ','report.deleted':'تم حذف بلاغ','trade.created':'تم إنشاء عرض Trade','trade.deleted':'تم حذف عرض Trade','trade.message_sent':'تم إرسال رسالة Trade','trade.completed':'تم إكمال Trade','trade.disputed':'تم فتح نزاع Trade','trade.report_created':'تم تقديم بلاغ Trade','trade.report_resolved':'تمت معالجة بلاغ Trade'
   ,'team.deleted':'تم حذف فريق'
 })[action]||`عملية إدارية: ${String(action||'غير معروفة').replace(/[._]/g,' ')}`}
 function auditTargetLabel(action){return action?.startsWith('loyalty.')||action?.startsWith('report.')?'معرّف العضو أو البلاغ':action?.startsWith('lfg.')?'معرّف الغرفة':action?.startsWith('trade.')?'معرّف العرض':'المعرّف المرتبط'}
-function supportTokenLabel(status){const names={GEMINI:'Gemini',GROQ:'Groq',OPENROUTER:'OpenRouter'},provider=names[status.provider]||'مساعد Zark',remaining=Number.isFinite(status.remainingMessages)?` · ${formatValue(status.remainingMessages)} رسالة متبقية اليوم`:'';if(status.mode==='AI')return`${provider} متصل${remaining}`;if(status.mode==='ACTION')return`نفّذ Zark الطلب${remaining}`;if(status.aiError)return`تحويل تلقائي للمساعد المحلي${remaining}`;if(status.setupRequired||!status.provider)return`المساعد المحلي متاح${remaining}`;return`${provider} جاهز${remaining}`}
+function supportTokenLabel(status){const names={GEMINI:'Gemini',GROQ:'Groq',OPENROUTER:'OpenRouter'},provider=names[status.provider]||'مساعد 3Pal',remaining=Number.isFinite(status.remainingMessages)?` · ${formatValue(status.remainingMessages)} رسالة متبقية اليوم`:'';if(status.mode==='AI')return`${provider} متصل${remaining}`;if(status.mode==='ACTION')return`نفّذ 3Pal الطلب${remaining}`;if(status.aiError)return`تحويل تلقائي للمساعد المحلي${remaining}`;if(status.setupRequired||!status.provider)return`المساعد المحلي متاح${remaining}`;return`${provider} جاهز${remaining}`}
 function empty(message){return `<div class="empty-state"><span aria-hidden="true">✦</span><b>${escapeHtml(message)}</b><small>جرّب تغيير الفلاتر أو ارجع بعد قليل.</small></div>`}
 function trapDialogFocus(event,container){
   if(event.key!=='Tab')return;
@@ -1085,6 +1240,7 @@ async function api(path,options={}){
 }
 function showFatal(error){
   console.error(error);
+  if(page==='home'){if($('landing-rooms'))$('landing-rooms').innerHTML='<div class="preview-empty">تعذر تحميل الغرف حاليًا.<br><a href="/lfg.html">استكشف LFG ←</a></div>';if($('landing-games'))$('landing-games').textContent='تعذر تحميل قائمة الألعاب حاليًا.';}
   const target=document.querySelector('main');
   if(!target)return;
   target.querySelector('.connection-error')?.remove();

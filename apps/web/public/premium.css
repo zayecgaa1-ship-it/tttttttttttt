@@ -1,0 +1,504 @@
+/* ============================================================
+   3PAL GAMES PREMIUM — "فخم داكن راقي"
+   أسود دافئ + ذهبي متوهج. يُحمَّل أخيرًا في كل الصفحات
+   ويُعيد كتابة نظام التوكِنات ويغطي كل بقايا الأحمر/البنفسجي
+   من الطبقات القديمة (styles → modern → experience → platform).
+   ============================================================ */
+@import url("https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap");
+
+:root{
+  /* الأسطح: أسود دافئ شبه مموه */
+  --bg:#07070d;--bg-soft:#0a0913;--surface:#0f0d1a;--surface-2:#141226;--surface-3:#1a1730;
+  --line:#251f3c;--line-strong:#3a3256;
+  --text:#f4f2fb;--muted:#a8a2c0;--muted-2:#7c7466;
+  /* اللون الوحيد: ذهبي متوهج */
+  --primary:#8b5cf6;--primary-strong:#7c3aed;--primary-soft:#8b5cf616;--violet:#8b5cf6;
+  --danger:#ff4655;--success:#57e6a0;--warning:#ffca58;
+  --red:var(--primary);--red-dark:var(--primary-strong);--green:var(--success);
+  /* أسماء قديمة من الطبقات السابقة */
+  --black:#07070d;--panel:#0f0d1a;--panel-2:#1a1730;--white:#fff;
+  --radius-sm:10px;--radius:16px;--radius-lg:24px;--radius-xl:32px;
+  --shadow:0 22px 70px #00000090;--shadow-soft:0 12px 32px #00000050;
+  --ease:180ms cubic-bezier(.2,.8,.2,1);
+  --font:"Cairo","Segoe UI",Tahoma,Arial,sans-serif;
+  color-scheme:dark;
+}
+
+/* ---------- الأساس العام ---------- */
+body{
+  background:
+    radial-gradient(52rem 30rem at 88% -8%,#8b5cf614,transparent 60%),
+    radial-gradient(40rem 26rem at 0% 30%,#8b5cf60a,transparent 60%),
+    var(--bg);
+}
+/* هالة ذهبية حية ثابتة خلف المحتوى */
+html:before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(46rem 30rem at 82% -12%,#8b5cf611,transparent 62%),
+    radial-gradient(36rem 24rem at -8% 60%,#6d28d90d,transparent 60%);
+  animation:premium-glow 16s ease-in-out infinite alternate;
+}
+@keyframes premium-glow{to{opacity:.5;transform:translateY(1.5%) scale(1.05)}}
+::selection{background:#8b5cf6;color:#1d1245}
+:focus-visible{outline:3px solid #8b5cf6!important;outline-offset:3px}
+input[type="checkbox"],input[type="radio"]{accent-color:#8b5cf6}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:#090813}
+::-webkit-scrollbar-thumb{background:#2e2650;border-radius:8px;border:2px solid #090813}
+::-webkit-scrollbar-thumb:hover{background:#8b5cf666}
+html{scrollbar-width:thin;scrollbar-color:#2e2650 #090813}
+::placeholder{color:#6f6a86}
+
+/* توهج ذهبي للعناوين المميزة والشعار (مع بديل آمن) */
+.hero-copy h1 em,.page-hero h1 em{color:#c4b5fd;font-style:normal}
+.brand>span{color:#c4b5fd}
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .hero-copy h1 em,.page-hero h1 em{
+    background:linear-gradient(115deg,#ddd6fe 10%,#8b5cf6 45%,#c97f08);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .brand>span{
+    background:linear-gradient(120deg,#ddd6fe,#7c3aed);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+}
+
+/* ---------- 2. الشريط العلوي والتنقّل ---------- */
+.site-header,.site-nav,header#site-nav{
+  background:#0a0913e8;border-bottom:1px solid var(--line);backdrop-filter:blur(20px) saturate(1.3);
+}
+.site-header:after,.site-nav:after{
+  content:"";position:absolute;inset-inline:0;bottom:-1px;height:1px;
+  background:linear-gradient(90deg,transparent 8%,#8b5cf699 50%,transparent 92%);opacity:.5;
+}
+.brand-logo{
+  background:radial-gradient(circle at 32% 28%,#ddd6fe,#7c3aed 55%,#5b21b6);
+  border:1px solid #8b5cf655;box-shadow:0 0 18px #8b5cf633;
+}
+.brand small{color:#a8a2c0}
+.nav-links a{color:#cfc6b4}
+.nav-links a:hover{color:#f4f2fb;background:#8b5cf60d}
+.nav-links a.active{
+  color:#8b5cf6;background:#8b5cf614;border-color:#8b5cf644;
+  box-shadow:inset 0 0 18px #8b5cf60a;
+}
+.nav-links .discord-nav-link{color:#cfc6b4}
+.discord-nav-link{background:#8b5cf614;border-color:#8b5cf63d;color:#f4f2fb}
+.discord-nav-link:hover{background:#8b5cf622;border-color:#8b5cf666}
+.discord-avatar{border-color:#8b5cf655;background:#141226}
+.icon-button:hover{border-color:#8b5cf666;background:#8b5cf614}
+.nav-tutorial-button:hover{background:#8b5cf614;border-color:#8b5cf655}
+
+/* ---------- 3. الأزرار ---------- */
+.button{transition:transform var(--ease),box-shadow var(--ease),border-color var(--ease),background var(--ease)}
+.button.primary,.button.primary:not(:hover){
+  background:linear-gradient(160deg,#b4a2fb,#8b5cf6 48%,#5b21b6);
+  border:1px solid #8b5cf640;color:#1d1245;font-weight:900;
+  box-shadow:0 8px 26px #8b5cf62e,inset 0 1px 0 #ffffff5c;
+}
+.button.primary:hover{
+  background:linear-gradient(160deg,#cbb9fe,#a78bfa 48%,#7c3aed);
+  box-shadow:0 14px 38px #8b5cf640,inset 0 1px 0 #ffffff7c;
+  transform:translateY(-2px);
+}
+.button.ghost,.button.secondary{background:#8b5cf60a;border-color:#8b5cf633;color:#f4f2fb}
+.button.ghost:hover,.button.secondary:hover{border-color:#8b5cf666;background:#8b5cf616}
+.button.danger{background:#3a1114;border-color:#ff465540;color:#ff8d96}
+.button.danger:hover{background:#4d161b;border-color:#ff465588}
+.sheen{position:relative;overflow:hidden}
+.sheen:before{
+  content:"";position:absolute;top:0;inset-inline-start:-70%;width:45%;height:100%;
+  background:linear-gradient(105deg,transparent,#ffffff42,transparent);
+  transform:skewX(-18deg);transition:inset-inline-start .6s ease;pointer-events:none;
+}
+.button.primary:hover.sheen:before,.room-card:hover.sheen:before{inset-inline-start:130%}
+
+/* ---------- 4. البطل والصفحات ---------- */
+.page-hero,.hero{
+  background:
+    radial-gradient(60rem 34rem at 82% -20%,#8b5cf616,transparent 60%),
+    linear-gradient(180deg,#0f0d08,#090812);
+  border-bottom:1px solid var(--line);
+}
+.page-hero:before,.page-hero:after{background:#8b5cf62b}
+.page-hero:before,.page-hero:after{display:none}
+.eyebrow{color:#8b5cf6;letter-spacing:.2em}
+.eyebrow i{color:#8b5cf6}
+.kicker{
+  color:#8b5cf6;background:#8b5cf610;border-color:#8b5cf638;
+  border:1px solid #8b5cf638;
+}
+.hero-visual:before{background:#8b5cf633}
+.arena-visual{
+  background:
+    radial-gradient(58rem 30rem at 78% -14%,#8b5cf61a,transparent 60%),
+    linear-gradient(180deg,#0e0c08,#090805);
+  border-bottom:1px solid var(--line);
+}
+.arena-mark{
+  background:radial-gradient(circle at 32% 28%,#ddd6fe,#7c3aed 55%,#5b21b6);
+  box-shadow:0 0 22px #8b5cf640;border:1px solid #8b5cf655;
+}
+.orbit-ring{border-color:#8b5cf62b}
+.orbit-ring:before{border-top-color:#8b5cf6}
+.orbit-icon{background:#141226;border-color:#8b5cf638;color:#8b5cf6;box-shadow:0 0 16px #8b5cf626}
+.arena-tag{background:#8b5cf612;border-color:#8b5cf633;color:#8b5cf6}
+.floating-card{
+  background:#0f0d1ae6;border:1px solid #8b5cf62b;box-shadow:0 24px 60px #000000a8;
+}
+.stats b{color:#c4b5fd;text-shadow:0 0 22px #8b5cf659}
+.games-hub .page-hero{background:radial-gradient(ellipse at 0 50%,#8b5cf614,transparent 55%),linear-gradient(180deg,#0f0d08,#090812)}
+.command-strip code{background:#141226;border-color:#251f3c;color:#dcd6ee}
+
+/* ---------- 5. البطاقات واللوحات ---------- */
+.panel,.card,section[class*="surface"],.admin-card{
+  background:#0f0d1a;border:1px solid var(--line);
+}
+.room-card{
+  background:linear-gradient(180deg,#131009,#0d0b07);
+  border:1px solid var(--line);transition:transform var(--ease),border-color var(--ease),box-shadow var(--ease);
+}
+.room-card:hover{
+  border-color:#8b5cf655;box-shadow:0 16px 44px #00000070,0 0 0 1px #8b5cf61a;
+  transform:translateY(-3px);
+}
+.room-card:before{background:linear-gradient(180deg,#8b5cf6,#5b21b6)}
+.room-accent{color:#8b5cf6}
+.game-tile{
+  --tile-color:#8b5cf6;
+  background:linear-gradient(180deg,#14110a,#0d0b07);border:1px solid var(--line);
+}
+.game-tile:hover{border-color:#8b5cf655;box-shadow:0 18px 50px #00000080}
+.game-tile[data-tone="1"]{--tile-color:#8b5cf6}
+.game-tile[data-tone="2"]{--tile-color:#7c3aed}
+.game-tile[data-tone="3"]{--tile-color:#ddd6fe}
+.game-cover{
+  background:
+    radial-gradient(circle at 50% 100%,#8b5cf620,transparent 70%),
+    repeating-linear-gradient(45deg,transparent,transparent 24px,#ffffff02 24px,#ffffff02 25px),
+    #110f1e;
+  border-bottom:1px solid var(--line);
+}
+.game-cover:after{background:linear-gradient(90deg,transparent,#8b5cf6,transparent);opacity:.5}
+.game-cover small{background:#0a0913cc;color:#c4b5fd;border:1px solid #8b5cf62b}
+.game-stage{
+  background:radial-gradient(ellipse at 0 100%,#8b5cf614,transparent 65%),#110f1e;
+  border:1px solid var(--line-strong);
+}
+.red-panel{
+  background:radial-gradient(ellipse at 0 100%,#8b5cf616,transparent 65%),#131009;
+  border:1px solid #8b5cf62b;
+}
+.red-panel .eyebrow{color:#8b5cf6}
+.red-panel p{color:#b1abc8}
+.podium-card.first{
+  border-color:#8b5cf666;background:linear-gradient(#1c1734,#0f0d1a);
+  box-shadow:0 0 40px #8b5cf614;
+}
+.discover-grid a{background:#0f0d1a;border:1px solid var(--line)}
+.discover-grid a:hover{border-color:#8b5cf666;transform:translateY(-4px)}
+.discover-grid b,.catalog-overview b,.stats b{color:#c4b5fd}
+.discover-grid small,.command-card code{color:#cfc6b4}
+.play-guide article{border-top:1px solid #8b5cf633}
+.play-guide article>span{color:#a8a2c0}
+.trade-card:hover,.shop-item:hover{border-color:#8b5cf655}
+.launchpad a:hover{border-color:#8b5cf655;background:#8b5cf60d}
+.launchpad i{background:#8b5cf614;border-color:#8b5cf633;color:#8b5cf6}
+
+/* ---------- 6. النماذج وعناصر الإدخال ---------- */
+input,select,textarea{
+  background:#0c0a06;border:1px solid var(--line);color:var(--text);
+}
+input:focus,select:focus,textarea:focus{
+  border-color:#8b5cf699;box-shadow:0 0 0 3px #8b5cf614;background:#0e0c07;
+}
+.filter-row button,.tabs button{
+  background:#0c0a06;border:1px solid var(--line);color:var(--muted);
+}
+.filter-row button:hover,.tabs button:hover{color:#f4f2fb;border-color:#8b5cf644}
+.filter-row button.active,.tabs button.active{
+  background:#8b5cf616;color:#8b5cf6;border-color:#8b5cf655;
+  box-shadow:0 6px 18px #8b5cf614,inset 0 0 14px #8b5cf60a;
+}
+.interest-actions button{background:#0c0a06;border-color:var(--line);color:var(--muted)}
+.interest-actions button.on{background:#8b5cf616;border-color:#8b5cf655;color:#8b5cf6}
+.schedule-day{background:#0c0a06}
+.schedule-day>header button{border-color:#8b5cf644;background:#8b5cf610;color:#8b5cf6}
+.schedule-period>[data-remove-period]{border-color:#ff465544;background:#ff465510;color:#ff8d96}
+
+/* ---------- 7. الشارات والحالات والدردشة ---------- */
+.badge-red,.platform-badge{
+  background:#8b5cf614;color:#c4b5fd;border:1px solid #8b5cf633;
+}
+.status-active{color:#57e6a0;border-color:#57e6a055;background:#57e6a012}
+.status-disputed,.status-removed{color:#ff8d96;border-color:#ff465566}
+.connection-error{
+  background:#171009;border:1px solid #8b5cf640;
+}
+.connection-error p{color:#b1abc8}
+.support-chat-log{background:radial-gradient(circle at 80% 0,#8b5cf612,transparent 45%),#0c0a06}
+.chat-message.user{background:#8b5cf614;border-color:#8b5cf633}
+.chat-message.error{border-color:#ff465566;color:#ff8d96}
+.ticket-message.me{background:#8b5cf614;border-color:#8b5cf638}
+.trade-chat-message{background:#110f1e;border-color:var(--line)}
+.trade-chat-message.mine{background:#1c1734;border-color:#8b5cf644}
+.trade-chat-message>button{color:#ff8d96}
+.chat-action{
+  background:linear-gradient(160deg,#b4a2fb,#8b5cf6 48%,#5b21b6);
+  color:#1d1245;box-shadow:0 8px 22px #8b5cf630;
+}
+.notification-unread{border-color:#8b5cf655;background:#161327}
+.support-quick a:hover{border-color:#8b5cf655;transform:translateY(-2px)}
+.support-quick i{background:#8b5cf614;color:#8b5cf6}
+.team-account,.loyalty-shop-surface{
+  background:radial-gradient(circle at 90% 0,#8b5cf61a,transparent 38%),#0f0d1a;
+}
+.loyalty-balance{border-color:#8b5cf644;background:#8b5cf612}
+
+/* ---------- 8. لوحة الإدارة ---------- */
+.admin-section-title>div>span{
+  background:#8b5cf616;border:1px solid #8b5cf644;color:#8b5cf6;
+}
+.admin-tabs button{background:#0c0a06;border-color:var(--line);color:#a8a2c0}
+.admin-tabs button:hover{color:#f4f2fb;border-color:#8b5cf655}
+.admin-tabs button.active{
+  background:linear-gradient(160deg,#b4a2fb,#8b5cf6 48%,#5b21b6);
+  border-color:#8b5cf640;color:#1d1245;box-shadow:0 8px 24px #8b5cf630;
+}
+.toggle-card{background:#0c0a06;border-color:var(--line)}
+.toggle-card:hover{border-color:#8b5cf655}
+.toggle-card:has(input:checked){border-color:#8b5cf655;background:#8b5cf60d}
+.icon-button{background:#ffffff0a}
+.question-preview{background:#161327;border-color:#8b5cf638}
+
+/* ---------- 9. الجولات التعليمية وترحيب الانضمام وعنصر الذكاء الاصطناعي ---------- */
+.onboarding-card{
+  background:radial-gradient(circle at 100% 0,#2a2150,#0e0c07 46%);
+  border:1px solid #8b5cf666;box-shadow:0 28px 100px #000c,0 0 60px #8b5cf614;
+}
+.onboarding-icon{background:#8b5cf61e;border-color:#8b5cf655}
+.tour-invite article{
+  background:linear-gradient(145deg,#1d1508,#0e0c07);
+  border:1px solid #8b5cf655;box-shadow:0 28px 90px #000c;
+}
+.tour-spotlight{box-shadow:0 0 0 4px #07070d,0 0 0 5px #8b5cf6,0 0 60px #8b5cf659}
+[data-tour-active="true"]{background:#000a}
+.tour-tooltip,.tutorial-v4-layer .tour-tooltip{
+  background:#110f1e;border-color:#8b5cf666;color:#f4f2fb;
+  box-shadow:0 20px 60px #000d,0 0 40px #8b5cf614;
+}
+.tutorial-v4-center article,.tutorial-v4-fallback article{
+  border-color:#8b5cf644;background:linear-gradient(150deg,#161327,#0d0b07);
+}
+.tutorial-v4-center article>span,.tutorial-v4-fallback article>span{color:#c4b5fd}
+.tutorial-v4-center .tutorial-section-grid i{
+  background:#8b5cf61d;color:#8b5cf6;
+}
+.tutorial-v4-center .tutorial-section-grid button:hover{
+  border-color:#8b5cf655;background:#8b5cf610;
+}
+.tutorial-section-title{color:#c4b5fd}
+.tutorial-v4-center .tutorial-full-start{
+  background:linear-gradient(120deg,#2a2150,#110f1e);
+  border-color:#8b5cf670;box-shadow:0 10px 28px #8b5cf618;
+}
+.tutorial-full-start{
+  background:linear-gradient(120deg,#2a2150,#110f1e);
+  border-color:#8b5cf670;box-shadow:0 10px 28px #8b5cf618;
+}
+.tutorial-full-start:hover{border-color:#8b5cf6aa}
+.tutorial-full-start>i,.tutorial-v4-center .tutorial-full-start>i{
+  background:linear-gradient(160deg,#b4a2fb,#8b5cf6 48%,#5b21b6);color:#1d1245;
+}
+.tutorial-progress,.tutorial-v4-center .tutorial-progress{
+  accent-color:#8b5cf6;
+}
+.tutorial-progress::-webkit-progress-value{background:linear-gradient(90deg,#5b21b6,#8b5cf6)}
+.tutorial-help-fab{
+  background:#110f1e;border-color:#8b5cf655;color:#8b5cf6;
+  box-shadow:0 12px 35px #000c,0 0 18px #8b5cf62e;
+}
+.tutorial-help-fab:hover{background:#1c1734;border-color:#8b5cf6aa}
+.tour-close:hover{background:#8b5cf626}
+.broadcast-preview{
+  background:linear-gradient(120deg,#1d1508,#101008);
+  border-color:#8b5cf644;border-right:4px solid #8b5cf6;
+}
+.broadcast-preview small{color:#c4b5fd}
+.realtime-status.offline{border-color:#ff465566;background:#1a0c0e;color:#ff8d96}
+.zark-ai-fab{
+  background:#110f1e;border-color:#8b5cf670;
+  box-shadow:0 15px 45px #000c,0 0 25px #8b5cf633;
+}
+.zark-ai-panel{background:#0e0c07f7;border-color:#8b5cf64d}
+.zark-ai-panel header{background:linear-gradient(110deg,#2a2150,#0f0d1a);border-bottom:1px solid #8b5cf62b}
+
+/* ---------- 10. الملف الشخصي والتذييل والعبارات الختامية ---------- */
+.profile-head{
+  --profile-accent:#8b5cf6;
+  background:
+    radial-gradient(46rem 22rem at 88% -10%,#8b5cf61a,transparent 60%),
+    linear-gradient(180deg,#0f0d1a,#0a0913);
+  border-bottom:1px solid var(--line);
+}
+.service-dot.offline{background:#ff4655;box-shadow:0 0 10px #ff4655}
+.live-chip.offline{color:#ff8d96;border-color:#ff465555}
+.simple-schedule{background:#110f1e;border-color:#8b5cf638}
+.ticket-list-item:hover{border-color:#8b5cf666;background:#15110a}
+.command-card>span{
+  background:linear-gradient(160deg,#b4a2fb,#8b5cf6 48%,#5b21b6);
+  color:#1d1245;
+}
+.command-card code{color:#dcd6ee}
+.command-hint{color:#a8a2c0}
+.footer-brand{color:#8b5cf6}
+.cta{
+  background:
+    radial-gradient(50rem 26rem at 80% -20%,#8b5cf616,transparent 60%),
+    #0f0d1a;
+  border-block:1px solid var(--line);
+}
+footer#site-footer,footer{background:#090812;border-top:1px solid var(--line)}
+.game-cover small{color:#c4b5fd}
+.race-details{color:#d5cfe9}
+.play-guide p{color:#b1abc8}
+/* خط فاصل ذهبي أعلى كل صفحة (بصمة الثيم) */
+body:before{
+  content:"";position:fixed;inset-inline:0;top:0;height:2px;z-index:1000;pointer-events:none;
+  background:linear-gradient(90deg,transparent 4%,#8b5cf6 50%,transparent 96%);opacity:.55;
+}
+
+/* ---------- 11. الحركات ---------- */
+@keyframes premium-pulse{0%,100%{box-shadow:0 0 0 0 #8b5cf638}50%{box-shadow:0 0 0 8px #8b5cf600}}
+@keyframes premium-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.floating-card{animation:premium-float 7s ease-in-out infinite}
+.arena-tag,.live-chip:not(.offline){animation:premium-pulse 3.2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){
+  html:before,.floating-card,.arena-tag,.live-chip:not(.offline),.sheen:before{animation:none!important}
+  *{transition-duration:.01ms!important}
+}
+/* ---------- 12. تغطيات متبقية ---------- */
+.kicker i{background:#8b5cf6;box-shadow:0 0 14px #8b5cf6}
+.tutorial-section-grid i{background:#8b5cf61d;color:#8b5cf6}
+.tutorial-section-grid button:hover{border-color:#8b5cf655}
+.tutorial-section-grid button{background:#0f0d1a;border:1px solid var(--line)}
+.tour-invite .onboarding-skip:hover{background:#8b5cf61a}
+.tour-arrow{background:#8b5cf6}
+/* نهاية الثيم الفخم الذهبي */
+
+/* ============================================================
+   شعار 3Pal games — الشريط العلوي، الفوتر، وساحة البطل
+   الملف: /assets/3pal-logo.png (+ /assets/3pal-icon.png للأيقونة)
+   ============================================================ */
+.brand-logo{
+  width:46px;height:46px;border-radius:50%;object-fit:cover;background:#08070a;
+  border:1px solid #8b5cf666;box-shadow:0 0 18px #8b5cf630,inset 0 0 0 1px #00000066;
+}
+.brand-logo[hidden]{display:none}
+.brand{font-size:15px;letter-spacing:1.2px}
+.brand>span{font-weight:900;letter-spacing:1px}
+.footer-brand{display:flex;align-items:center;gap:12px;letter-spacing:1px}
+.footer-brand img{
+  width:56px;height:56px;border-radius:50%;object-fit:cover;background:#08070a;
+  border:1px solid #8b5cf64d;box-shadow:0 0 22px #8b5cf626;
+}
+.footer-brand img[hidden]{display:none}
+.arena-mark{
+  width:min(205px,46vw);aspect-ratio:1;border-radius:50%;display:grid;place-items:center;overflow:hidden;
+  background:radial-gradient(circle at 50% 42%,#161229,#08070a 70%);
+  border:1px solid #8b5cf64d;box-shadow:0 0 38px #8b5cf633,inset 0 0 30px #00000099;
+}
+.arena-mark .arena-mark-img{width:100%;height:100%;object-fit:contain;display:block}
+.arena-mark .arena-mark-img[hidden]{display:none}
+.arena-mark .arena-mark-fallback{
+  display:none;font:italic 900 84px/1 'Segoe UI',sans-serif;letter-spacing:-4px;
+  color:#c4b5fd;text-shadow:0 0 42px #8b5cf64d;
+}
+.arena-mark.logo-missing .arena-mark-fallback{display:block}
+@media(max-width:430px){
+  .brand-logo{width:40px;height:40px}
+  .footer-brand img{width:48px;height:48px}
+  .arena-mark{width:min(170px,52vw)}
+}
+
+/* ============================================================
+   VIOLET REFRESH — الطبقة النهائية للثيم البنفسجي
+   مطابق للتصميم المرجعي (image.png): بنفسجي نيون #8b5cf6
+   على أسود مزرق #07070d، أزرار أساسية بنص أبيض، عناوين بتدرج بنفسجي
+   ============================================================ */
+:root{
+  --primary:#8b5cf6;--primary-strong:#7c3aed;--primary-soft:#8b5cf61a;--violet:#8b5cf6;
+  --bg:#07070d;--bg-soft:#0a0913;--surface:#0f0d1a;--surface-2:#141226;--surface-3:#1a1730;
+  --line:#251f3c;--line-strong:#3a3256;
+  --text:#f4f2fb;--muted:#a8a2c0;--muted-2:#6f6a86;
+  --danger:#ff4655;--success:#57e6a0;--warning:#ffca58;
+  --red:var(--primary);--red-dark:var(--primary-strong);--green:var(--success);
+}
+body{
+  background:
+    radial-gradient(52rem 30rem at 88% -8%,#8b5cf620,transparent 60%),
+    radial-gradient(42rem 26rem at 0% 30%,#6d28d910,transparent 60%),
+    var(--bg);
+}
+html:before{
+  background:
+    radial-gradient(46rem 30rem at 82% -12%,#8b5cf61d,transparent 62%),
+    radial-gradient(36rem 24rem at -8% 60%,#4c1d9512,transparent 60%);
+}
+::selection{background:#8b5cf6;color:#fff}
+:focus-visible{outline:3px solid #a78bfa!important;outline-offset:3px}
+::-webkit-scrollbar-thumb{background:#2e2650}
+::-webkit-scrollbar-thumb:hover{background:#8b5cf666}
+html{scrollbar-color:#2e2650 #090813}
+body:before{background:linear-gradient(90deg,transparent 4%,#8b5cf6 50%,transparent 96%)}
+
+/* الأزرار الأساسية: بنفسجي متوهج بنص أبيض مثل التصميم */
+.button.primary,.button.primary:not(:hover){
+  background:linear-gradient(160deg,#a78bfa,#8b5cf6 48%,#6d28d9);
+  border:1px solid #8b5cf655;color:#fff;font-weight:900;
+  box-shadow:0 10px 30px #8b5cf638,inset 0 1px 0 #ffffff45;
+}
+.button.primary:hover{
+  background:linear-gradient(160deg,#b7a4fd,#9d6ef8 48%,#7c3aed);
+  box-shadow:0 16px 42px #8b5cf64d,inset 0 1px 0 #ffffff66;
+  transform:translateY(-2px);
+}
+.chat-action{background:linear-gradient(160deg,#a78bfa,#8b5cf6 48%,#6d28d9);color:#fff;box-shadow:0 8px 22px #8b5cf640}
+.admin-tabs button.active{background:linear-gradient(160deg,#a78bfa,#8b5cf6 48%,#6d28d9);color:#fff;box-shadow:0 8px 24px #8b5cf640}
+.tutorial-full-start>i,.tutorial-v4-center .tutorial-full-start>i{color:#fff}
+.command-card>span{background:linear-gradient(160deg,#a78bfa,#8b5cf6 48%,#6d28d9);color:#fff}
+.nav-links a.active{color:#c4b5fd;background:#8b5cf616;border-color:#8b5cf645;box-shadow:inset 0 0 18px #8b5cf60d}
+.tabs button.active{background:#8b5cf616;color:#c4b5fd;border-color:#8b5cf655}
+.tour-spotlight{box-shadow:0 0 0 4px #07070d,0 0 0 5px #8b5cf6,0 0 60px #8b5cf659}
+.podium-card.first{border-color:#8b5cf666;background:linear-gradient(#1c1636,#0f0d1a);box-shadow:0 0 40px #8b5cf617}
+.schedule-day>header button{border-color:#8b5cf644;background:#8b5cf610;color:#c4b5fd}
+
+/* عنوان البطل والشعار: أبيض ثم بنفسجي متدرج مثل التصميم */
+.hero-copy h1 em,.page-hero h1 em{
+  background:linear-gradient(115deg,#ddd6fe 8%,#a78bfa 45%,#7c3aed);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 10px 34px #8b5cf62e);
+}
+.brand>span{
+  background:linear-gradient(120deg,#f1edff,#c4b5fd 55%,#8b5cf6);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.brand-logo{
+  background:radial-gradient(circle at 32% 28%,#c4b5fd,#8b5cf6 55%,#4c1d95);
+  border:1px solid #8b5cf666;box-shadow:0 0 20px #8b5cf645;
+}
+.stats b{color:#c4b5fd;text-shadow:0 0 26px #8b5cf659}
+.page-hero,.hero{
+  background:
+    radial-gradient(60rem 34rem at 82% -20%,#8b5cf61a,transparent 60%),
+    linear-gradient(180deg,#0d0b18,#080710);
+}
+.profile-head{
+  --profile-accent:#8b5cf6;
+  background:
+    radial-gradient(46rem 22rem at 88% -10%,#8b5cf61d,transparent 60%),
+    linear-gradient(180deg,#100d1e,#0a0913);
+}
+.eyebrow{color:#a78bfa}
+.arena-mark{background:radial-gradient(circle at 50% 42%,#1a1730,#08070d 70%)}

@@ -2,29 +2,28 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>غرف LFG — Zark LFG System</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/assets/3pal-icon.png"><link rel="apple-touch-icon" href="/assets/3pal-icon.png">
+  <title>غرف LFG — 3Pal games</title>
   <meta name="description" content="ابحث بذكاء عن لاعبين وانضم لغرف الألعاب الحية.">
   <link rel="stylesheet" href="/styles.css?v=20260909-teams">
-<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260909-teams"><link rel="stylesheet" href="/experience.css?v=20260909-teams"><link rel="stylesheet" href="/platform.css?v=20260909-teams"></head>
+<meta name="theme-color" content="#030914"><link rel="stylesheet" href="/modern.css?v=20260909-teams"><link rel="stylesheet" href="/experience.css?v=20260909-teams"><link rel="stylesheet" href="/platform.css?v=20260909-teams"><link rel="stylesheet" href="/premium.css?v=20260916-premium"><link rel="stylesheet" href="/unified.css?v=20260917-picker2"><link rel="stylesheet" href="/lfg-art.css?v=20260918"></head>
 <body data-page="lfg">
   <header id="site-nav"></header>
   <main class="shell page-main">
-    <section class="page-hero"><span class="eyebrow">LOOKING FOR GROUP</span><h1>لاقِ فريقك <em>الآن.</em></h1><p>اختر اللعبة والمدة، وZark ينشئ مساحة Text وVoice ويتابع الجلسة حتى تنتهي.</p></section>
-    <section class="lfg-actions-bar"><div><span class="live-dot"></span><b>التجمعات تتحدث مباشرة</b><small id="smart-match-result">اختر اللعبة أو دع Zark يجد أفضل فريق لك</small></div><div class="lfg-primary-actions"><button id="smart-match" class="button ghost" type="button">✨ طابقني بذكاء</button><button id="open-create-room" class="button primary" type="button">＋ أنشئ غرفة</button></div></section>
+    <section class="page-hero lfg-page-hero"><span class="eyebrow">LOOKING FOR GROUP</span><h1>العب مع <em>فريقك المثالي.</em></h1><p>ابحث عن لاعبين، انضم لغرفة مباشرة، أو أنشئ تجمعك الخاص. جلستك القادمة تبدأ من هنا.</p><div class="lfg-primary-actions"><button id="open-create-room" class="button primary" type="button">＋ أنشئ غرفة الآن</button><button id="smart-match" class="button ghost" type="button">طابقني بذكاء ✦</button></div><small id="smart-match-result" class="hero-match-hint" role="status">اختر لعبتك، واجمع فريقك، وابدأ اللعب.</small></section>
     <section class="lfg-layout">
       <div id="create-room-backdrop" class="create-room-backdrop" hidden></div>
       <aside class="create-panel" id="create-room-panel" aria-label="إنشاء غرفة">
         <button id="close-create-room" class="panel-close" type="button" aria-label="إغلاق">×</button>
         <div class="panel-title"><span>⚡</span><div><h2>أنشئ تجمعًا</h2><p>خطوات قليلة، فريق أسرع.</p></div></div>
         <form id="create-room-form">
-          <label>اللعبة<select id="room-game" required><option>جارِ التحميل...</option></select></label>
+          <label>اللعبة<div id="game-picker" class="game-picker"><span id="game-picker-thumb" class="game-picker-thumb" hidden></span><input id="room-game-search" class="game-picker-input" type="text" autocomplete="off" spellcheck="false" placeholder="اكتب اسم اللعبة… ماينكرافت، Valorant" role="combobox" aria-expanded="false" aria-controls="game-picker-list" aria-autocomplete="list"><button id="game-picker-toggle" class="game-picker-toggle" type="button" aria-label="إظهار كل الألعاب">▾</button><div id="game-picker-list" class="game-picker-list" role="listbox" aria-label="نتائج الألعاب" hidden></div></div><select id="room-game" required class="game-select-hidden" tabindex="-1" aria-hidden="true"><option>جارِ التحميل...</option></select></label>
           <div class="game-platform-summary"><b>أجهزة اللعبة</b><span id="room-game-platforms">تظهر تلقائيًا بعد اختيار اللعبة</span></div>
-          <div class="form-row"><label>عدد اللاعبين<select id="room-size"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option></select></label><label>متى؟<select id="room-when"><option value="now">🟢 الآن</option><option value="later">🕐 لاحقًا</option></select></label></div>
+          <div class="form-row"><label>عدد اللاعبين<select id="room-size"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option><option value="12">12</option><option value="15">15</option><option value="20">20</option><option value="25">25</option><option value="30">30</option></select></label><label>متى؟<select id="room-when"><option value="now">🟢 الآن</option><option value="later">🕐 لاحقًا</option></select></label></div>
           <div id="room-schedule-label" class="simple-schedule" hidden>
             <label>الساعة<select id="room-schedule-hour"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9" selected>9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></label>
             <label>الفترة<select id="room-schedule-period"><option value="PM" selected>PM — مساءً</option><option value="AM">AM — صباحًا</option></select></label>
-            <small id="room-schedule-preview">سيختار Zark أقرب موعد قادم تلقائيًا.</small>
+            <small id="room-schedule-preview">سيختار 3Pal أقرب موعد قادم تلقائيًا.</small>
           </div>
           <label id="room-map-label" hidden>اسم ماب Roblox<input id="room-map" list="roblox-maps" maxlength="100" placeholder="اختر Blox Fruits أو اكتب ماب آخر"><datalist id="roblox-maps"><option value="Blox Fruits">بلوكس فروت</option><option value="Brookhaven"><option value="Adopt Me"></datalist></label>
           <label class="switch-line"><input id="room-voice" type="checkbox" checked><span>إنشاء Voice Channel خاص</span></label>
@@ -37,19 +36,20 @@
         </form>
         <div id="login-hint" class="login-hint">سجّل عبر Discord حتى تنشئ وتنضم للغرف.</div>
       </aside>
-      <section class="rooms-area">
+      <section class="rooms-area lfg-browser">
         <div class="section-heading"><div><span class="eyebrow">LIVE ROOMS</span><h2>الغرف المباشرة</h2></div><span id="room-count" class="live-chip">0 LIVE</span></div>
         <label class="smart-search"><span>⌕</span><input id="room-search" type="search" maxlength="100" placeholder="بحث ذكي بأي لغة: ماينكرافت، Minecraft، माइनक्राफ्ट..."></label>
         <div class="lfg-filter-grid"><label class="platform-filter">جهاز اللعبة<select id="room-platform-filter"><option value="all">كل الأجهزة</option><option value="MOBILE">📱 جوال</option><option value="PC">💻 كمبيوتر</option><option value="PLAYSTATION">🎮 بلايستيشن</option></select></label><label>التواصل<select id="room-mic-filter"><option value="all">الكل</option><option value="voice">Voice</option><option value="text">Text</option></select></label></div><div id="lfg-filters" class="filter-row"></div><div id="rooms" class="room-list"></div>
       </section>
     </section>
+    <section class="lfg-benefits" aria-labelledby="lfg-benefits-title"><div class="lfg-benefits-heading"><span class="eyebrow">BUILT FOR PLAYERS</span><h2 id="lfg-benefits-title">تجربة تجمع متكاملة</h2></div><div class="lfg-benefits-grid"><article><span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg></span><div><b>بحث ذكي</b><small>بحث بالأسماء العربية والإنجليزية</small></div></article><article><span><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg></span><div><b>غرف حقيقية</b><small>مرتبطة مباشرة بحالة LFG</small></div></article><article><span><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path></svg></span><div><b>Text وVoice</b><small>مساحات تلقائية لكل جلسة</small></div></article><article><span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"></path><path d="M7 6H3v2a4 4 0 0 0 4 4M17 6h4v2a4 4 0 0 1-4 4"></path></svg></span><div><b>تقييم وتصنيف</b><small>تقدم مبني على الجلسات المكتملة</small></div></article></div></section>
     <section id="room-manager" class="section" hidden>
       <div class="section-heading"><div><span class="eyebrow">HOST CONTROLS</span><h2>إدارة غرفتي</h2></div><button id="close-room-manager" class="button ghost small" type="button">إغلاق اللوحة</button></div>
       <form id="room-manager-form" class="surface room-manager-form">
         <input id="manage-room-id" type="hidden">
         <div class="settings-grid three">
           <label>عنوان الغرفة<input id="manage-room-title" maxlength="80"></label><label>رمز الغرفة<input id="manage-room-emoji" maxlength="12"></label><label>لون الغرفة<input id="manage-room-color" type="color" value="#e50914"></label>
-          <label>Game Mode<input id="manage-room-mode" maxlength="80"></label><label id="manage-room-map-label" hidden>اسم ماب Roblox<input id="manage-room-map" maxlength="100"></label><label>عدد اللاعبين<input id="manage-room-size" type="number" min="2" max="50"></label><label>المدة بالدقائق<input id="manage-room-duration" type="number" min="15" max="360"></label>
+          <label>Game Mode<input id="manage-room-mode" maxlength="80"></label><label id="manage-room-map-label" hidden>اسم ماب Roblox<input id="manage-room-map" maxlength="100"></label><label>عدد اللاعبين<input id="manage-room-size" type="number" min="2" max="30"></label><label>المدة بالدقائق<input id="manage-room-duration" type="number" min="15" max="360"></label>
         </div>
         <label>الوصف<textarea id="manage-room-description" maxlength="500"></textarea></label>
         <div class="toggle-grid two"><label class="toggle-card"><input id="manage-room-voice" type="checkbox"><span><b>Voice خاص</b><small>مساحة صوت مرتبطة بالجلسة</small></span></label><label class="toggle-card"><input id="manage-room-locked" type="checkbox"><span><b>قفل الدخول</b><small>يمنع أعضاء جدد من الانضمام</small></span></label></div>
@@ -57,8 +57,8 @@
         <p id="room-manager-result" class="form-result"></p>
       </form>
     </section>
-    <section class="section interest-section"><div class="section-heading"><div><span class="eyebrow">SMART NOTIFICATIONS</span><h2>اهتماماتك وإشعاراتك</h2></div></div><p class="section-copy">اختر الألعاب التي تحبها. أجهزة كل لعبة محددة مسبقًا من الإدارة وتظهر على بطاقتها.</p><div id="interest-games" class="interest-grid"></div></section>
+    <section id="interests" class="section interest-section"><div class="section-heading"><div><span class="eyebrow">SMART NOTIFICATIONS</span><h2>اهتماماتك وإشعاراتك</h2></div></div><p class="section-copy">اختر الألعاب التي تحبها. أجهزة كل لعبة محددة مسبقًا من الإدارة وتظهر على بطاقتها.</p><div id="interest-games" class="interest-grid"></div></section>
   </main>
-  <footer id="site-footer"></footer><script src="/app.js?v=20260909-teams"></script>
+  <footer id="site-footer"></footer><script src="/app.js?v=20260917-picker2"></script>
 </body>
 </html>

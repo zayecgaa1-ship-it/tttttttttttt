@@ -53,7 +53,7 @@ app.addHook("onSend", async (_request, reply) => {
   reply.header("X-Frame-Options", "DENY");
   reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
   reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  reply.header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  reply.header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://cdn.discordapp.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
 });
 app.addHook("preHandler", async (request) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return;
@@ -86,6 +86,85 @@ app.get("/api/status", async () => {
   const deliveries = Object.fromEntries(deliveryGroups.map((row) => [row.status, row._count._all]));
   return { checkedAt: new Date().toISOString(), api: true, database, bot: { online: botOnline, lastSeenAt: botHeartbeat?.lastSeenAt.toISOString() }, realtime: eventRuntimeStatus(), notifications: { sent: deliveries.SENT ?? 0, failed: deliveries.FAILED ?? 0, pending: deliveries.RESERVED ?? 0 } };
 });
+
+const publicStatsCache = { value: null as Record<string, number | boolean | string | null> | null, expiresAt: 0 };
+
+async function fetchDiscordGuildMembers(): Promise<number | null> {
+  const guildId = process.env.DISCORD_GUILD_ID;
+  const discordToken = process.env.DISCORD_TOKEN;
+  if (!guildId || !discordToken) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`https://discord.com/api/v10/guilds/${guildId}?with_counts=true`, {
+      headers: {
+        Authorization: `Bot ${discordToken}`,
+        Accept: "application/json",
+        "User-Agent": "3PAL-GAMES/1.0",
+      },
+    });
+
+    if (!response.ok) {
+      app.log.warn({ status: response.status, guildId }, "Discord guild stats fetch failed");
+      return null;
+    }
+
+    const guild = await response.json() as { member_count?: number; approximate_member_count?: number };
+    const members = Number(guild.member_count ?? guild.approximate_member_count ?? NaN);
+    return Number.isFinite(members) && members > 0 ? members : null;
+  } catch (error) {
+    app.log.warn({ error }, "Discord guild stats error");
+    return null;
+  }
+}
+
+async function getPublicStatsSnapshot() {
+  const now = Date.now();
+  if (publicStatsCache.value && now < publicStatsCache.expiresAt) {
+    return publicStatsCache.value;
+  }
+
+  const [members, games, botHeartbeat] = await Promise.all([
+    fetchDiscordGuildMembers(),
+    db.lfgGameCatalog.count({ where: { enabled: true } }).catch(() => null),
+    db.serviceHeartbeat.findUnique({ where: { service: "discord-bot" } }).catch(() => null),
+  ]);
+
+  let activeLfgRooms: number | null = null;
+  let completedSessions: number | null = null;
+
+  try {
+    const activeRows = await db.$queryRaw`SELECT COUNT(*)::int AS count FROM "LfgRoom" WHERE "completedAt" IS NULL AND "closedAt" IS NULL AND "status" IN ('SCHEDULED','OPEN','FULL','ACTIVE')` as Array<{ count: bigint | number }>;
+    activeLfgRooms = Number(activeRows[0]?.count ?? 0);
+  } catch {
+    activeLfgRooms = null;
+  }
+
+  try {
+    const completedRows = await db.$queryRaw`SELECT COUNT(*)::int AS count FROM "LfgRoom" WHERE "completedAt" IS NOT NULL OR "status" = 'COMPLETED'` as Array<{ count: bigint | number }>;
+    completedSessions = Number(completedRows[0]?.count ?? 0);
+  } catch {
+    completedSessions = null;
+  }
+
+  const botOnline = Boolean(botHeartbeat && Date.now() - botHeartbeat.lastSeenAt.getTime() < 75_000);
+  const snapshot = {
+    members: members ?? null,
+    activeLfgRooms: activeLfgRooms ?? null,
+    games: games ?? null,
+    completedSessions: completedSessions ?? null,
+    botOnline,
+    updatedAt: new Date().toISOString(),
+  };
+
+  publicStatsCache.value = snapshot;
+  publicStatsCache.expiresAt = now + 60_000;
+  return snapshot;
+}
+
+app.get("/api/public/stats", async () => getPublicStatsSnapshot());
+
 app.get("/assets/fonts/zark-arabic.ttf", async (_request, reply) => {
   if (!arabicFont) return reply.code(404).send({ error: "Arabic font asset is unavailable" });
   return reply

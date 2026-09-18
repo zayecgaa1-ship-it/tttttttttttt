@@ -16,6 +16,7 @@ import {trustedSourceMemes,memeSource} from "../../../packages/fun/src/source-me
 import {prop2HateMemes,prop2HateSource,type Prop2HateMeme} from "../../../packages/fun/src/prop2hate-memes.js";
 import {renderJokeCard} from "../../../packages/fun/src/joke-card.js";
 import { apiGet, apiSend } from "./api/client.js";
+import { renderGameCard } from "./ui/game-card.js";
 import { detectProfanity } from '../../../packages/shared/src/moderation.js';
 
 const token = process.env.DISCORD_TOKEN;
@@ -28,7 +29,14 @@ const ownerUserId = process.env.DISCORD_OWNER_ID?.trim() || "492368135144603658"
 const configuredHackAlertChannelId = process.env.DISCORD_HACK_ALERT_CHANNEL_ID?.trim();
 const hackAlertChannelName = "ممنوع-الارسال";
 const disboardBotId = process.env.DISBOARD_BOT_ID?.trim() || "302050872383242240";
-const roomCardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/zark-room-card-bg.png");
+const cardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/3pal-game-card-bg.png");
+/** يرسم خلفية البطاقة بثيم 3PAL، وعند غياب الملف يستخدم خلفية مسطحة بديلة بدل الفشل. */
+function cardBackground() {
+  if (!fs.existsSync(cardBackgroundPath)) {
+    return sharp({ create: { width: 1600, height: 900, channels: 4, background: { r: 6, g: 8, b: 22, alpha: 1 } } });
+  }
+  return sharp(cardBackgroundPath).resize(1600, 900, { fit: "cover" });
+}
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
 const recentHumorByUser = new Map<string, string[]>();
@@ -919,7 +927,7 @@ if (!token) {
   }
 
   async function syncLoyaltyRoleMembers() {
-    const users = await apiGet<Array<{ id: string }>>("/api/loyalty/role-members");
+    const users = await apiGet<Array<{ id: string }>>("/api/loyalty/role-members", true);
     for (const user of users) await syncLoyaltyRoles(user.id);
   }
 
@@ -1964,38 +1972,18 @@ if (!token) {
     const visualLabel = match.gameSlug === "flags" ? "أعلام" : match.gameName;
     const lines = wrapText(cleanedPrompt, media ? 34 : 30).slice(0, media ? 3 : 4);
     const promptFontSize = lines.some((line) => line.length > 28) ? 58 : 70;
-    const headerY = 84;
-    const titleY = 166;
-    const promptStart = 252;
-    const promptGap = 72;
-    const instructionY = promptStart + lines.length * promptGap + 8;
-    const contentTop = instructionY + 44;
-    const footerY = 846;
-    const frameY = Math.min(contentTop + 20, 515);
-    const frameHeight = Math.max(230, Math.min(330, footerY - frameY - 65));
-    const frameWidth = 810;
-    const frameX = (1600 - frameWidth) / 2;
-    const lineMarkup = lines.map((line, index) => `<text x="800" y="${promptStart + index * promptGap}" text-anchor="middle" class="prompt">${escapeXml(line)}</text>`).join("");
     const instruction = match.gameSlug === "flags" ? "🏆 طريق الفوز: اختر اسم الدولة" : "🏆 طريق الفوز: اختر الإجابة الصحيحة";
-    const mediaFrame = media
-      ? `<rect x="${frameX - 18}" y="${frameY - 18}" width="${frameWidth + 36}" height="${frameHeight + 36}" rx="36" fill="#080808" stroke="#ff2029" stroke-width="7"/><rect x="${frameX}" y="${frameY}" width="${frameWidth}" height="${frameHeight}" rx="24" fill="#151515"/>`
-      : `<circle cx="800" cy="${Math.min(650, contentTop + 155)}" r="125" fill="#19080a" stroke="#ff2029" stroke-width="6"/><text x="800" y="${Math.min(695, contentTop + 200)}" text-anchor="middle" style="font:900 112px ${arabicFont};fill:#fff">${escapeXml(gameEmoji(match.gameSlug))}</text>`;
-    const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
-      <defs><linearGradient id="shade"><stop stop-color="#020202" stop-opacity=".28"/><stop offset="1" stop-color="#020202" stop-opacity=".94"/></linearGradient></defs>
-      <rect width="1600" height="900" fill="url(#shade)"/>
-      <style>${fontFaceStyle}.prompt{font:700 ${promptFontSize}px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext}.tag{font:700 26px ${arabicFont};fill:#fff;letter-spacing:5px}.instruction{font:700 36px ${arabicFont};fill:#fff0f0;direction:rtl;unicode-bidi:plaintext}</style>
-      <rect x="630" y="${headerY - 36}" width="340" height="58" rx="12" fill="#ed1c24"/><text x="800" y="${headerY + 3}" text-anchor="middle" class="tag">ZARK GAME</text>
-      <text x="800" y="${titleY}" text-anchor="middle" style="font:700 66px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext">${escapeXml(visualLabel)}</text>
-      ${lineMarkup}<text x="800" y="${instructionY}" text-anchor="middle" class="instruction">${instruction}</text>${mediaFrame}
-      <text x="800" y="${footerY}" text-anchor="middle" style="font:700 40px ${arabicFont};fill:#fff;direction:rtl;unicode-bidi:plaintext">${daily ? "تحدي اليوم • أول إجابة صحيحة تفوز" : `الجولة ${match.roundNumber} / ${match.totalRounds} • أول إجابة صحيحة تفوز`}</text>
-    </svg>`);
-    const base = sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" });
-    const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
-    if (media) {
-      const framed = await sharp(media).resize(frameWidth, frameHeight, { fit: "contain", background: "#151515" }).png().toBuffer();
-      layers.push({ input: framed, left: frameX, top: frameY });
-    }
-    return base.composite(layers).png({ compressionLevel: 8 }).toBuffer();
+    return renderGameCard({
+      backgroundPath: cardBackgroundPath,
+      fontPath: arabicFontPath,
+      title: visualLabel,
+      promptLines: lines,
+      promptFontSize,
+      instruction,
+      footer: daily ? "تحدي اليوم • أول إجابة صحيحة تفوز" : `الجولة ${match.roundNumber} / ${match.totalRounds} • أول إجابة صحيحة تفوز`,
+      glyph: gameEmoji(match.gameSlug),
+      media,
+    });
   }
 
   async function renderJokeVisual(entry:ArabicHumorEntry){
@@ -2007,14 +1995,14 @@ if (!token) {
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <style>${fontFaceStyle}</style>
       <rect width="1600" height="900" fill="#020202" fill-opacity=".72"/>
-      <circle cx="800" cy="430" r="255" fill="#260608" stroke="#ff2029" stroke-width="10"/>
-      <text x="800" y="235" text-anchor="middle" style="font:900 40px ${arabicFont};fill:#ff2630;letter-spacing:7px">FIRST WINNER</text>
+      <circle cx="800" cy="430" r="255" fill="#1b1440" stroke="#8b5cf6" stroke-width="10"/>
+      <text x="800" y="235" text-anchor="middle" style="font:900 40px ${arabicFont};fill:#c4b5fd;letter-spacing:7px">FIRST WINNER</text>
       <text x="800" y="425" text-anchor="middle" style="font:900 92px ${arabicFont};fill:#fff">${escapeXml(trimText(name, 22))}</text>
       <text x="800" y="545" text-anchor="middle" style="font:900 68px ${arabicFont};fill:#fff">${points} XP</text>
       <text x="800" y="635" text-anchor="middle" style="font:800 34px ${arabicFont};fill:#ddd">${seconds} ثانية · ${typoCount ? `${typoCount} خطأ إملائي مقبول` : "إجابة دقيقة"}</text>
       <text x="800" y="820" text-anchor="middle" style="font:900 32px ${arabicFont};fill:#fff">ZARK LFG SYSTEM</text>
     </svg>`);
-    return sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" }).composite([{ input: svg }]).png().toBuffer();
+    return cardBackground().composite([{ input: svg }]).png().toBuffer();
   }
 
   async function renderProfileVisual(data: UnifiedProfile) {
@@ -2025,8 +2013,8 @@ if (!token) {
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <rect width="1600" height="900" fill="#020202" fill-opacity=".78"/>
       <style>${fontFaceStyle}.label{font:800 28px ${arabicFont};fill:#aaa}.value{font:900 56px ${arabicFont};fill:#fff}.small{font:800 32px ${arabicFont};fill:#ddd}</style>
-      <rect x="1120" y="58" width="330" height="58" rx="12" fill="#ed1c24"/><text x="1285" y="97" text-anchor="middle" style="font:900 21px ${arabicFont};fill:#fff;letter-spacing:4px">ZARK PROFILE</text>
-      <circle cx="340" cy="385" r="205" fill="#111" stroke="#ed1c24" stroke-width="10"/>
+      <rect x="1120" y="58" width="330" height="58" rx="12" fill="#6d28d9"/><text x="1285" y="97" text-anchor="middle" style="font:900 21px ${arabicFont};fill:#fff;letter-spacing:4px">3PAL PROFILE</text>
+      <circle cx="340" cy="385" r="205" fill="#111" stroke="#8b5cf6" stroke-width="10"/>
       ${avatar ? "" : `<text x="340" y="430" text-anchor="middle" style="font:900 145px ${arabicFont};fill:#fff">${escapeXml(data.displayName.slice(0, 1).toUpperCase())}</text>`}
       <text x="1040" y="230" text-anchor="middle" style="font:900 90px ${arabicFont};fill:#fff">${escapeXml(trimText(data.displayName, 22))}</text>
       <text x="1040" y="300" text-anchor="middle" class="small">Zark Level ${data.zark.level} · ${escapeXml(rating)}</text>
@@ -2043,7 +2031,7 @@ if (!token) {
       const rounded = await sharp(avatar).resize(390, 390, { fit: "cover" }).composite([{ input: mask, blend: "dest-in" }]).png().toBuffer();
       layers.push({ input: rounded, left: 145, top: 190 });
     }
-    return sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" }).composite(layers).png().toBuffer();
+    return cardBackground().composite(layers).png().toBuffer();
   }
 
   function profileStat(x: number, label: string, value: string) {
@@ -2101,7 +2089,7 @@ if (!token) {
       const x = 760 + index * 205;
       const crown = member.id === room.hostId ? "👑" : member.voiceActive ? "🎙️" : "";
       const image = data ? `<image href="${data}" x="${x - 62}" y="655" width="124" height="124" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatar-${index})"/>` : `<circle cx="${x}" cy="717" r="62" fill="#2a2a2a"/><text x="${x}" y="735" text-anchor="middle" class="initial">${escapeXml(member.displayName.slice(0, 1).toUpperCase())}</text>`;
-      return `<clipPath id="avatar-${index}"><circle cx="${x}" cy="717" r="62"/></clipPath>${image}<circle cx="${x}" cy="717" r="64" fill="none" stroke="${member.id === room.hostId ? "#ff2530" : member.voiceActive ? "#31db8b" : "#ffffff"}" stroke-opacity=".9" stroke-width="5"/><text x="${x}" y="825" text-anchor="middle" class="member">${escapeXml(trimText(member.displayName, 12))} ${crown}</text>`;
+      return `<clipPath id="avatar-${index}"><circle cx="${x}" cy="717" r="62"/></clipPath>${image}<circle cx="${x}" cy="717" r="64" fill="none" stroke="${member.id === room.hostId ? "#c4b5fd" : member.voiceActive ? "#31db8b" : "#ffffff"}" stroke-opacity=".9" stroke-width="5"/><text x="${x}" y="825" text-anchor="middle" class="member">${escapeXml(trimText(member.displayName, 12))} ${crown}</text>`;
     }).join("");
     const extra = Math.max(0, room.members.length - visibleMembers.length);
     const hostVisual = hostAvatar ? `<clipPath id="host-avatar"><circle cx="330" cy="390" r="190"/></clipPath><image href="${hostAvatar}" x="140" y="200" width="380" height="380" preserveAspectRatio="xMidYMid slice" clip-path="url(#host-avatar)"/>` : `<circle cx="330" cy="390" r="190" fill="#161616"/><text x="330" y="440" text-anchor="middle" style="font:900 145px ${arabicFont};fill:#fff">${escapeXml(room.hostName.slice(0, 1).toUpperCase())}</text>`;
@@ -2109,21 +2097,21 @@ if (!token) {
     const svg = Buffer.from(`<svg width="1600" height="900" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="shade" x1="0" x2="1"><stop offset="0" stop-color="#000" stop-opacity=".28"/><stop offset=".42" stop-color="#000" stop-opacity=".48"/><stop offset="1" stop-color="#050505" stop-opacity=".94"/></linearGradient></defs>
       <rect width="1600" height="900" fill="url(#shade)"/>
-      <style>${fontFaceStyle}.title{font:900 82px ${arabicFont};fill:#fff}.eyebrow{font:900 25px ${arabicFont};letter-spacing:5px;fill:#ff2029}.meta{font:800 39px ${arabicFont};fill:#fff}.sub{font:700 31px ${arabicFont};fill:#d2d2d2}.member{font:800 24px ${arabicFont};fill:#fff}.initial{font:900 54px ${arabicFont};fill:#fff}.count{font:900 76px ${arabicFont};fill:#fff}</style>
-      <rect x="1140" y="55" width="310" height="60" rx="12" fill="#ed1c24"/>
-      <text x="1295" y="96" text-anchor="middle" style="font:900 22px ${arabicFont};letter-spacing:5px;fill:#fff">ZARK LFG</text>
+      <style>${fontFaceStyle}.title{font:900 82px ${arabicFont};fill:#fff}.eyebrow{font:900 25px ${arabicFont};letter-spacing:5px;fill:#c4b5fd}.meta{font:800 39px ${arabicFont};fill:#fff}.sub{font:700 31px ${arabicFont};fill:#d2d2d2}.member{font:800 24px ${arabicFont};fill:#fff}.initial{font:900 54px ${arabicFont};fill:#fff}.count{font:900 76px ${arabicFont};fill:#fff}</style>
+      <rect x="1140" y="55" width="310" height="60" rx="12" fill="#6d28d9"/>
+      <text x="1295" y="96" text-anchor="middle" style="font:900 22px ${arabicFont};letter-spacing:5px;fill:#fff">3PAL LFG</text>
       <text x="330" y="120" text-anchor="middle" class="eyebrow">ROOM HOST</text>
-      ${hostVisual}<circle cx="330" cy="390" r="195" fill="none" stroke="#ff2029" stroke-width="10"/>
+      ${hostVisual}<circle cx="330" cy="390" r="195" fill="none" stroke="#8b5cf6" stroke-width="10"/>
       <text x="330" y="650" text-anchor="middle" class="meta">${escapeXml(trimText(room.hostName, 18))}</text>
       <text x="1060" y="230" text-anchor="middle" class="title">${escapeXml(trimText(room.title ?? room.gameName, 24))}</text>
       <text x="1060" y="330" text-anchor="middle" class="count">${room.currentPlayers}/${room.maxPlayers} · ${room.needsVoice ? "VOICE" : "TEXT"}</text>
       <text x="1060" y="405" text-anchor="middle" class="meta">${escapeXml(status)}</text>
       <text x="1060" y="470" text-anchor="middle" class="sub">${escapeXml(timing)}</text>
-      <line x1="660" y1="520" x2="1460" y2="520" stroke="#ff2029" stroke-width="5" stroke-opacity=".75"/>
+      <line x1="660" y1="520" x2="1460" y2="520" stroke="#8b5cf6" stroke-width="5" stroke-opacity=".75"/>
       <text x="1060" y="580" text-anchor="middle" class="sub">${escapeXml(detail)}</text>
-      ${avatarMarkup}${extra ? `<circle cx="1510" cy="717" r="58" fill="#221113" stroke="#ff2029" stroke-width="4"/><text x="1510" y="735" text-anchor="middle" class="meta">+${extra}</text>` : ""}
+      ${avatarMarkup}${extra ? `<circle cx="1510" cy="717" r="58" fill="#1b1440" stroke="#8b5cf6" stroke-width="4"/><text x="1510" y="735" text-anchor="middle" class="meta">+${extra}</text>` : ""}
     </svg>`);
-    return sharp(roomCardBackgroundPath).resize(1600, 900, { fit: "cover" }).composite([{ input: svg }]).png({ compressionLevel: 8 }).toBuffer();
+    return cardBackground().composite([{ input: svg }]).png({ compressionLevel: 8 }).toBuffer();
   }
 
   async function avatarData(userId: string, knownUrl?: string) {

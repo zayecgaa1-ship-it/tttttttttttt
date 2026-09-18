@@ -2,24 +2,24 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>لوحة تحكم Zark — Zark LFG System</title>
-  <meta name="description" content="إدارة إعدادات بوت Zark والألعاب والمحتوى.">
+  <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/assets/3pal-icon.png"><link rel="apple-touch-icon" href="/assets/3pal-icon.png">
+  <title>لوحة التحكم — 3Pal games</title>
+  <meta name="description" content="إدارة إعدادات بوت 3Pal والألعاب والمحتوى.">
   <link rel="stylesheet" href="/styles.css?v=20260909-teams">
-<meta name="theme-color" content="#050608"><link rel="stylesheet" href="/modern.css?v=20260909-teams"><link rel="stylesheet" href="/experience.css?v=20260909-teams"><link rel="stylesheet" href="/platform.css?v=20260909-teams"></head>
+<meta name="theme-color" content="#030914"><link rel="stylesheet" href="/modern.css?v=20260909-teams"><link rel="stylesheet" href="/experience.css?v=20260909-teams"><link rel="stylesheet" href="/platform.css?v=20260909-teams"><link rel="stylesheet" href="/premium.css?v=20260916-premium"><link rel="stylesheet" href="/unified.css?v=20260917"></head>
 <body data-page="admin">
   <header id="site-nav"></header>
   <main class="shell page-main">
     <section id="admin-gate" class="auth-gate">
       <span>🔐</span>
       <h1>جارِ التحقق من الصلاحية</h1>
-      <p>لوحة التحكم متاحة فقط لرتب إدارة Zark المعتمدة.</p>
+      <p>لوحة التحكم متاحة فقط لرتب إدارة 3Pal المعتمدة.</p>
     </section>
 
     <div id="admin-content" hidden>
       <section class="page-hero small">
-        <span class="eyebrow">ZARK CONTROL CENTER</span>
-        <h1>لوحة تحكم <em>Zark.</em></h1>
+        <span class="eyebrow">3PAL CONTROL CENTER</span>
+        <h1>لوحة تحكم <em>3Pal.</em></h1>
         <p>إعدادات البوت والقنوات والإشعارات والمحتوى من مكان واحد، مع حفظ كل تعديل في سجل الإدارة.</p>
       </section>
 
@@ -40,7 +40,7 @@
         <div class="section-heading compact"><div><span class="eyebrow">LIVE OVERVIEW</span><h2>حالة النظام</h2></div><span id="admin-system-status" class="live-chip">● جارِ الفحص</span></div>
         <div id="admin-stats" class="stats"></div>
         <div id="admin-service-grid" class="service-grid"></div>
-        <div class="room-manager-actions"><button id="admin-loyalty-event" class="button primary" type="button">⚡ فعّل ساعة Zark ×2</button><span id="admin-loyalty-event-result" class="form-result"></span></div>
+        <div class="room-manager-actions"><button id="admin-loyalty-event" class="button primary" type="button">⚡ فعّل ساعة 3Pal ×2</button><span id="admin-loyalty-event-result" class="form-result"></span></div>
         <div class="section-heading compact"><div><span class="eyebrow">SMART MATCHING</span><h2>اقتراح التجمعات القادمة</h2></div><span class="subtle">حسب الاهتمام ووقت الفراغ</span></div>
         <div id="admin-smart-rooms" class="admin-room-list"></div>
         <div class="section-heading compact"><div><span class="eyebrow">SMART HISTORY</span><h2>سجل التجمعات الذكية</h2></div></div>
@@ -67,23 +67,23 @@
             <label>قناة التحدي اليومي<input id="setting-daily-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
             <label>قناة التصنيف<input id="setting-leaderboard-channel" inputmode="numeric" placeholder="Discord Channel ID"></label>
             <label>قناة تنبيهات البلاغات<input id="setting-report-channel" inputmode="numeric" placeholder="1467945220376363131"></label>
-            <label>رابط موقع Zark<input id="setting-website-url" type="url" placeholder="https://zark-ps.com"></label>
+            <label>رابط موقع 3Pal<input id="setting-website-url" type="url" placeholder="https://3palgames.com"></label>
           </div>
           <h3>الأنظمة</h3>
           <div class="toggle-grid">
             <label class="toggle-card"><input id="setting-dm-enabled" type="checkbox"><span><b>رسائل DM الذكية</b><small>إرسال فرص اللعب للمهتمين</small></span></label>
             <label class="toggle-card"><input id="setting-quick-match" type="checkbox"><span><b>Quick Match</b><small>السماح بالمطابقة السريعة</small></span></label>
-            <label class="toggle-card"><input id="setting-auto-smart-rooms" type="checkbox"><span><b>تجمعات Zark التلقائية</b><small>غرف كل 5 دقائق عند توفر مهتمين متفرغين</small></span></label>
+            <label class="toggle-card"><input id="setting-auto-smart-rooms" type="checkbox"><span><b>تجمعات 3Pal التلقائية</b><small>غرف كل 5 دقائق عند توفر مهتمين متفرغين</small></span></label>
             <label class="toggle-card"><input id="setting-ratings" type="checkbox"><span><b>تقييم اللاعبين</b><small>التقييم بعد الجلسات المكتملة</small></span></label>
             <label class="toggle-card"><input id="setting-reports" type="checkbox"><span><b>البلاغات</b><small>بلاغات السلوك والأخطاء</small></span></label>
             <label class="toggle-card"><input id="setting-auto-channels" type="checkbox"><span><b>غرف Text + Voice</b><small>إنشاء مساحة خاصة لكل LFG</small></span></label>
-            <label class="toggle-card"><input id="setting-ai-enabled" type="checkbox"><span><b>مساعد Zark</b><small>دعم ذكي بحدود تكلفة</small></span></label>
+            <label class="toggle-card"><input id="setting-ai-enabled" type="checkbox"><span><b>مساعد 3Pal</b><small>دعم ذكي بحدود تكلفة</small></span></label>
           </div>
           <h3>Presence + Availability</h3>
           <div class="toggle-grid three"><label class="toggle-card"><input id="setting-mention-status" type="checkbox"><span><b>حالة العضو عند المنشن</b><small>رد مختصر مع Cooldown</small></span></label><label class="toggle-card"><input id="setting-activity-tracking" type="checkbox"><span><b>تتبع النشاط</b><small>Discord وVoice والموقع مع throttling</small></span></label><label class="toggle-card"><input id="setting-availability-lfg" type="checkbox"><span><b>تكامل LFG</b><small>احترام النوم والدراسة وعدم الإزعاج</small></span></label></div>
           <div class="settings-grid three"><label>Cooldown المنشن بالدقائق<input id="setting-mention-cooldown" type="number" min="1" max="1440" value="30"></label><label>مدة «نشط الآن» بالدقائق<input id="setting-active-minutes" type="number" min="1" max="120" value="10"></label><label>القنوات المسموحة<input id="setting-mention-channels" placeholder="IDs مفصولة بفاصلة؛ فارغ = كل القنوات"></label><label>القنوات المستثناة<input id="setting-mention-excluded" placeholder="Discord Channel IDs مفصولة بفاصلة"></label></div>
           <h3>Auto LFG Rooms</h3>
-          <p class="section-note">يفحص Zark الاهتمامات حسب الفاصل المحدد، ولا يكرر غرفة لديها مقاعد شاغرة.</p>
+          <p class="section-note">يفحص 3Pal الاهتمامات حسب الفاصل المحدد، ولا يكرر غرفة لديها مقاعد شاغرة.</p>
           <div class="settings-grid three">
             <label>الفاصل بالدقائق<input id="setting-auto-room-interval" type="number" min="5" max="1440" value="120"></label>
             <label>أقل مهتمين<input id="setting-auto-room-minimum" type="number" min="2" max="100" value="2"></label>
@@ -101,8 +101,8 @@
             <label>مدة الغرفة الافتراضية<input id="setting-room-duration" type="number" min="15" max="360" required></label>
             <label>مهلة الغرفة الفارغة<input id="setting-room-grace" type="number" min="1" max="30" required></label>
           </div>
-          <h3>حدود استخدام مساعد Zark</h3>
-          <p class="section-note">المساعد يرد على التحيات وأسئلة Zark فقط، وينتقل تلقائيًا بين Gemini وGroq وOpenRouter ثم الرد المحلي.</p>
+          <h3>حدود استخدام مساعد 3Pal</h3>
+          <p class="section-note">المساعد يرد على التحيات وأسئلة 3Pal فقط، وينتقل تلقائيًا بين Gemini وGroq وOpenRouter ثم الرد المحلي.</p>
           <div class="settings-grid three">
             <label>رسائل العضو يوميًا<input id="setting-ai-message-limit" type="number" min="10" max="200" value="60" required></label>
             <label>الرسائل العامة يوميًا<input id="setting-ai-global-message-limit" type="number" min="100" max="100000" value="5000" required></label>
@@ -122,7 +122,7 @@
           <form id="admin-broadcast-form" class="surface">
             <h2>إنشاء حملة جديدة</h2>
             <p class="section-note">ستصل الرسالة في الخاص. توجد مهلة 30 دقيقة بين الحملات لمنع الإزعاج، ولا يمكن تشغيل حملتين معًا.</p>
-            <label>عنوان الرسالة<input id="admin-broadcast-title" maxlength="80" placeholder="مثال: فعالية Zark الليلة" required></label>
+            <label>عنوان الرسالة<input id="admin-broadcast-title" maxlength="80" placeholder="مثال: فعالية 3Pal الليلة" required></label>
             <label>محتوى الرسالة<textarea id="admin-broadcast-content" maxlength="1500" placeholder="اكتب الإعلان بشكل واضح..." required></textarea></label>
             <div class="broadcast-preview"><small>معاينة الرسالة</small><h3 id="admin-broadcast-preview-title">عنوان الرسالة</h3><p id="admin-broadcast-preview-content">سيظهر محتوى الإعلان هنا.</p></div>
             <label class="toggle-card compact"><input id="admin-broadcast-confirm-check" type="checkbox"><span><b>راجعت الرسالة</b><small>أتأكد أن الإعلان مناسب لكل أعضاء السيرفر.</small></span></label>
@@ -168,7 +168,7 @@
       </section>
 
       <section class="admin-section" data-admin-panel="teams" hidden>
-        <div class="admin-section-title"><div><span>👥</span><div><h2>إدارة فرق Zark</h2><p>راجع التشكيلات والنقاط واحذف الفريق المخالف مع تسجيل العملية في سجل الإدارة.</p></div></div></div>
+        <div class="admin-section-title"><div><span>👥</span><div><h2>إدارة فرق 3Pal</h2><p>راجع التشكيلات والنقاط واحذف الفريق المخالف مع تسجيل العملية في سجل الإدارة.</p></div></div></div>
         <div id="admin-team-list" class="admin-room-list"></div>
       </section>
 
@@ -182,7 +182,7 @@
             <div class="form-row"><label>الأيقونة<input id="admin-game-icon"></label><label>التصنيف<input id="admin-game-category" placeholder="sandbox"></label></div>
             <fieldset class="game-platform-fieldset"><legend>الأجهزة التي تدعمها اللعبة</legend><div class="game-platform-options"><label><input type="checkbox" data-admin-game-platform value="MOBILE" checked><span>📱 جوال</span></label><label><input type="checkbox" data-admin-game-platform value="PC" checked><span>💻 كمبيوتر</span></label><label><input type="checkbox" data-admin-game-platform value="PLAYSTATION" checked><span>🎮 بلايستيشن</span></label></div><small>يظهر هذا التصنيف تلقائيًا للاعب عند اختيار اللعبة.</small></fieldset>
             <div class="form-row"><label>أقل عدد<input id="admin-game-min" type="number" min="2" value="2"></label><label>أعلى عدد<input id="admin-game-max" type="number" min="2" value="10"></label></div>
-            <label>حد التجمع التلقائي<input id="admin-game-auto-min" type="number" min="2" placeholder="استخدم الحد الأدنى للعبة"><small>لن ينشئ Zark تجمعًا لهذه اللعبة إلا عند توفر هذا العدد من المهتمين الفاضيين.</small></label>
+            <label>حد التجمع التلقائي<input id="admin-game-auto-min" type="number" min="2" placeholder="استخدم الحد الأدنى للعبة"><small>لن ينشئ 3Pal تجمعًا لهذه اللعبة إلا عند توفر هذا العدد من المهتمين الفاضيين.</small></label>
             <label>الوصف<textarea id="admin-game-description"></textarea></label>
             <button class="button primary" type="submit">حفظ اللعبة</button>
             <p id="admin-game-result" class="form-result"></p>

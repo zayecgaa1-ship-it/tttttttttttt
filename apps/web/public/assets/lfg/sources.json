@@ -1,0 +1,102 @@
+{
+  "terraria": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/105600/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/105600/library_hero.jpg"
+  },
+  "cs2": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/730/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_hero.jpg"
+  },
+  "overwatch-2": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/2357570/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/2357570/library_hero.jpg"
+  },
+  "rainbow-six-siege": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/359550/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/359550/library_hero.jpg"
+  },
+  "warzone": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/1962663/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/1962663/library_hero.jpg"
+  },
+  "rust": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/252490/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/252490/library_hero.jpg"
+  },
+  "ark-survival-ascended": {
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/2399830/library_hero.jpg",
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/2399830/logo.png"
+  },
+  "palworld": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/1623730/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/1623730/library_hero.jpg"
+  },
+  "dead-by-daylight": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/381210/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/381210/library_hero.jpg"
+  },
+  "pubg": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/578080/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/578080/library_hero.jpg"
+  },
+  "apex-legends": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/1172470/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/1172470/library_hero.jpg"
+  },
+  "gta-v": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/271590/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/271590/library_hero.jpg"
+  },
+  "red-dead-online": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/1404210/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/1404210/library_hero.jpg"
+  },
+  "rocket-league": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/252950/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/252950/library_hero.jpg"
+  },
+  "ea-sports-fc": {
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/2669320/library_hero.jpg",
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/2669320/logo.png"
+  },
+  "forza-horizon-5": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/1551360/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/1551360/library_hero.jpg"
+  },
+  "dota-2": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/570/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/570/library_hero.jpg"
+  },
+  "among-us": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/945360/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/945360/library_hero.jpg"
+  },
+  "fall-guys": {
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/1097150/logo.png",
+    "background": "https://cdn.cloudflare.steamstatic.com/steam/apps/1097150/library_hero.jpg"
+  },
+  "minecraft": {
+    "logo": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/logos/Global-Header_MCCB-Logo_300x51.svg",
+    "background": "https://www.minecraft.net/content/dam/minecraftnet/games/minecraft/key-art/Homepage_Discover-our-games_MC-Vanilla-KeyArt_864x864.jpg"
+  },
+  "roblox": {
+    "logo": "https://images.rbxcdn.com/fc3f3e3158fc20ebb5ccc972064ebfe6.png",
+    "background": "https://images.rbxcdn.com/5348266ea6c5e67b19d6a814cbbb70f6.jpg"
+  },
+  "valorant": {
+    "logo": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/7b76209193f1bfe190d3ae6ef8728328870be9c3-736x138.png",
+    "background": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/c8157d71a4776dd821d05ed6b82d5d875ca03386-5120x1644.png"
+  },
+  "league-of-legends": {
+    "background": "https://cmsassets.rgpub.io/sanity/images/dsfx7636/news/565197caf987af4e4da307df6e2b235a28714736-837x469.jpg",
+    "logo": "https://upload.wikimedia.org/wikipedia/commons/d/d8/League_of_Legends_2019_vector.svg"
+  },
+  "pubg-mobile": {
+    "logo": "https://www.pubgmobile.com/images/event/common/long_cache_30d/nav_logo.png?v=3",
+    "background": "https://www.pubgmobile.com/images/event/home/share.jpg"
+  },
+  "fortnite": {
+    "logo": "https://upload.wikimedia.org/wikipedia/commons/0/0e/FortniteLogo.svg",
+    "background": "https://fortnite-api.com/images/map.png"
+  }
+}

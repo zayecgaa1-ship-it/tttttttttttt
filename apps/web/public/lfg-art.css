@@ -1,0 +1,13 @@
+/* LFG interest cards: publisher artwork stays separate from interactive controls. */
+body[data-page="lfg"] .interest-card{overflow:hidden;min-width:0;padding:18px;background:#0b1321;border:1px solid #26354b;border-radius:18px}
+body[data-page="lfg"] .interest-art{position:relative;height:155px;margin:-18px -18px 16px;isolation:isolate;background:linear-gradient(135deg,#302050,#101b2d)}
+body[data-page="lfg"] .interest-backdrop{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
+body[data-page="lfg"] .interest-art::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,#0b1321 0%,rgba(5,10,20,.2) 75%);z-index:-1}
+body[data-page="lfg"] .interest-logo{position:absolute;inset-inline-start:20px;bottom:20px;width:180px;height:72px;object-fit:contain;object-position:center;filter:drop-shadow(0 3px 5px #000)}
+body[data-page="lfg"] .interest-art img[hidden]{display:none}
+body[data-page="lfg"] .interest-card header{min-width:0;margin-bottom:12px}
+body[data-page="lfg"] .interest-card h3{overflow-wrap:anywhere;margin:0;color:#f3f5ff}
+body[data-page="lfg"] .interest-actions{margin-top:18px}
+body[data-page="lfg"] .interest-actions button{min-width:0;white-space:normal}
+body[data-page="lfg"] .snooze-actions{margin-top:12px}
+@media(max-width:600px){body[data-page="lfg"] .interest-grid{grid-template-columns:minmax(0,1fr)}body[data-page="lfg"] .interest-art{height:165px}}

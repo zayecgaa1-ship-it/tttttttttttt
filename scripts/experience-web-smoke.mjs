@@ -46,8 +46,8 @@ try{
  await page.waitForFunction(()=>document.querySelector('.nav-user')?.textContent.includes('عضو الاختبار'));
  assert.equal(await page.locator('.nav-user a[href="/auth/discord"]').count(),0);
  await page.goto('https://zark.local/');
- await page.waitForSelector('.cta a[href="/lfg.html"]');
- assert.equal(await page.locator('.cta a[href="/auth/discord"]').count(),0);
+  await page.waitForSelector('.landing-actions a[href="/lfg.html"]');
+  assert.equal(await page.locator('.landing-actions a[href="/auth/discord"]').count(),0);
  await page.locator('#tutorial-help-fab').click();await page.locator('[data-section="commands"]').click();
  await page.waitForURL('**/commands.html');await page.waitForSelector('.tour-tooltip');
  assert.match(await page.locator('.tour-tooltip').innerText(),/ابحث عن أمر/);
