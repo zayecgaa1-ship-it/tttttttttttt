@@ -12,7 +12,7 @@ try {
   const greetingReply = await askSupport({ userId, displayName: "AI Smoke User", message: "صباح الخير" });
   if (greetingReply.mode !== "SMART_LOCAL" || !greetingReply.answer.includes("صباح النور")) throw new Error("Local greeting assertion failed");
   const outsideReply = await askSupport({ userId, displayName: "AI Smoke User", message: "ما عاصمة فرنسا؟" });
-  if (!outsideReply.answer.includes("مساعد Zark المخصص")) throw new Error("Support scope assertion failed");
+  if (!outsideReply.answer.includes("مساعد 3Pal المخصص")) throw new Error("Support scope assertion failed");
   const roomReply = await askSupport({ userId, displayName: "AI Smoke User", message: "اعملي غرفة مابن كرافت لـ 4 لاعبين مع فويس" });
   roomId = roomReply.action?.type === "LFG_CREATED" ? roomReply.action.roomId : undefined;
   if (!roomId) throw new Error("AI room action was not executed");

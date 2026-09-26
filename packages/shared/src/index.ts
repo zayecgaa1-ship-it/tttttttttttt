@@ -1,6 +1,6 @@
 export const ZARK_IDENTITY = {
-  name: "Zark LFG System",
-  tagline: process.env.ZARK_TAGLINE ?? "Zark LFG System — فريقك أقرب مما تتخيل",
+  name: "3Pal Games",
+  tagline: process.env.ZARK_TAGLINE ?? "3Pal Games — فريقك أقرب مما تتخيل",
 } as const;
 export type LiveRoom = {
   platform?: import('./lfg-platform.js').LfgPlatform;

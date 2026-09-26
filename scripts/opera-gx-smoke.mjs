@@ -20,7 +20,7 @@ try {
   await page.goto("https://example.com/", { waitUntil: "domcontentloaded", timeout: 20_000 });
   const externalTitle = await page.title();
   await page.setContent(`<!doctype html><html><body><h1>Opera GX CDP smoke test</h1><input aria-label="demo input"><button>Test click</button><output></output><script>document.querySelector('button').addEventListener('click',()=>{document.querySelector('output').textContent=document.querySelector('input').value;console.log('button-clicked')})</script></body></html>`);
-  await page.getByLabel("demo input").fill("Zark Playwright CDP");
+  await page.getByLabel("demo input").fill("3Pal Playwright CDP");
   await page.getByRole("button", { name: "Test click" }).click();
   const domValue = await page.locator("output").textContent();
   const screenshotPath = path.join(artifactDir, "opera-gx-cdp-smoke.png");
@@ -30,7 +30,7 @@ try {
     connected: true,
     externalNavigation: { url: "https://example.com/", title: externalTitle },
     domRead: domValue,
-    clickAndTypePassed: domValue === "Zark Playwright CDP",
+    clickAndTypePassed: domValue === "3Pal Playwright CDP",
     console: consoleEntries,
     network: requests.slice(0, 20),
     screenshotPath,

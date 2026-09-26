@@ -75,7 +75,7 @@ try {
   createdMatches.push(started[0].value.id);
   await expireZarkRace(started[0].value.id);
   await advanceZarkRace(started[0].value.id);
-  console.log("Zark rounds, channel lock, concurrency, scoring, expiry, and availability smoke checks passed.");
+  console.log("3Pal rounds, channel lock, concurrency, scoring, expiry, and availability smoke checks passed.");
 } finally {
   await db.zarkMatch.deleteMany({ where: { id: { in: createdMatches } } });
   await db.user.deleteMany({ where: { id: { in: [firstUser, secondUser] } } });

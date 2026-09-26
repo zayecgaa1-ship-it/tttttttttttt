@@ -31690,14 +31690,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
       "source": "http://www.wikidata.org/entity/Q347"
     },
     {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇺🇸",
-      "answers": [
-        "الولايات المتحدة",
-        "United States"
-      ],
-      "source": "http://www.wikidata.org/entity/Q30"
-    },
-    {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇸🇬",
       "answers": [
         "سنغافورة",
@@ -32048,14 +32040,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
         "Zimbabwe"
       ],
       "source": "http://www.wikidata.org/entity/Q954"
-    },
-    {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇬🇧",
-      "answers": [
-        "المملكة المتحدة",
-        "United Kingdom"
-      ],
-      "source": "http://www.wikidata.org/entity/Q145"
     },
     {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇷🇺",
@@ -32834,14 +32818,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
       "source": "http://www.wikidata.org/entity/Q1183"
     },
     {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇻🇮",
-      "answers": [
-        "جزر العذراء الولايات المتحدة",
-        "United States Virgin Islands"
-      ],
-      "source": "http://www.wikidata.org/entity/Q11703"
-    },
-    {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇯🇪",
       "answers": [
         "جيرزي",
@@ -33034,14 +33010,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
       "source": "http://www.wikidata.org/entity/Q34020"
     },
     {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇺🇲",
-      "answers": [
-        "جزر الولايات المتحدة الصغيرة النائية",
-        "United States Minor Outlying Islands"
-      ],
-      "source": "http://www.wikidata.org/entity/Q16645"
-    },
-    {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇧🇲",
       "answers": [
         "برمودا",
@@ -33122,14 +33090,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
       "source": "http://www.wikidata.org/entity/Q6250"
     },
     {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇮🇴",
-      "answers": [
-        "إقليم المحيط الهندي البريطاني",
-        "British Indian Ocean Territory"
-      ],
-      "source": "http://www.wikidata.org/entity/Q43448"
-    },
-    {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇵🇦",
       "answers": [
         "بنما",
@@ -33202,14 +33162,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
       "source": "http://www.wikidata.org/entity/Q800"
     },
     {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇻🇬",
-      "answers": [
-        "جزر عذراء بريطانية",
-        "British Virgin Islands"
-      ],
-      "source": "http://www.wikidata.org/entity/Q25305"
-    },
-    {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇱🇦",
       "answers": [
         "لاوس",
@@ -33232,14 +33184,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
         "Anguilla"
       ],
       "source": "http://www.wikidata.org/entity/Q25228"
-    },
-    {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇮🇱",
-      "answers": [
-        "إسرائيل",
-        "Israel"
-      ],
-      "source": "http://www.wikidata.org/entity/Q801"
     },
     {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇹🇰",
@@ -33304,14 +33248,6 @@ export const expandedFactBank: Record<string, Array<{prompt:string;answers:strin
         "Iran"
       ],
       "source": "http://www.wikidata.org/entity/Q794"
-    },
-    {
-      "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇦🇸",
-      "answers": [
-        "ساموا الأمريكية",
-        "American Samoa"
-      ],
-      "source": "http://www.wikidata.org/entity/Q16641"
     },
     {
       "prompt": "🚩 لأي دولة أو إقليم هذا العلم؟ 🇲🇻",

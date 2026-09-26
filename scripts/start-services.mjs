@@ -19,12 +19,12 @@ function stop(signal = "SIGTERM", exitCode = 0) {
 
 for (const service of services) {
   service.once("error", (error) => {
-    console.error("Failed to start a Zark service", error);
+    console.error("Failed to start a 3Pal service", error);
     stop("SIGTERM", 1);
   });
   service.once("exit", (code, signal) => {
     if (!stopping) {
-      console.error(`A Zark service stopped unexpectedly (${signal ?? code ?? "unknown"})`);
+      console.error(`A 3Pal service stopped unexpectedly (${signal ?? code ?? "unknown"})`);
       stop("SIGTERM", code || 1);
     }
   });

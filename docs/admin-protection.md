@@ -1,7 +1,7 @@
-# ZARK ADMIN PROTECTION
+# 3PAL ADMIN PROTECTION
 
 The protected owner is configured server-side with `DISCORD_OWNER_ID`. The current
-Zark owner ID is `492368135144603658`; Discord's `Administrator` permission alone
+3Pal owner ID is `492368135144603658`; Discord's `Administrator` permission alone
 never grants this level.
 
 ## Railway variables

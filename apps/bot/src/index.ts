@@ -40,7 +40,7 @@ function cardBackground() {
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
 const recentHumorByUser = new Map<string, string[]>();
-const brand = { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل", color: 0xe50914 };
+const brand = { name: "3Pal Games", tagline: "3Pal Games — فريقك أقرب مما تتخيل", color: 0xe50914 };
 function gamePlatformsLabel(platforms?: LfgPlatform[]) { return (platforms?.length ? platforms : LFG_PLATFORMS).map((platform) => LFG_PLATFORM_LABELS[platform]).join(" · "); }
 
 // تضمين خط عربي مباشرة في الكود لضمان العمل على أي سيرفر بدون خطوط نظام
@@ -119,6 +119,8 @@ if (!token) {
   // حالة Among Us لكل غرفة: الموتى (يبقون ميوت) + هل الجولة جارية + كود الغرفة المعروض.
   const amongUsRooms = new Map<string, { dead: Set<string>; taskPhase: boolean }>();
   const moderationAlertCooldown = new Map<string, number>();
+  // يمنع تكرار رسالة التحذير في قناة "ممنوع الإرسال" مع كل رسالة يرسلها نفس الحساب.
+  const hackNoticeCooldown = new Map<string, number>();
   let securityReadiness: { checked: boolean; ready: boolean; missingPermissions: string[]; blockedRoles: Array<{ id: string; name: string }> } = { checked: false, ready: false, missingPermissions: [], blockedRoles: [] };
   let directMessagesQuarantined = false;
   let hackAlertChannelId = configuredHackAlertChannelId && /^\d{17,20}$/.test(configuredHackAlertChannelId) ? configuredHackAlertChannelId : undefined;
@@ -138,7 +140,7 @@ if (!token) {
       const quarantined = code === "20026";
       if (quarantined) {
         directMessagesQuarantined = true;
-        console.error("Discord has quarantined Zark from all DMs (20026). DM delivery is paused until Discord approves the appeal.");
+        console.error("Discord has quarantined 3Pal from all DMs (20026). DM delivery is paused until Discord approves the appeal.");
       } else {
         console.warn(`Direct message failed (${context}, ${code}).`);
       }
@@ -148,7 +150,7 @@ if (!token) {
 
   if (guildId && clientId) {
     await new REST({ version: "10" }).setToken(token).put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-    console.log(`تم تسجيل ${commands.length} أوامر Zark في السيرفر ${guildId}`);
+    console.log(`تم تسجيل ${commands.length} أوامر 3Pal في السيرفر ${guildId}`);
   }
 
   client.once(Events.ClientReady, async (ready) => {
@@ -228,14 +230,14 @@ if (!token) {
       if (interaction.user && !interaction.user.bot) void apiSend(`/api/users/${interaction.user.id}/activity`, "POST", { displayName: displayName(interaction), avatarUrl: interaction.user.displayAvatarURL({ extension: "png", size: 256 }), kind: "DISCORD_INTERACTION" }).catch(() => undefined);
       if (interaction.isAutocomplete()) return await completePlayAutocomplete(interaction);
       if (interaction.isChatInputCommand()) {
-        if (await isSuspendedAdmin(interaction.user.id)) throw new Error("تم تعليق صلاحيات هذا الحساب من نظام Zark Admin Protection. تواصل مع المالك.");
+        if (await isSuspendedAdmin(interaction.user.id)) throw new Error("تم تعليق صلاحيات هذا الحساب من نظام 3Pal Admin Protection. تواصل مع المالك.");
         if (interaction.commandName === "daily") return await daily(interaction);
         if (interaction.commandName === "zark-noob") {
           const key=`roast:${interaction.user.id}`;
           const recent=recentHumorByUser.get(key)??[];
           const roast=pickFresh(zarkRoasts,recent);
           recentHumorByUser.set(key,[...recent.filter(id=>id!==roast.id),roast.id].slice(-(zarkRoasts.length-1)));
-          return interaction.reply({content:`<@${interaction.user.id}>`,allowedMentions:{users:[interaction.user.id]},embeds:[baseEmbed().setTitle('🔥 ZARK NOOB').setDescription(roast.text).setFooter({text:'إنت طلبت القصف 😂'})]});
+          return interaction.reply({content:`<@${interaction.user.id}>`,allowedMentions:{users:[interaction.user.id]},embeds:[baseEmbed().setTitle('🔥 3PAL NOOB').setDescription(roast.text).setFooter({text:'إنت طلبت القصف 😂'})]});
         }
         if (interaction.commandName === "setup") {
           if(!interaction.inGuild()||!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild))return interaction.reply({content:"هذا الأمر لإدارة السيرفر فقط.",flags:MessageFlags.Ephemeral});
@@ -385,7 +387,7 @@ if (!token) {
         // اللاعب لقناة الغرفة. أما فرض ميوت جديد فيتطلب وجوده داخل Voice الغرفة.
         if (!wasMuted && member.voice.channelId !== room.voiceChannelId) return interaction.editReply({ content: "اللاعب ليس داخل Voice هذه الغرفة الآن." });
         try {
-          await member.voice.setMute(!wasMuted, `Zark room host control: ${room.id}`);
+          await member.voice.setMute(!wasMuted, `3Pal room host control: ${room.id}`);
         } catch (error) {
           console.error("host mute toggle failed", { roomId: room.id, targetId, wasMuted, error });
           // لو فشل الميوت/إلغاء الميوت غالبًا بسبب صلاحيات أو رتبة أعلى — وضّح للمضيف السبب بدل رسالة نجاح كاذبة.
@@ -412,9 +414,9 @@ if (!token) {
         return interaction.editReply({ content: !wasMuted ? `🔇 تم ميوت ${member}.` : `🔊 تم إلغاء ميوت ${member}.` });
       }
       await apiSend<LiveRoom>(`/api/lfg/${roomId}/kick`, "POST", { actorId: interaction.user.id, userId: targetId });
-      if (member.voice.serverMute) await member.voice.setMute(false, `Zark room host kick: ${room.id}`).catch(() => undefined);
+      if (member.voice.serverMute) await member.voice.setMute(false, `3Pal room host kick: ${room.id}`).catch(() => undefined);
       roomMutedMembers.get(roomId)?.delete(targetId);
-      if (member.voice.channelId === room.voiceChannelId) await member.voice.disconnect(`Zark room host kick: ${room.id}`).catch(() => undefined);
+      if (member.voice.channelId === room.voiceChannelId) await member.voice.disconnect(`3Pal room host kick: ${room.id}`).catch(() => undefined);
       return interaction.editReply({ content: `🚪 تم إخراج ${member} من الغرفة والـVoice.` });
     }
     if (interaction.customId.startsWith("lfg:rating-player:")) {
@@ -450,7 +452,7 @@ if (!token) {
       const slug = interaction.customId.split(":")[2];
       const platform = interaction.values[0];
       const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:players:${slug}:${platform}`).setPlaceholder("كم لاعب تحتاج؟").addOptions([2, 3, 4, 5, 6, 8, 10].map((count) => ({ label: `${count} لاعبين`, value: String(count), emoji: "👥" }))));
-      return interaction.update({ embeds: [baseEmbed().setTitle("👥 اختر حجم الفريق").setDescription("Zark سيطابقك مع المهتمين بنفس اللعبة ويرسل دعوات خاصة بدون إزعاج.")], components: [row] });
+      return interaction.update({ embeds: [baseEmbed().setTitle("👥 اختر حجم الفريق").setDescription("3Pal سيطابقك مع المهتمين بنفس اللعبة ويرسل دعوات خاصة بدون إزعاج.")], components: [row] });
     }
     if (interaction.customId.startsWith("lfg:players:")) {
       const [, , slug, platform] = interaction.customId.split(":");
@@ -464,7 +466,7 @@ if (!token) {
           { label: "3 ساعات", value: "180", emoji: "🔥" },
         ]),
       );
-      return interaction.update({ embeds: [baseEmbed().setTitle("⏱️ اختر مدة الجلسة").setDescription(`الفريق المطلوب: **${count} لاعبين**\nسيُنهي Zark الغرفة تلقائيًا بعد انتهاء المدة.`)], components: [row] });
+      return interaction.update({ embeds: [baseEmbed().setTitle("⏱️ اختر مدة الجلسة").setDescription(`الفريق المطلوب: **${count} لاعبين**\nسيُنهي 3Pal الغرفة تلقائيًا بعد انتهاء المدة.`)], components: [row] });
     }
     if (interaction.customId.startsWith("lfg:duration:")) {
       const [, , slug, count, platform] = interaction.customId.split(":");
@@ -587,14 +589,14 @@ if (!token) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const data = await apiSend<{ points: number; vipUnlocked: boolean }>(`/api/users/${interaction.user.id}/loyalty/buy-vip`, "POST", {});
       await syncLoyaltyRoles(interaction.user.id);
-      return interaction.editReply({ content: `✅ تم شراء **Zark VIP**. رصيدك الآن: **${data.points}** نقطة.` });
+      return interaction.editReply({ content: `✅ تم شراء **3Pal VIP**. رصيدك الآن: **${data.points}** نقطة.` });
     }
     if (parts[0] === "lfg" && parts[1] === "rating-open") {
       await interaction.deferUpdate();
       const room = await apiGet<LiveRoom>(`/api/lfg/${parts[2]}`);
       return interaction.editReply(ratingPanelPayload(room, interaction.user.id));
     }
-    if (parts[0] === "lfg" && parts[1] === "rating-skip") return interaction.update({ content: "تم إغلاق التقييم. شكرًا لمشاركتك مع Zark ❤️", embeds: [], components: [] });
+    if (parts[0] === "lfg" && parts[1] === "rating-skip") return interaction.update({ content: "تم إغلاق التقييم. شكرًا لمشاركتك مع 3Pal ❤️", embeds: [], components: [] });
     if (parts[0] === "lfg" && parts[1] === "rating-player-stars") {
       await interaction.deferUpdate();
       const roomId = parts[2];
@@ -723,7 +725,7 @@ if (!token) {
       const description = interaction.fields.getTextInputValue("description");
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await apiSend("/api/reports/bug", "POST", { reporterId: interaction.user.id, reporterName: displayName(interaction), title, description, context: "Discord Bot" });
-      return interaction.editReply({ content: "✅ وصل تقرير الخطأ. شكرًا لمساعدتك في تحسين Zark." });
+      return interaction.editReply({ content: "✅ وصل تقرير الخطأ. شكرًا لمساعدتك في تحسين 3Pal." });
     }
   }
 
@@ -773,7 +775,7 @@ if (!token) {
   }
 
   function playHelpEmbed() {
-    return baseEmbed().setTitle("🎮 اختصارات ألعاب Zark").setDescription("اختر لعبة من `/play`، أو اكتب الاختصار مباشرة في الشات. لا يمكن بدء لعبة ثانية في نفس القناة حتى تنتهي الحالية.").addFields(
+    return baseEmbed().setTitle("🎮 اختصارات ألعاب 3Pal").setDescription("اختر لعبة من `/play`، أو اكتب الاختصار مباشرة في الشات. لا يمكن بدء لعبة ثانية في نفس القناة حتى تنتهي الحالية.").addFields(
       { name: "🌍 معرفة وسرعة", value: "`.اعلام` · `.ترجم` · `.عواصم` · `.معلومات` · `.حساب`" },
       { name: "⌨️ كلمات", value: "`.اسرع` · `.اكمل` · `.ترتيب` · `.حروف` · `.صح` · `.منانا`" },
       { name: "🎯 شعارات وتخمين", value: "`.شعارات` · `.سيارات` · `.شركات` · `.اختيارات` · `.انمي` · `.لعبة` · `.ألغاز` · `.قيمنق`" },
@@ -804,7 +806,7 @@ if (!token) {
       const insight = insightByGame.get(game.slug);
       return { label: game.name, value: game.slug, emoji: game.icon, description: `${gamePlatformsLabel(game.platforms)}${insight ? ` · ${insight.interestPercent}% مهتمون` : ""}`.slice(0, 100) };
     }));
-    await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها Zark يجهز الفريق ويرسل رسالة خاصة لكل المهتمين الذين فعّلوا إشعارات اللعبة. استخدم `/lfg smart` ليختار Zark أفضل لعبة تلقائيًا.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle("🔎 أنشئ LFG").setDescription("اختر اللعبة، وبعدها 3Pal يجهز الفريق ويرسل رسالة خاصة لكل المهتمين الذين فعّلوا إشعارات اللعبة. استخدم `/lfg smart` ليختار 3Pal أفضل لعبة تلقائيًا.")], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
   }
 
   async function smartLfg(interaction: any) {
@@ -825,11 +827,11 @@ if (!token) {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("هذا الأمر للإدارة التي تملك صلاحية Manage Server فقط");
     const enabled = interaction.options.getBoolean("enabled");
     if (enabled === null) {
-      return interaction.reply({ embeds: [baseEmbed().setTitle("🤖 حالة التجميع التلقائي").setDescription(runtimeSettings.autoSmartRoomsEnabled ? "✅ مفعّل: يفحص Zark الاهتمام والتفرغ كل 5 دقائق." : "⏸️ متوقف حاليًا. فعّله عبر `/lfg auto enabled:true`.")], flags: MessageFlags.Ephemeral });
+      return interaction.reply({ embeds: [baseEmbed().setTitle("🤖 حالة التجميع التلقائي").setDescription(runtimeSettings.autoSmartRoomsEnabled ? "✅ مفعّل: يفحص 3Pal الاهتمام والتفرغ كل 5 دقائق." : "⏸️ متوقف حاليًا. فعّله عبر `/lfg auto enabled:true`.")], flags: MessageFlags.Ephemeral });
     }
     const settings = await apiSend<GuildRuntimeSettings>("/api/settings/auto-smart-rooms", "POST", { adminId: interaction.user.id, enabled });
     runtimeSettings = settings;
-    return interaction.reply({ embeds: [baseEmbed().setTitle(enabled ? "🤖 تم تفعيل التجميع التلقائي" : "⏸️ تم إيقاف التجميع التلقائي").setDescription(enabled ? "سيفحص Zark الاهتمام والتفرغ كل 5 دقائق، وينشئ غرفة فقط عندما يتوفر الحد الأدنى من اللاعبين." : "لن ينشئ Zark غرفًا تلقائيًا حتى تعيد التفعيل.")], flags: MessageFlags.Ephemeral });
+    return interaction.reply({ embeds: [baseEmbed().setTitle(enabled ? "🤖 تم تفعيل التجميع التلقائي" : "⏸️ تم إيقاف التجميع التلقائي").setDescription(enabled ? "سيفحص 3Pal الاهتمام والتفرغ كل 5 دقائق، وينشئ غرفة فقط عندما يتوفر الحد الأدنى من اللاعبين." : "لن ينشئ 3Pal غرفًا تلقائيًا حتى تعيد التفعيل.")], flags: MessageFlags.Ephemeral });
   }
 
   async function createRoomFromInteraction(interaction: any, gameSlug: string, maxPlayers: number, durationMinutes: number, needsVoice: boolean, description?: string, gameMode?: string, scheduledFor?: string, mapName?: string, platform?: LfgPlatform) {
@@ -870,7 +872,7 @@ if (!token) {
       return;
     }
     if (eventType === "report.message_created" && payload?.reportId && payload.reportKind) {
-      if (payload.authorRole === "ADMIN" && payload.recipientId) await notifyReportOwner(payload.recipientId, payload.reportKind, payload.reportId, "💬 ردّت إدارة Zark على تذكرتك.");
+      if (payload.authorRole === "ADMIN" && payload.recipientId) await notifyReportOwner(payload.recipientId, payload.reportKind, payload.reportId, "💬 ردّت إدارة 3Pal على تذكرتك.");
       else await publishReportNotification(payload.reportKind, payload.reportId, true);
       return;
     }
@@ -961,7 +963,7 @@ if (!token) {
         const channel=await guild.channels.fetch(claim.campaign.targetChannelId);
         if(!channel||![ChannelType.GuildText,ChannelType.GuildAnnouncement].includes(channel.type)||!channel.isTextBased()||!('send' in channel))throw new Error('روم المساعدة غير متاح أو لا يقبل الرسائل');
         const components=claim.campaign.helpTotalCapacity?[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`game-help:join:${claim.campaign.id}`).setLabel('سجّل للمساعدة').setEmoji('🙋').setStyle(ButtonStyle.Success))]:[];
-        const sent=await channel.send({embeds:[baseEmbed().setTitle(`🎮 ${claim.campaign.title}`).setDescription(claim.campaign.content).setFooter({text:claim.campaign.helpTotalCapacity?`المسجلون: 0/${claim.campaign.helpTotalCapacity}`:'ZARK'})],components,allowedMentions:{parse:[]},nonce:claim.campaign.id.slice(0,25),enforceNonce:true});
+        const sent=await channel.send({embeds:[baseEmbed().setTitle(`🎮 ${claim.campaign.title}`).setDescription(claim.campaign.content).setFooter({text:claim.campaign.helpTotalCapacity?`المسجلون: 0/${claim.campaign.helpTotalCapacity}`:'3PAL'})],components,allowedMentions:{parse:[]},nonce:claim.campaign.id.slice(0,25),enforceNonce:true});
         if(claim.campaign.helpTotalCapacity)await apiSend(`/api/bot/game-help/${claim.campaign.id}/message`,'PUT',{messageId:sent.id}).catch(error=>console.error('Game-help message id save failed',error));
         sentCount=1;failedCount=0;await updateBroadcast('COMPLETED');return;
       }
@@ -974,7 +976,7 @@ if (!token) {
       const embed = baseEmbed()
         .setTitle(`📣 ${claim.campaign.title}`)
         .setDescription(claim.campaign.content)
-        .addFields({ name: "Zark LFG System", value: `[فتح الموقع](${siteUrl()})` });
+        .addFields({ name: "3Pal Games", value: `[فتح الموقع](${siteUrl()})` });
       for (let index = 0; index < recipients.length; index += 1) {
         const member = recipients[index];
         const delivery = await sendDirectMessage(member, { embeds: [embed], allowedMentions: { parse: [] } }, "admin broadcast");
@@ -982,7 +984,7 @@ if (!token) {
           sentCount += 1;
         } else {
           failedCount += 1;
-          if (delivery.quarantined) throw new Error("Discord blocked Zark direct messages with code 20026; campaign stopped to avoid additional anti-spam violations.");
+          if (delivery.quarantined) throw new Error("Discord blocked 3Pal direct messages with code 20026; campaign stopped to avoid additional anti-spam violations.");
         }
         if ((index + 1) % 20 === 0) await updateBroadcast("RUNNING");
         if ((index + 1) % 5 === 0) await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -1007,13 +1009,13 @@ if (!token) {
     const member = await guild.members.fetch(userId).catch(() => null);
     if (!member) return;
     const definitions = [
-      { name: "Zark Loyal", eligible: loyalty.lifetimePoints >= 500, color: 0xe50914 },
-      { name: "Zark Elite", eligible: loyalty.lifetimePoints >= 1500, color: 0xf1c40f },
-      { name: "Zark VIP", eligible: loyalty.vipUnlocked, color: 0x9b59b6 },
+      { name: "3Pal Loyal", eligible: loyalty.lifetimePoints >= 500, color: 0xe50914 },
+      { name: "3Pal Elite", eligible: loyalty.lifetimePoints >= 1500, color: 0xf1c40f },
+      { name: "3Pal VIP", eligible: loyalty.vipUnlocked, color: 0x9b59b6 },
     ];
     for (const definition of definitions) {
       let role = guild.roles.cache.find((item) => item.name === definition.name);
-      if (!role && definition.eligible) role = await guild.roles.create({ name: definition.name, color: definition.color, reason: "Zark loyalty rewards" }).catch(() => undefined);
+      if (!role && definition.eligible) role = await guild.roles.create({ name: definition.name, color: definition.color, reason: "3Pal loyalty rewards" }).catch(() => undefined);
       if (!role || !role.editable) continue;
       if (definition.eligible && !member.roles.cache.has(role.id)) await member.roles.add(role).catch(() => undefined);
       if (!definition.eligible && member.roles.cache.has(role.id)) await member.roles.remove(role).catch(() => undefined);
@@ -1050,7 +1052,7 @@ if (!token) {
     const user = await client.users.fetch(userId).catch(() => null);
     if (!user) return;
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح التذكرة والرد").setEmoji("💬").setStyle(ButtonStyle.Link).setURL(`${siteUrl()}/reports.html?reportKind=${kind}&reportId=${encodeURIComponent(reportId)}`));
-    await user.send({ embeds: [baseEmbed().setTitle("دعم Zark").setDescription(message)], components: [row] }).catch((error) => console.error(`Report DM failed for ${userId}`, error));
+    await user.send({ embeds: [baseEmbed().setTitle("دعم 3Pal").setDescription(message)], components: [row] }).catch((error) => console.error(`Report DM failed for ${userId}`, error));
   }
 
   async function publishTradeListing(tradeId: string) {
@@ -1110,7 +1112,7 @@ if (!token) {
     if (tradeId) code = (await apiGet<TradeView>(`/api/trades/${encodeURIComponent(tradeId)}`, true).catch(() => null))?.code ?? tradeId;
     const url = code ? `${siteUrl()}/trade/${encodeURIComponent(code)}` : `${siteUrl()}/trade.html`;
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح Trade في الموقع").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(url));
-    await user.send({ embeds: [baseEmbed().setTitle("Zark Player Trading").setDescription(`${text}\n\nلخصوصيتك، محتوى الرسالة لا يظهر داخل Discord.`)], components: [row] }).catch(() => undefined);
+    await user.send({ embeds: [baseEmbed().setTitle("3Pal Player Trading").setDescription(`${text}\n\nلخصوصيتك، محتوى الرسالة لا يظهر داخل Discord.`)], components: [row] }).catch(() => undefined);
   }
 
   function tradeStatusArabic(status: string) {
@@ -1199,9 +1201,9 @@ if (!token) {
           name: `zark-${room.gameSlug}-${hostSlug}`.slice(0, 100),
           type: ChannelType.GuildText,
           parent: parentId,
-          topic: `Zark LFG • ${room.gameName} • Room ${room.id}`,
+          topic: `3Pal LFG • ${room.gameName} • Room ${room.id}`,
           permissionOverwrites: overwrites,
-          reason: `Zark LFG room ${room.id}`,
+          reason: `3Pal LFG room ${room.id}`,
         });
       }
       if (room.needsVoice && voiceChannel?.type !== ChannelType.GuildVoice) {
@@ -1211,7 +1213,7 @@ if (!token) {
           parent: parentId,
           userLimit: Math.min(99, room.maxPlayers),
           permissionOverwrites: overwrites,
-          reason: `Zark LFG voice ${room.id}`,
+          reason: `3Pal LFG voice ${room.id}`,
         });
       }
       let stored = room;
@@ -1248,11 +1250,11 @@ if (!token) {
   async function syncRoomPermissions(textChannel: any, voiceChannel: any, guild: any, room: LiveRoom) {
     const overwrites = roomPermissionOverwrites(guild, room);
     if (textChannel?.permissionOverwrites) {
-      await textChannel.permissionOverwrites.set(overwrites, `Zark sync ${room.id}`).catch((error: unknown) => console.error("Text permissions sync failed", error));
+      await textChannel.permissionOverwrites.set(overwrites, `3Pal sync ${room.id}`).catch((error: unknown) => console.error("Text permissions sync failed", error));
       await textChannel.edit({ name: `zark-${room.gameSlug}-${channelSlug(room.hostName)}`.slice(0, 100) }).catch(() => undefined);
     }
     if (voiceChannel?.permissionOverwrites) {
-      await voiceChannel.permissionOverwrites.set(overwrites, `Zark sync ${room.id}`).catch((error: unknown) => console.error("Voice permissions sync failed", error));
+      await voiceChannel.permissionOverwrites.set(overwrites, `3Pal sync ${room.id}`).catch((error: unknown) => console.error("Voice permissions sync failed", error));
       await voiceChannel.edit({ name: `${room.roomEmoji ?? room.gameIcon ?? "🎮"}・${room.gameName}・${room.hostName}`.slice(0, 100), userLimit: Math.min(99, room.maxPlayers) }).catch(() => undefined);
     }
   }
@@ -1288,7 +1290,7 @@ if (!token) {
     if (!candidateIds.size) return;
     for (const userId of candidateIds) {
       const target = await guild.members.fetch(userId).catch(() => null);
-      if (target?.voice?.serverMute) await target.voice.setMute(false, `Zark room cleanup ${room.id}`).catch(() => undefined);
+      if (target?.voice?.serverMute) await target.voice.setMute(false, `3Pal room cleanup ${room.id}`).catch(() => undefined);
     }
     roomMutedMembers.delete(room.id);
     amongUsRooms.delete(room.id);
@@ -1329,11 +1331,11 @@ if (!token) {
       // Last-moment recheck prevents an expiry race from deleting a channel a
       // player just entered while the API cleanup job was running.
       if (voice && "members" in voice && (voice.members as any).size > 0) return;
-      if (voice && "delete" in voice) await voice.delete(`Zark ${room.status.toLowerCase()} ${room.id}`).catch(() => undefined);
+      if (voice && "delete" in voice) await voice.delete(`3Pal ${room.status.toLowerCase()} ${room.id}`).catch(() => undefined);
     }
     if (room.textChannelId) {
       const text = await client.channels.fetch(room.textChannelId).catch(() => null);
-      if (text && "delete" in text) await text.delete(`Zark ${room.status.toLowerCase()} ${room.id}`).catch(() => undefined);
+      if (text && "delete" in text) await text.delete(`3Pal ${room.status.toLowerCase()} ${room.id}`).catch(() => undefined);
     }
     await apiSend(`/api/lfg/${room.id}/channels-deleted`, "POST", {}).catch((error) => console.error("Failed to persist room channel cleanup", error));
   }
@@ -1433,16 +1435,39 @@ if (!token) {
         name: hackAlertChannelName,
         type: ChannelType.GuildText,
         topic: "🛡️ ممنوع الإرسال هنا. أي رسالة من عضو تشغّل حماية الحساب وتُحذف رسائله الأخيرة احترازيًا.",
-        reason: "Zark compromised-account warning channel",
+        reason: "3Pal compromised-account warning channel",
       });
-      await channel.send("🛡️ **تنبيه حماية:** لا ترسل أي رسالة هنا. إذا أرسل حسابٌ رسالة في هذه القناة، سيعتبره Zark احتمال اختراق ويحذف رسائله خلال آخر 10 دقائق ويبلغ الإدارة.").catch(() => undefined);
+      await channel.send("🛡️ **تنبيه حماية:** لا ترسل أي رسالة هنا. إذا أرسل حسابٌ رسالة في هذه القناة، سيعتبره 3Pal احتمال اختراق ويحذف رسائله خلال آخر 10 دقائق ويبلغ الإدارة.").catch(() => undefined);
     }
     hackAlertChannelId = channel.id;
   }
 
+  // نافذة كتم التنبيه: رسالة القناة تظهر مرة واحدة لكل عضو خلال هذه المدة فقط،
+  // بينما يبقى حذف الرسائل احترازيًا في كل مرة. نمط map مطابق لـ moderationAlertCooldown.
+  const hackNoticeCooldownMs = 60 * 60_000;
+  const hackNoticeMaxEntries = 2_000;
+
+  /** true عند أول تنبيه داخل النافذة (ويسجّل الوقت)، وfalse عند التكرار. */
+  function shouldSendHackNotice(message: any) {
+    const key = `${message.guildId ?? "dm"}:${message.author.id}`;
+    const now = Date.now();
+    if (now - (hackNoticeCooldown.get(key) ?? 0) < hackNoticeCooldownMs) return false;
+    hackNoticeCooldown.set(key, now);
+    for (const [entryKey, sentAt] of hackNoticeCooldown) if (now - sentAt >= hackNoticeCooldownMs) hackNoticeCooldown.delete(entryKey);
+    while (hackNoticeCooldown.size > hackNoticeMaxEntries) {
+      const oldest = hackNoticeCooldown.keys().next();
+      if (oldest.done) break;
+      hackNoticeCooldown.delete(oldest.value);
+    }
+    return true;
+  }
+
   async function handleHackAlertMessage(message: any) {
+    // الحذف والتنظيف يبقوان لكل رسالة؛ الكتم يمنع تكرار الرسائل أمام الأعضاء فقط.
+    const shouldNotify = shouldSendHackNotice(message);
     await message.delete().catch(() => undefined);
     const deletedCount = await purgeRecentMessagesFromAuthor(message, 10 * 60_000);
+    if (!shouldNotify) return;
     await warnPossiblyCompromisedMember(message, "إرسال رسالة في قناة الحماية الممنوع الإرسال فيها");
     await sendModerationAlert(message, `اشتباه اختراق عبر قناة الحماية — حُذفت ${deletedCount} رسالة من آخر 10 دقائق`);
     await message.channel.send("🛡️ تم تشغيل حماية الحساب وحذف الرسائل الأخيرة احترازيًا. لا ترسل أي شيء في هذه القناة.").catch(() => undefined);
@@ -1473,7 +1498,7 @@ if (!token) {
 
   async function warnPossiblyCompromisedMember(message: any, reason: string) {
     await message.author.send({
-      content: `🛡️ **تنبيه حماية من Zark**\nحذفنا رسالة من حسابك لأنّها بدت مشبوهة (${reason}). إذا لم ترسلها بنفسك فقد يكون حسابك مخترقًا.\n\nغيّر كلمة مرور Discord فورًا، فعّل التحقق بخطوتين (2FA)، وسجّل الخروج من الجلسات والأجهزة التي لا تعرفها. لا تدخل روابط جوائز أو Crypto أو Bonus من رسائل غير موثوقة.`,
+      content: `🛡️ **تنبيه حماية من 3Pal**\nحذفنا رسالة من حسابك لأنّها بدت مشبوهة (${reason}). إذا لم ترسلها بنفسك فقد يكون حسابك مخترقًا.\n\nغيّر كلمة مرور Discord فورًا، فعّل التحقق بخطوتين (2FA)، وسجّل الخروج من الجلسات والأجهزة التي لا تعرفها. لا تدخل روابط جوائز أو Crypto أو Bonus من رسائل غير موثوقة.`,
       allowedMentions: { parse: [] },
     }).catch(() => undefined);
   }
@@ -1565,7 +1590,7 @@ if (!token) {
     const delivery = await sendDirectMessage(interaction.user, {
       embeds: [baseEmbed()
         .setTitle("✅ اختبار الرسائل الخاصة نجح")
-        .setDescription(`هذه رسالة اختبار من Zark. ستصلك دعوات LFG والتقييمات وتنبيهات الدعم في الخاص عندما تكون الإشعارات مفعلة.\n\nافتح صفحة LFG وتأكد أن اللعبة على **مهتم** وأن زر الإشعارات مفعّل.`)],
+        .setDescription(`هذه رسالة اختبار من 3Pal. ستصلك دعوات LFG والتقييمات وتنبيهات الدعم في الخاص عندما تكون الإشعارات مفعلة.\n\nافتح صفحة LFG وتأكد أن اللعبة على **مهتم** وأن زر الإشعارات مفعّل.`)],
     }, `DM test for ${interaction.user.id}`);
     if (delivery.sent) {
       return interaction.editReply({ content: "✅ وصلت رسالة اختبار إلى الخاص. نظام DM يعمل لحسابك." });
@@ -1684,7 +1709,7 @@ if (!token) {
     }
   }
 
-  function teamEmbed(team:TeamView){return baseEmbed().setTitle(`👥 ${team.name}`).setColor(Number.parseInt(team.accentColor.slice(1),16)).setDescription(team.description||"فريق Zark جاهز للمنافسة.").addFields({name:"الأعضاء",value:`${team.memberCount}/${team.maxMembers}`,inline:true},{name:"نقاط الفريق",value:team.score.toLocaleString("ar"),inline:true},{name:"الإنجازات",value:`${team.totals.wins} فوز · ${team.totals.sessions} جلسة`,inline:true},{name:"التشكيلة",value:team.members.slice(0,12).map(member=>`${member.role==='OWNER'?'👑':member.role==='CAPTAIN'?'⭐':'•'} ${member.displayName}`).join("\n")||"لا يوجد أعضاء"});}
+  function teamEmbed(team:TeamView){return baseEmbed().setTitle(`👥 ${team.name}`).setColor(Number.parseInt(team.accentColor.slice(1),16)).setDescription(team.description||"فريق 3Pal جاهز للمنافسة.").addFields({name:"الأعضاء",value:`${team.memberCount}/${team.maxMembers}`,inline:true},{name:"نقاط الفريق",value:team.score.toLocaleString("ar"),inline:true},{name:"الإنجازات",value:`${team.totals.wins} فوز · ${team.totals.sessions} جلسة`,inline:true},{name:"التشكيلة",value:team.members.slice(0,12).map(member=>`${member.role==='OWNER'?'👑':member.role==='CAPTAIN'?'⭐':'•'} ${member.displayName}`).join("\n")||"لا يوجد أعضاء"});}
 
   function pickHumor(userId:string){
     const historyKey=`joke:${userId}`;
@@ -1757,7 +1782,7 @@ if (!token) {
     const active = data.shop.filter((reward) => reward.active || reward.owned).map((reward) => `${reward.icon} ${reward.name}${reward.activeUntil?` حتى <t:${Math.floor(new Date(reward.activeUntil).getTime()/1000)}:R>`:""}`).join(" · ") || "لا توجد مزايا مفعلة بعد";
     const catalog = data.shop.map((reward) => `${reward.icon} **${reward.name}** — ${reward.price} نقطة\n${reward.description}`).join("\n\n");
     const embed = baseEmbed()
-      .setTitle("💎 متجر ولاء Zark")
+      .setTitle("💎 متجر ولاء 3Pal")
       .setDescription(`رصيدك: **${data.points}** نقطة\nإجمالي تفاعلك: **${data.lifetimePoints}** نقطة\nرتبتك: **${data.tier.name}**\n${next}\n\n**مزاياك:** ${active}\n\n${catalog}`)
       .setFooter({ text: "تكسب النقاط من الفوز، تحدي اليوم، وإكمال جلسات LFG" });
     const buttons = data.shop.map((reward) => new ButtonBuilder()
@@ -1782,7 +1807,7 @@ if (!token) {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) throw new Error("هذا الأمر للإدارة فقط");
     const minutes = interaction.options.getInteger("minutes") ?? 60;
     const event = await apiSend<{ multiplier: number; until: string }>("/api/loyalty/boost", "POST", { adminId: interaction.user.id, minutes });
-    return interaction.reply({ embeds: [baseEmbed().setTitle("⚡ بدأت ساعة Zark").setDescription(`كل نقاط الولاء أصبحت **×${event.multiplier}** حتى <t:${Math.floor(new Date(event.until).getTime() / 1000)}:R>.\nشغّل /daily و/play وLFG لإشعال التفاعل!`)] });
+    return interaction.reply({ embeds: [baseEmbed().setTitle("⚡ بدأت ساعة 3Pal").setDescription(`كل نقاط الولاء أصبحت **×${event.multiplier}** حتى <t:${Math.floor(new Date(event.until).getTime() / 1000)}:R>.\nشغّل /daily و/play وLFG لإشعال التفاعل!`)] });
   }
 
   async function clearMessages(interaction: any) {
@@ -1886,7 +1911,7 @@ if (!token) {
       : recommended
         ? `✨ أفضل فرصة: **${recommended.gameName}** — ${recommended.availableNowCount} متفرغ الآن من ${recommended.interestedCount} مهتم`
         : "✨ حدد اهتماماتك لتصل لك اقتراحات أدق.";
-    const embed = baseEmbed().setTitle("📡 Zark Pulse").setDescription(`${profileActivityText(profileData)}\n\n💎 **${loyaltyData.points}** نقطة · ${loyaltyData.tier.name}\n🎮 ${opportunity}\n\n${availabilityData.currentActivity === "FREE" ? "أنت ظاهر كمتفرغ الآن—ممتاز للتجمع الذكي." : "حدّث وقت فراغك حتى لا تفوتك الدعوات المناسبة."}`);
+    const embed = baseEmbed().setTitle("📡 3Pal Pulse").setDescription(`${profileActivityText(profileData)}\n\n💎 **${loyaltyData.points}** نقطة · ${loyaltyData.tier.name}\n🎮 ${opportunity}\n\n${availabilityData.currentActivity === "FREE" ? "أنت ظاهر كمتفرغ الآن—ممتاز للتجمع الذكي." : "حدّث وقت فراغك حتى لا تفوتك الدعوات المناسبة."}`);
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId("pulse:smart").setLabel("تجمع ذكي").setEmoji("✨").setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId("pulse:availability").setLabel("وقت فراغي").setEmoji("🕐").setStyle(ButtonStyle.Secondary),
@@ -1896,8 +1921,8 @@ if (!token) {
   }
 
   async function help(interaction: any) {
-    const embed = baseEmbed().setTitle("📘 دليل أوامر Zark").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
-      { name: "🎮 ألعاب Zark", value: "`/play` لعبة عشوائية أو محددة مع 1–20 جولة و10–60 ثانية\n`/lobby` لوبي جماعي: دخول وجاهز ثم بدء تلقائي\n`/daily` تحدي اليوم\n`/ميمز` ميمز عربية فكاهية وآمنة\n`/نكت` نكت عربية بلا تكرار\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP" },
+    const embed = baseEmbed().setTitle("📘 دليل أوامر 3Pal").setDescription("كل ما تحتاجه للألعاب والعثور على لاعبين، بأقل عدد من الخطوات.").addFields(
+      { name: "🎮 ألعاب 3Pal", value: "`/play` لعبة عشوائية أو محددة مع 1–20 جولة و10–60 ثانية\n`/lobby` لوبي جماعي: دخول وجاهز ثم بدء تلقائي\n`/daily` تحدي اليوم\n`/ميمز` ميمز عربية فكاهية وآمنة\n`/نكت` نكت عربية بلا تكرار\n`/profile` ملفك الموحد\n`/loyalty` نقاطك ورتبك ومتجر VIP" },
       { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
       { name: "👥 الفرق", value: "`/team create` إنشاء فريق\n`/team invite` دعوة لاعب\n`/team invitations` قبول أو رفض الدعوات\n`/team view` عرض التشكيلة والترتيب" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
@@ -1905,12 +1930,12 @@ if (!token) {
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
       { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.اختيارات` `.شعارات` `.انمي` `.صح` `.معلومات`" },
     );
-    const website = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع Zark").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
+    const website = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع 3Pal").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
     return interaction.reply({ embeds: [embed], components: [website], flags: MessageFlags.Ephemeral });
   }
 
   function helpPlusPayload() {
-    const start = baseEmbed().setTitle("🚀 Zark من البداية").setDescription("1. استخدم `/pulse` لمعرفة أفضل فرصة لك الآن.\n2. اضبط اهتماماتك عبر `/lfg interests`.\n3. حدّث وقتك عبر `/availability` أو `/وقت-فراغي`.\n4. اضغط **تجمع ذكي** أو استخدم `/lfg smart` ليجد لك Zark لاعبين.");
+    const start = baseEmbed().setTitle("🚀 3Pal من البداية").setDescription("1. استخدم `/pulse` لمعرفة أفضل فرصة لك الآن.\n2. اضبط اهتماماتك عبر `/lfg interests`.\n3. حدّث وقتك عبر `/availability` أو `/وقت-فراغي`.\n4. اضغط **تجمع ذكي** أو استخدم `/lfg smart` ليجد لك 3Pal لاعبين.");
     const playGuide = baseEmbed().setTitle("🎮 الألعاب والتحديات").addFields(
       { name: "بدء لعبة", value: "`/play` ثم اختر اللعبة وعدد الجولات ووقت الإجابة من **10 إلى 60 ثانية**. أول إجابة صحيحة تفوز، وزر 💡 التلميح يخصم 30% من نقاط الجولة." },
       { name: "لوبي جماعي", value: "استخدم `/lobby`، اختر اللعبة والإعدادات، ثم يضغط اللاعبون **دخول** و**جاهز**. يبدأ تلقائيًا عند جاهزية لاعبين أو أكثر، والمضيف يستطيع البدء أو الإلغاء." },
@@ -1924,7 +1949,7 @@ if (!token) {
       { name: "بعد الجلسة", value: "أكمل الغرفة من أزرارها لتحصل على نقاط وتصل رسالة تقييم خاصة لكل لاعب." },
       { name: "للإدارة", value: "`/lfg auto` لعرض أو تغيير التجمعات التلقائية، و`/event-hour` لتشغيل نقاط ×2، و`/weekly` لمتصدرين الأسبوع." },
     );
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع Zark").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع 3Pal").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
     return { embeds: [start, playGuide, lfgGuide], components: [row] };
   }
 
@@ -2017,7 +2042,7 @@ if (!token) {
     await interaction.deferReply();
     const rows = await apiGet<Array<{ displayName: string; gamePoints: number; engagementPoints: number }>>(`/api/leaderboard?period=daily&metric=${metric}`);
     const key = metric === "engagement" ? "engagementPoints" : "gamePoints";
-    await interaction.editReply({ embeds: [baseEmbed().setTitle(metric === "engagement" ? "🤝 الأكثر تفاعلًا اليوم" : "🔥 متصدرو ألعاب Zark").setDescription(rows.length ? rows.map((row, index) => `${medal(index)} **${row.displayName}** — ${row[key]}`).join("\n") : "ابدأ أول منافسة اليوم!")] });
+    await interaction.editReply({ embeds: [baseEmbed().setTitle(metric === "engagement" ? "🤝 الأكثر تفاعلًا اليوم" : "🔥 متصدرو ألعاب 3Pal").setDescription(rows.length ? rows.map((row, index) => `${medal(index)} **${row.displayName}** — ${row[key]}`).join("\n") : "ابدأ أول منافسة اليوم!")] });
   }
 
   function showPlayerReportModal(interaction: any, targetId: string) {
@@ -2029,7 +2054,7 @@ if (!token) {
   }
 
   function showBugReportModal(interaction: any) {
-    const modal = new ModalBuilder().setCustomId("lfg:bug").setTitle("تقرير خطأ في Zark").addComponents(
+    const modal = new ModalBuilder().setCustomId("lfg:bug").setTitle("تقرير خطأ في 3Pal").addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("title").setLabel("عنوان الخطأ").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(120)),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("description").setLabel("ماذا حدث؟ وكيف نكرره؟").setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(2000)),
     );
@@ -2096,7 +2121,7 @@ if (!token) {
     if (!member) return { applied: false as const, reason: "missing" as const };
     if (!member.voice.channelId) return { applied: false as const, reason: "no-voice" as const };
     try {
-      await member.voice.setMute(muted, `Zark Among Us ${targetRoomId}`);
+      await member.voice.setMute(muted, `3Pal Among Us ${targetRoomId}`);
     } catch (error) {
       console.error("among-us mute failed", { roomId: targetRoomId, userId, muted, error });
       return { applied: false as const, reason: "forbidden" as const };
@@ -2207,7 +2232,7 @@ if (!token) {
       const replay = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(`zark:replay:${race.gameSlug}:${race.totalRounds}:${race.durationSeconds}`).setLabel("إعادة نفس اللعبة").setEmoji("🔁").setStyle(ButtonStyle.Primary),
       );
-      await channel.send({ embeds: [baseEmbed().setTitle("🏆 انتهت مباراة Zark").setDescription(`اكتملت **${progress.totalRounds}** جولة.\n\n${ranking}\n\nاضغط **إعادة نفس اللعبة** لبدء سلسلة جديدة بالإعدادات نفسها.`)], components: [replay] });
+      await channel.send({ embeds: [baseEmbed().setTitle("🏆 انتهت مباراة 3Pal").setDescription(`اكتملت **${progress.totalRounds}** جولة.\n\n${ranking}\n\nاضغط **إعادة نفس اللعبة** لبدء سلسلة جديدة بالإعدادات نفسها.`)], components: [replay] });
       return;
     }
     const next = progress.nextMatch;
@@ -2291,7 +2316,7 @@ if (!token) {
       <text x="800" y="425" text-anchor="middle" style="font:900 92px ${arabicFont};fill:#fff">${escapeXml(trimText(name, 22))}</text>
       <text x="800" y="545" text-anchor="middle" style="font:900 68px ${arabicFont};fill:#fff">${points} XP</text>
       <text x="800" y="635" text-anchor="middle" style="font:800 34px ${arabicFont};fill:#ddd">${seconds} ثانية · ${typoCount ? `${typoCount} خطأ إملائي مقبول` : "إجابة دقيقة"}</text>
-      <text x="800" y="820" text-anchor="middle" style="font:900 32px ${arabicFont};fill:#fff">ZARK LFG SYSTEM</text>
+      <text x="800" y="820" text-anchor="middle" style="font:900 32px ${arabicFont};fill:#fff">3Pal Games</text>
     </svg>`);
     return cardBackground().composite([{ input: svg }]).png().toBuffer();
   }
@@ -2308,13 +2333,13 @@ if (!token) {
       <circle cx="340" cy="385" r="205" fill="#111" stroke="#8b5cf6" stroke-width="10"/>
       ${avatar ? "" : `<text x="340" y="430" text-anchor="middle" style="font:900 145px ${arabicFont};fill:#fff">${escapeXml(data.displayName.slice(0, 1).toUpperCase())}</text>`}
       <text x="1040" y="230" text-anchor="middle" style="font:900 90px ${arabicFont};fill:#fff">${escapeXml(trimText(data.displayName, 22))}</text>
-      <text x="1040" y="300" text-anchor="middle" class="small">Zark Level ${data.zark.level} · ${escapeXml(rating)}</text>
+      <text x="1040" y="300" text-anchor="middle" class="small">3Pal Level ${data.zark.level} · ${escapeXml(rating)}</text>
       <rect x="590" y="360" width="900" height="235" rx="30" fill="#0d0d0d" stroke="#3a3a3a" stroke-width="3"/>
-      ${profileStat(700, "Zark XP", data.zark.xp.toLocaleString())}${profileStat(925, "الفوز", String(data.zark.wins))}${profileStat(1150, "التفاعل", String(data.lfg.engagement))}${profileStat(1375, "وقت Voice", formatDuration(data.lfg.voiceSeconds))}
+      ${profileStat(700, "3Pal XP", data.zark.xp.toLocaleString())}${profileStat(925, "الفوز", String(data.zark.wins))}${profileStat(1150, "التفاعل", String(data.lfg.engagement))}${profileStat(1375, "وقت Voice", formatDuration(data.lfg.voiceSeconds))}
       <text x="1040" y="690" text-anchor="middle" class="small">${data.lfg.completedSessions} جلسة مكتملة · لعب مع ${data.lfg.uniqueTeammates} عضو مختلف</text>
       <text x="1040" y="755" text-anchor="middle" class="small">${favorite ? `أكثر لعبة: ${escapeXml(favorite.name)} · ${favorite.sessions} جلسة` : "ابدأ أول جلسة LFG وسجّل إنجازك"}</text>
       <text x="1040" y="820" text-anchor="middle" style="font:800 29px ${arabicFont};fill:#ff6b70">${escapeXml(activity)}</text>
-      <text x="340" y="650" text-anchor="middle" style="font:900 36px ${arabicFont};fill:#fff">ZARK LEVEL ${data.zark.level}</text>
+      <text x="340" y="650" text-anchor="middle" style="font:900 36px ${arabicFont};fill:#fff">3PAL LEVEL ${data.zark.level}</text>
     </svg>`);
     const layers: Array<{ input: Buffer; left?: number; top?: number }> = [{ input: svg }];
     if (avatar) {
@@ -2363,7 +2388,7 @@ if (!token) {
       const image = await renderRoomVisual(room);
       return { embeds: [roomEmbed(room, detailed).setImage(`attachment://${filename}`)], files: [new AttachmentBuilder(image, { name: filename })] };
     } catch (error) {
-      console.error("Zark room visual render failed", error);
+      console.error("3Pal room visual render failed", error);
       return { embeds: [roomEmbed(room, detailed)], files: [] as AttachmentBuilder[] };
     }
   }
@@ -2545,11 +2570,11 @@ if (!token) {
       for (const snapshot of snapshots) {
         const role = guild.roles.cache.get(snapshot.roleId);
         if (!role) continue;
-        try { await member.roles.remove(role, "ZARK ADMIN PROTECTION: suspicious administrative activity"); removed.push(role.name); }
+        try { await member.roles.remove(role, "3PAL ADMIN PROTECTION: suspicious administrative activity"); removed.push(role.name); }
         catch (error) { console.error(`Could not remove dangerous role ${snapshot.roleId} from ${userId}`, error); }
       }
     }
-    const details = new EmbedBuilder().setColor(0xed1c24).setTitle("🚨 ZARK ADMIN PROTECTION")
+    const details = new EmbedBuilder().setColor(0xed1c24).setTitle("🚨 3PAL ADMIN PROTECTION")
       .setDescription(`تم تعليق صلاحيات إدمن مشتبه به فورًا.\n**المستخدم:** <@${userId}>\n**السبب:** ${result.suspension?.reason ?? "حد الحماية"}`)
       .addFields(
         { name: "Bans / 60m", value: String(result.counts?.bans ?? 0), inline: true }, { name: "Timeouts / 60m", value: String(result.counts?.timeouts ?? 0), inline: true },
@@ -2577,14 +2602,14 @@ if (!token) {
       .map((role: any) => ({ id: role.id, name: role.name }));
     securityReadiness = { checked: true, ready: !missingPermissions.length && !blockedRoles.length, missingPermissions, blockedRoles };
     if (securityReadiness.ready) return;
-    if (missingPermissions.length) console.warn(`ZARK ADMIN PROTECTION CRITICAL: missing ${missingPermissions.join(", ")}.`);
-    if (blockedRoles.length) console.warn(`ZARK ADMIN PROTECTION WARNING: ${blockedRoles.length} dangerous role(s) are above the bot or unmanageable.`);
-    const embed = new EmbedBuilder().setColor(0xed1c24).setTitle("⚠️ حماية Zark غير جاهزة بالكامل")
+    if (missingPermissions.length) console.warn(`3PAL ADMIN PROTECTION CRITICAL: missing ${missingPermissions.join(", ")}.`);
+    if (blockedRoles.length) console.warn(`3PAL ADMIN PROTECTION WARNING: ${blockedRoles.length} dangerous role(s) are above the bot or unmanageable.`);
+    const embed = new EmbedBuilder().setColor(0xed1c24).setTitle("⚠️ حماية 3Pal غير جاهزة بالكامل")
       .setDescription("لن يستطيع البوت مراقبة كل عمليات الإدارة أو إزالة الرتب الخطرة حتى تُحل المشاكل التالية.")
       .addFields(
         { name: "الصلاحيات الناقصة", value: missingPermissions.join("، ") || "لا يوجد", inline: false },
         { name: "رتب لا يستطيع البوت إزالتها", value: blockedRoles.map((role) => `${role.name} (${role.id})`).join("\n").slice(0, 1024) || "لا يوجد", inline: false },
-      ).setFooter({ text: "ارفع رتبة Zark فوق رتب الإدارة الخطرة وامنحه View Audit Log + Manage Roles" }).setTimestamp();
+      ).setFooter({ text: "ارفع رتبة 3Pal فوق رتب الإدارة الخطرة وامنحه View Audit Log + Manage Roles" }).setTimestamp();
     // Readiness is an operator warning, not a private-message notification.
     // Send it only to the configured security channel; the dashboard always shows it.
     const channelId = process.env.DISCORD_SECURITY_LOG_CHANNEL_ID;
@@ -2621,7 +2646,7 @@ if (!token) {
       for (const snapshot of item.roleSnapshots) {
         const role = guild.roles.cache.get(snapshot.roleId);
         if (!role || role.managed || role.position >= botMember.roles.highest.position || member.roles.cache.has(role.id)) continue;
-        await member.roles.add(role, "ZARK ADMIN PROTECTION: owner-approved restoration").catch((error: unknown) => console.error("Admin role restoration failed", error));
+        await member.roles.add(role, "3PAL ADMIN PROTECTION: owner-approved restoration").catch((error: unknown) => console.error("Admin role restoration failed", error));
       }
     }
   }
@@ -2656,7 +2681,7 @@ if (!token) {
   }
 
   async function shutdownBot(signal: string) {
-    console.log(`Zark bot shutting down (${signal})`);
+    console.log(`3Pal bot shutting down (${signal})`);
     for (const race of activeRaceChannels.values()) clearTimeout(race.timeout);
     activeRaceChannels.clear();
     if (botEventSubscriber?.isOpen) await botEventSubscriber.close().catch((error) => console.error("Redis bot subscriber close failed", error));
@@ -2668,16 +2693,16 @@ if (!token) {
 
 function buildCommands() {
   return [
-    new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر Zark"),
-    new SlashCommandBuilder().setName("zark-noob").setDescription("جاهز للقصف؟ Zark يقصف جبهتك بمزحة عربية 🔥"),
+    new SlashCommandBuilder().setName("help").setDescription("دليل جميع أوامر 3Pal"),
+    new SlashCommandBuilder().setName("zark-noob").setDescription("جاهز للقصف؟ 3Pal يقصف جبهتك بمزحة عربية 🔥"),
     new SlashCommandBuilder().setName("setup").setDescription("نشر لوحة اختيار الألعاب ونسخها والإشعارات في هذا الروم").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild).setDMPermission(false),
-    new SlashCommandBuilder().setName("help-plus").setDescription("شرح كامل ومبسط لكل أنظمة Zark"),
-    new SlashCommandBuilder().setName("dm-test").setDescription("اختبر وصول رسائل Zark الخاصة إلى حسابك"),
-    new SlashCommandBuilder().setName("daily").setDescription("تحدي Zark اليومي"),
-    new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب Zark ومتجر VIP"),
-    new SlashCommandBuilder().setName("joke").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
+    new SlashCommandBuilder().setName("help-plus").setDescription("شرح كامل ومبسط لكل أنظمة 3Pal"),
+    new SlashCommandBuilder().setName("dm-test").setDescription("اختبر وصول رسائل 3Pal الخاصة إلى حسابك"),
+    new SlashCommandBuilder().setName("daily").setDescription("تحدي 3Pal اليومي"),
+    new SlashCommandBuilder().setName("loyalty").setDescription("نقاط الولاء ورتب 3Pal ومتجر VIP"),
+    new SlashCommandBuilder().setName("joke").setDescription("نكتة عربية عشوائية من مكتبة 3Pal"),
     new SlashCommandBuilder().setName("memes").setDescription("ميم عربي فكاهي وغير كاره من مكتبة موثقة"),
-    new SlashCommandBuilder().setName("نكت").setDescription("نكتة عربية عشوائية من مكتبة Zark"),
+    new SlashCommandBuilder().setName("نكت").setDescription("نكتة عربية عشوائية من مكتبة 3Pal"),
     new SlashCommandBuilder().setName("ميمز").setDescription("ميم عربي فكاهي وغير كاره من مكتبة موثقة"),
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
     new SlashCommandBuilder().setName("pulse").setDescription("لوحتك الشخصية: التفاعل والفرص المتاحة الآن"),
@@ -2710,21 +2735,21 @@ function buildCommands() {
       .addUserOption((option) => option.setName("user").setDescription("حذف رسائل هذا العضو فقط")),
     new SlashCommandBuilder()
       .setName("play")
-      .setDescription("ابدأ لعبة Zark داخل Discord")
+      .setDescription("ابدأ لعبة 3Pal داخل Discord")
       .addStringOption((option) => option.setName("game").setDescription("اكتب اسم اللعبة للبحث في المكتبة أو help").setAutocomplete(true))
       .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات: 5 أو 10 أو 15 أو 20، أو أي عدد من 1 إلى 20").setMinValue(1).setMaxValue(20))
       .addIntegerOption((option) => option.setName("seconds").setDescription("وقت الإجابة بالثواني — من 10 إلى 60، الافتراضي 15").setMinValue(10).setMaxValue(60)),
     new SlashCommandBuilder()
       .setName("lobby")
-      .setDescription("أنشئ لوبيًا جماعيًا قبل بدء لعبة Zark")
+      .setDescription("أنشئ لوبيًا جماعيًا قبل بدء لعبة 3Pal")
       .addStringOption((option) => option.setName("game").setDescription("اختر اللعبة").setRequired(true).setAutocomplete(true))
       .addIntegerOption((option) => option.setName("rounds").setDescription("عدد الجولات — الافتراضي 5").setMinValue(1).setMaxValue(20))
       .addIntegerOption((option) => option.setName("seconds").setDescription("وقت الإجابة — الافتراضي 15").setMinValue(10).setMaxValue(60)),
-    new SlashCommandBuilder().setName("profile").setDescription("اعرض ملف Zark + LFG الموحد").addUserOption((option) => option.setName("user").setDescription("العضو — اتركه فارغًا لملفك")),
-    new SlashCommandBuilder().setName("leaderboard").setDescription("متصدرو اليوم").addStringOption((option) => option.setName("type").setDescription("نوع النقاط").addChoices({ name: "ألعاب Zark", value: "game" }, { name: "تفاعل LFG", value: "engagement" })),
+    new SlashCommandBuilder().setName("profile").setDescription("اعرض ملف 3Pal + LFG الموحد").addUserOption((option) => option.setName("user").setDescription("العضو — اتركه فارغًا لملفك")),
+    new SlashCommandBuilder().setName("leaderboard").setDescription("متصدرو اليوم").addStringOption((option) => option.setName("type").setDescription("نوع النقاط").addChoices({ name: "ألعاب 3Pal", value: "game" }, { name: "تفاعل LFG", value: "engagement" })),
     availabilityCommand("availability"),
     availabilityCommand("وقت-فراغي"),
-    new SlashCommandBuilder().setName("team").setDescription("إنشاء وإدارة فريق Zark")
+    new SlashCommandBuilder().setName("team").setDescription("إنشاء وإدارة فريق 3Pal")
       .addSubcommand(command=>command.setName("view").setDescription("عرض فريقك أو فريق لاعب").addUserOption(option=>option.setName("user").setDescription("اللاعب")))
       .addSubcommand(command=>command.setName("create").setDescription("إنشاء فريق جديد").addStringOption(option=>option.setName("name").setDescription("اسم الفريق").setRequired(true).setMinLength(2).setMaxLength(32)).addStringOption(option=>option.setName("description").setDescription("وصف مختصر").setMaxLength(240)))
       .addSubcommand(command=>command.setName("invite").setDescription("دعوة لاعب إلى فريقك").addUserOption(option=>option.setName("user").setDescription("اللاعب").setRequired(true)))
@@ -2735,7 +2760,7 @@ function buildCommands() {
       .addSubcommand((command) => command.setName("profile").setDescription("ملف LFG").addUserOption((option) => option.setName("user").setDescription("العضو")))
       .addSubcommand((command) => command.setName("top").setDescription("أفضل لاعبي LFG").addStringOption((option) => option.setName("metric").setDescription("التصنيف").addChoices({ name: "التفاعل", value: "engagement" }, { name: "الجلسات", value: "sessions" }, { name: "التقييم", value: "rating" })))
       .addSubcommand((command) => command.setName("rooms").setDescription("اعرض الغرف المفتوحة"))
-      .addSubcommand((command) => command.setName("smart").setDescription("دع Zark ينظم أفضل تجمع حسب الاهتمام والتفرغ"))
+      .addSubcommand((command) => command.setName("smart").setDescription("دع 3Pal ينظم أفضل تجمع حسب الاهتمام والتفرغ"))
       .addSubcommand((command) => command.setName("auto").setDescription("حالة أو إدارة إنشاء الغرف التلقائي — للإدارة").addBooleanOption((option) => option.setName("enabled").setDescription("تفعيل أو إيقاف؛ اتركه فارغًا لمعرفة الحالة")))
       .addSubcommand((command) => command.setName("interests").setDescription("إدارة اهتمامات الألعاب والإشعارات"))
       .addSubcommand((command) => command.setName("report").setDescription("إبلاغ عن لاعب").addUserOption((option) => option.setName("user").setDescription("اللاعب").setRequired(true)))

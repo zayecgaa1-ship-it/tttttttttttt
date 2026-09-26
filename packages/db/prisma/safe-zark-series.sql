@@ -99,7 +99,7 @@ $game_question_source_key_migration$;
 
 -- Early deployments used five minutes for an empty Voice channel. The room
 -- contract is now ten minutes, matching the website leave flow and the member
--- warning shown by Zark. Preserve any custom value that is not the old default.
+-- warning shown by 3Pal. Preserve any custom value that is not the old default.
 DO $zark_room_grace_migration$
 BEGIN
   IF to_regclass('"GuildSettings"') IS NOT NULL AND EXISTS (

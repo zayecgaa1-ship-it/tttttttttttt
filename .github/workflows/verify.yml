@@ -1,4 +1,4 @@
-name: Verify Zark
+name: Verify 3Pal
 
 on:
   push:

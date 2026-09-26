@@ -231,8 +231,8 @@ enum TeamInviteStatus {
 
 model BotIdentity {
   id        Int      @id @default(1)
-  name      String   @default("Zark LFG System")
-  tagline   String   @default("Zark LFG System — فريقك أقرب مما تتخيل")
+  name      String   @default("3Pal Games")
+  tagline   String   @default("3Pal Games — فريقك أقرب مما تتخيل")
   updatedAt DateTime @updatedAt
 }
 

@@ -75,7 +75,7 @@ async function smoothScroll(targetY, duration = 1300) {
 
 try {
   await open('/');
-  await caption('3PAL GAMES', 'جولة داخل مجتمع اللاعبين', 'الرئيسية تجمع هوية المجتمع، الغرف المباشرة، البوت والألعاب في تجربة عربية واحدة.', 3100, true);
+  await caption('3Pal Community', 'جولة داخل مجتمع اللاعبين', 'الرئيسية تجمع هوية المجتمع، الغرف المباشرة، البوت والألعاب في تجربة عربية واحدة.', 3100, true);
   await smoothScroll(560);
   await caption('الرئيسية', 'كل ما تحتاجه في مكان واحد', 'إحصاءات حقيقية، مزايا المجتمع، ومعاينة مباشرة قبل دخول أي قسم.', 2200);
   await smoothScroll(1180);
@@ -121,7 +121,7 @@ try {
   await caption('SYSTEM STATUS', 'حالة الخدمات من مكان واحد', 'الموقع وواجهة API وقاعدة البيانات والتحديث المباشر تظهر بحالتها الحقيقية.', 2600);
 
   await open('/');
-  await caption('PLAY · CONNECT · COMPETE', '3PAL GAMES — أكثر من مجرد ألعاب', 'مجتمع عربي يجمع اللاعبين، الفرق والمنافسة في تجربة واحدة.', 3300, true);
+  await caption('PLAY · CONNECT · COMPETE', '3Pal Community — أكثر من مجرد ألعاب', 'مجتمع عربي يجمع اللاعبين، الفرق والمنافسة في تجربة واحدة.', 3300, true);
 } finally {
   const saveRecording = video.saveAs(outputPath);
   await context.close();

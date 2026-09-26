@@ -15,10 +15,10 @@ type PendingRoomRequest = { gameSlug: string; expiresAt: number };
 const pendingRoomRequests = new Map<string, PendingRoomRequest>();
 
 const knowledge = [
-  { keywords: ["اوفلاين", "offline", "البوت", "متصل"], answer: "إذا ظهر Zark أوفلاين فتأكد أن PostgreSQL وRedis والـAPI شغالة، ثم شغّل البوت. لوحة الإدارة تعرض حالة البوت وآخر Heartbeat تلقائيًا." },
-  { keywords: ["انضمام", "دخول", "join", "غرفه", "غرفة"], answer: "افتح صفحة LFG واختر غرفة ثم اضغط دخول. سيضيفك Zark للغرفة ويمنحك وصولًا إلى Text وVoice الخاصين بها فورًا." },
+  { keywords: ["اوفلاين", "offline", "البوت", "متصل"], answer: "إذا ظهر 3Pal أوفلاين فتأكد أن PostgreSQL وRedis والـAPI شغالة، ثم شغّل البوت. لوحة الإدارة تعرض حالة البوت وآخر Heartbeat تلقائيًا." },
+  { keywords: ["انضمام", "دخول", "join", "غرفه", "غرفة"], answer: "افتح صفحة LFG واختر غرفة ثم اضغط دخول. سيضيفك 3Pal للغرفة ويمنحك وصولًا إلى Text وVoice الخاصين بها فورًا." },
   { keywords: ["خروج", "leave", "الغاء", "إلغاء"], answer: "اضغط خروج من بطاقة الغرفة أو من لوحة Discord. إذا خرج المضيف تنتقل الإدارة تلقائيًا لأقدم عضو موجود." },
-  { keywords: ["فويز", "فويس", "voice", "وقت"], answer: "يبدأ احتساب اللعب فقط داخل Voice التابع لغرفة Zark. عند وجود لاعبين اثنين يبدأ وضع Playing، وعند خروج الجميع تبدأ مهلة إغلاق آمنة." },
+  { keywords: ["فويز", "فويس", "voice", "وقت"], answer: "يبدأ احتساب اللعب فقط داخل Voice التابع لغرفة 3Pal. عند وجود لاعبين اثنين يبدأ وضع Playing، وعند خروج الجميع تبدأ مهلة إغلاق آمنة." },
   { keywords: ["اشعار", "إشعار", "dm", "خاص", "مهتم"], answer: "من قسم الاهتمامات تستطيع تفعيل أو كتم إشعارات كل لعبة بشكل منفصل. زر تجاهل يتجاهل الدعوة الحالية فقط ولا يلغي اهتمامك." },
   { keywords: ["بلاغ", "شكوى", "report", "اساءه", "إساءة"], answer: "استخدم نموذج بلاغ لاعب واربطه برقم الغرفة إن أمكن. البلاغات سرية وتظهر للإدارة فقط، ويمكنك متابعة حالتها من صفحة الدعم." },
   { keywords: ["تقييم", "نجوم", "rating"], answer: "التقييم متاح فقط بعد جلسة مكتملة وبين لاعبين شاركا في نفس الجلسة. لا يمكن التقييم الذاتي أو تكرار التقييم لنفس الجلسة." },
@@ -72,7 +72,7 @@ export async function diagnoseSupportAi(adminId: string) {
       if (!result.answer) throw new Error("empty provider response");
       results.push({ provider, connected: true, code: "OK", message: `${provider} متصل` });
     } catch (error) {
-      console.error(`Zark AI diagnostic failed for ${provider}`, error);
+      console.error(`3Pal AI diagnostic failed for ${provider}`, error);
       const failure = aiFailure(error, provider);
       results.push({ provider, connected: false, code: failure.code, message: failure.message });
     }
@@ -84,7 +84,7 @@ export async function diagnoseSupportAi(adminId: string) {
 export async function askSupport(input: { userId: string; displayName: string; avatarUrl?: string; message: string }) {
   await enforceRateLimit("support-chat", input.userId, 15, 60);
   const settings = await getGuildRuntimeSettings();
-  if (!settings.aiChatEnabled) throw new Error("مساعد Zark متوقف مؤقتًا من الإدارة");
+  if (!settings.aiChatEnabled) throw new Error("مساعد 3Pal متوقف مؤقتًا من الإدارة");
   const message = input.message.trim().slice(0, 500);
   if (message.length < 2) throw new Error("اكتب سؤالك بشكل أوضح");
   await db.user.upsert({ where: { id: input.userId }, update: { displayName: input.displayName, avatarUrl: input.avatarUrl }, create: { id: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl } });
@@ -99,7 +99,7 @@ export async function askSupport(input: { userId: string; displayName: string; a
   const scope = supportScope(message);
   if (scope === "CASUAL" || scope === "OUT_OF_SCOPE") {
     const status = await getSupportStatus(input.userId);
-    return { answer: scope === "CASUAL" ? casualAnswer(input.displayName, message) : "أنا مساعد Zark المخصص للموقع والبوت وLFG فقط. اسألني عن الغرف، الألعاب، الأوامر، الإشعارات، الملف، التقييم أو البلاغات.", mode: "SMART_LOCAL", provider: null, setupRequired: configuredAiProviders().length === 0, aiError: false, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
+    return { answer: scope === "CASUAL" ? casualAnswer(input.displayName, message) : "أنا مساعد 3Pal المخصص للموقع والبوت وLFG فقط. اسألني عن الغرف، الألعاب، الأوامر، الإشعارات، الملف، التقييم أو البلاغات.", mode: "SMART_LOCAL", provider: null, setupRequired: configuredAiProviders().length === 0, aiError: false, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
   }
   const providers = configuredAiProviders();
   if (!providers.length) {
@@ -125,13 +125,13 @@ export async function askSupport(input: { userId: string; displayName: string; a
     return { answer, mode: "AI", provider: result.provider, providersTried: result.providersTried, remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
   } catch (error) {
     await settleReservedTokens(input.userId, reservation.reservedTokens, 0, 0).catch(() => undefined);
-    console.error("Zark AI support fallback", error);
+    console.error("3Pal AI support fallback", error);
     const status = await getSupportStatus(input.userId);
-    return { answer: `${localAnswer}\n\n⚠️ مزودات AI المجانية غير متاحة الآن؛ استخدمت مساعد Zark المحلي تلقائيًا.`, mode: "SMART_LOCAL", provider: providers[0], setupRequired: false, aiError: true, aiErrorCode: "ALL_PROVIDERS_FAILED", remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
+    return { answer: `${localAnswer}\n\n⚠️ مزودات AI المجانية غير متاحة الآن؛ استخدمت مساعد 3Pal المحلي تلقائيًا.`, mode: "SMART_LOCAL", provider: providers[0], setupRequired: false, aiError: true, aiErrorCode: "ALL_PROVIDERS_FAILED", remainingMessages: status.remainingMessages, messageLimit: status.messageLimit, suggestions: context.suggestions };
   }
 }
 
-const supportInstructions = "أنت مساعد Zark LFG System العربي. نطاقك الوحيد هو موقع Zark وبوت Discord وLFG والألعاب والغرف والأوامر والاهتمامات والإشعارات والملف والتقييم والبلاغات، مع السماح بتحية ودية قصيرة. ارفض باختصار أي سؤال خارج هذا النطاق. أجب بوضوح وباختصار واعتمد فقط على دليل Zark والسياق المرفقين، ولا تطلب أسرارًا أو Tokens. عند وجود نتيجة إجراء من النظام، أكّد ما نُفّذ فقط ولا تقل إنك نفّذت شيئًا من نفسك؛ الإنشاء والإبلاغ ينفذهما نظام Zark الآمن.";
+const supportInstructions = "أنت مساعد 3Pal Games العربي. نطاقك الوحيد هو موقع 3Pal وبوت Discord وLFG والألعاب والغرف والأوامر والاهتمامات والإشعارات والملف والتقييم والبلاغات، مع السماح بتحية ودية قصيرة. ارفض باختصار أي سؤال خارج هذا النطاق. أجب بوضوح وباختصار واعتمد فقط على دليل 3Pal والسياق المرفقين، ولا تطلب أسرارًا أو Tokens. عند وجود نتيجة إجراء من النظام، أكّد ما نُفّذ فقط ولا تقل إنك نفّذت شيئًا من نفسك؛ الإنشاء والإبلاغ ينفذهما نظام 3Pal الآمن.";
 
 function configuredAiProviders(): AiProvider[] {
   return ([
@@ -152,7 +152,7 @@ async function askWithProviderFallback(providers: AiProvider[], message: string,
       return { ...result, provider, providersTried };
     } catch (error) {
       lastError = error;
-      console.warn(`Zark AI provider ${provider} failed; trying the next provider`, error instanceof Error ? error.message : error);
+      console.warn(`3Pal AI provider ${provider} failed; trying the next provider`, error instanceof Error ? error.message : error);
     }
   }
   throw lastError ?? new Error("No AI provider returned an answer");
@@ -161,7 +161,7 @@ async function askWithProviderFallback(providers: AiProvider[], message: string,
 function askProvider(provider: AiProvider, message: string, summary: string, localAnswer: string, maxOutputTokens: number): Promise<AiAnswer> {
   if (provider === "GEMINI") return askGemini(message, summary, localAnswer, maxOutputTokens);
   if (provider === "GROQ") return askOpenAiCompatible("Groq", "https://api.groq.com/openai/v1/chat/completions", cleanEnvValue("GROQ_API_KEY")!, groqModel(), message, summary, localAnswer, maxOutputTokens);
-  return askOpenAiCompatible("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", cleanEnvValue("OPENROUTER_API_KEY")!, openRouterModel(), message, summary, localAnswer, maxOutputTokens, { "HTTP-Referer": cleanEnvValue("PUBLIC_SITE_URL") || "https://zark-ps.com", "X-Title": "Zark LFG System" });
+  return askOpenAiCompatible("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", cleanEnvValue("OPENROUTER_API_KEY")!, openRouterModel(), message, summary, localAnswer, maxOutputTokens, { "HTTP-Referer": cleanEnvValue("PUBLIC_SITE_URL") || "https://zark-ps.com", "X-Title": "3Pal Games" });
 }
 
 async function askGemini(message: string, summary: string, localAnswer: string, maxOutputTokens: number) {
@@ -250,13 +250,13 @@ async function askOpenAiCompatible(provider: string, url: string, apiKey: string
 }
 
 function supportPrompt(message: string, summary: string, localAnswer: string) {
-  return `دليل Zark المختصر:\n${siteKnowledge}\n\nالسؤال: ${message}\n\nالحالة الحية الآمنة:\n${summary}\n\nإجابة الدعم المحلية المقترحة:\n${localAnswer}`;
+  return `دليل 3Pal المختصر:\n${siteKnowledge}\n\nالسؤال: ${message}\n\nالحالة الحية الآمنة:\n${summary}\n\nإجابة الدعم المحلية المقترحة:\n${localAnswer}`;
 }
 
 const siteKnowledge = [
   "صفحة LFG تعرض الغرف الحية وتسمح بإنشاء غرفة الآن أو بموعد، والانضمام والخروج والبحث باسم اللعبة أو المضيف.",
   "الاهتمامات منفصلة عن الإشعارات: مهتم مع إشعارات يستقبل DM، مهتم بدون إشعارات يبقى مهتمًا بلا DM، وغير مهتم لا يستقبل اقتراحات اللعبة.",
-  "ملف اللاعب يعرض Zark XP وEngagement ووقت Voice والجلسات والتقييم والاهتمامات، مع إعدادات الخصوصية.",
+  "ملف اللاعب يعرض 3Pal XP وEngagement ووقت Voice والجلسات والتقييم والاهتمامات، مع إعدادات الخصوصية.",
   "أوامر Discord الأساسية: /help و/play و/daily و/profile و/leaderboard و/lfg create و/lfg rooms و/lfg interests و/lfg report و/lfg bug و/وقت-فراغي.",
   "التقييم متاح بعد اكتمال جلسة LFG، والبلاغات سرية وتتحول إلى تذكرة محادثة مع الإدارة.",
   "لوحة الإدارة مخصصة لرتب Discord المعتمدة وتدير إعدادات البوت والقنوات والغرف والمحتوى والبلاغات.",
@@ -276,7 +276,7 @@ class AiProviderError extends Error {
 function aiFailure(error: unknown, provider: AiProvider) {
   const keyName = provider === "GEMINI" ? "GEMINI_API_KEY" : provider === "GROQ" ? "GROQ_API_KEY" : "OPENROUTER_API_KEY";
   if (error instanceof AiProviderError) {
-    if (error.status === 429) return { code: "QUOTA_EXCEEDED", message: "انتهت الحصة المجانية أو وصل المزوّد إلى حد الطلبات؛ سيحوّل Zark تلقائيًا إلى المزوّد التالي." };
+    if (error.status === 429) return { code: "QUOTA_EXCEEDED", message: "انتهت الحصة المجانية أو وصل المزوّد إلى حد الطلبات؛ سيحوّل 3Pal تلقائيًا إلى المزوّد التالي." };
     if ([400, 401, 403].includes(error.status)) return { code: "INVALID_KEY", message: `المفتاح مرفوض. راجع ${keyName} وتأكد أنه بلا علامات اقتباس أو مسافات.` };
     if (error.status === 404) return { code: "MODEL_NOT_FOUND", message: `الموديل ${providerModel(provider)} غير متاح لهذا الحساب.` };
     if (error.status >= 500) return { code: "PROVIDER_UNAVAILABLE", message: `${provider} غير متاح مؤقتًا؛ الرد المحلي يعمل لحين عودة الخدمة.` };
@@ -316,10 +316,10 @@ async function reserveDailyTokens(userId: string, userLimit: number, globalLimit
     const inputEstimate = Math.max(250, Math.ceil(message.length / 3) + 350);
     const reservedTokens = inputEstimate + maxOutputTokens;
     const used = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0) + (usage?.reservedTokens ?? 0);
-    if (used + reservedTokens > userLimit) throw new AiBudgetError(`رصيد مساعد Zark اليومي غير كافٍ لهذا الرد. المتبقي ${Math.max(0, userLimit - used)} Token.`);
+    if (used + reservedTokens > userLimit) throw new AiBudgetError(`رصيد مساعد 3Pal اليومي غير كافٍ لهذا الرد. المتبقي ${Math.max(0, userLimit - used)} Token.`);
     const global = await tx.aiUsageDaily.aggregate({ where: { dayKey: key }, _sum: { inputTokens: true, outputTokens: true, reservedTokens: true } });
     const globalUsed = (global._sum.inputTokens ?? 0) + (global._sum.outputTokens ?? 0) + (global._sum.reservedTokens ?? 0);
-    if (globalUsed + reservedTokens > globalLimit) throw new AiBudgetError("وصل مساعد Zark إلى ميزانية Tokens العامة اليوم. الدعم المحلي ما زال متاحًا.");
+    if (globalUsed + reservedTokens > globalLimit) throw new AiBudgetError("وصل مساعد 3Pal إلى ميزانية Tokens العامة اليوم. الدعم المحلي ما زال متاحًا.");
     await tx.aiUsageDaily.update({ where: { userId_dayKey: { userId, dayKey: key } }, data: { reservedTokens: { increment: reservedTokens } } });
     return { reservedTokens, maxOutputTokens };
   });
@@ -331,9 +331,9 @@ async function reserveDailyRequest(userId: string, userLimit: number, globalLimi
   await serializable(async (tx) => {
     const key = dayKey();
     const usage = await tx.aiUsageDaily.findUnique({ where: { userId_dayKey: { userId, dayKey: key } } });
-    if ((usage?.requestCount ?? 0) >= userLimit) throw new Error("وصلت إلى الحد اليومي لرسائل مساعد Zark");
+    if ((usage?.requestCount ?? 0) >= userLimit) throw new Error("وصلت إلى الحد اليومي لرسائل مساعد 3Pal");
     const global = await tx.aiUsageDaily.aggregate({ where: { dayKey: key }, _sum: { requestCount: true } });
-    if ((global._sum.requestCount ?? 0) >= globalLimit) throw new Error("وصل مساعد Zark إلى الحد العام اليوم؛ حاول غدًا");
+    if ((global._sum.requestCount ?? 0) >= globalLimit) throw new Error("وصل مساعد 3Pal إلى الحد العام اليوم؛ حاول غدًا");
     await tx.aiUsageDaily.upsert({
       where: { userId_dayKey: { userId, dayKey: key } },
       update: { requestCount: { increment: 1 } },
@@ -370,7 +370,7 @@ async function executeSupportAction(input: { userId: string; displayName: string
   const targetId = message.match(/(?:<@!?)?(\d{17,20})>?/)?.[1];
   if (reportCommand && targetId) {
     const reasonMatch = message.match(/(?:السبب|سبب)\s*[:：-]?\s*(.{2,80})/iu);
-    const reason = (reasonMatch?.[1] ?? "بلاغ أُرسل عبر مساعد Zark").trim().slice(0, 80);
+    const reason = (reasonMatch?.[1] ?? "بلاغ أُرسل عبر مساعد 3Pal").trim().slice(0, 80);
     const report = await reportPlayer({ reporterId: input.userId, reporterName: input.displayName, reportedId: targetId, reason, description: message });
     return {
       answer: `✅ تم إرسال البلاغ بسرية وفتح تذكرة رقم ${report.id}. ستجدها في قسم «بلاغاتي السابقة» ويمكنك متابعة محادثة الإدارة منها.`,
@@ -411,10 +411,10 @@ async function executeSupportAction(input: { userId: string; displayName: string
   const durationMinutes = Math.min(360, Math.max(15, minuteMatch ? Number(minuteMatch[1]) : hourMatch ? Number(hourMatch[1]) * 60 : 60));
   const needsVoice = !/(?:بدون|بلا)\s*(?:فويس|voice)/.test(normalized);
   const mapName = game.slug === "roblox" ? message.match(/(?:ماب|map)\s*[:：-]?\s*([^،,]{2,60})/iu)?.[1].trim() : undefined;
-  const room = await createLfgRoom({ userId: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, gameSlug: game.slug, maxPlayers, durationMinutes, needsVoice, mapName, description: "أنشئت عبر مساعد Zark" });
+  const room = await createLfgRoom({ userId: input.userId, displayName: input.displayName, avatarUrl: input.avatarUrl, gameSlug: game.slug, maxPlayers, durationMinutes, needsVoice, mapName, description: "أنشئت عبر مساعد 3Pal" });
   pendingRoomRequests.delete(input.userId);
   return {
-    answer: `✅ أنشأت غرفة ${game.name} بنجاح: ${room.currentPlayers}/${room.maxPlayers}${needsVoice ? " مع Voice" : " بدون Voice"}. سيقوم Zark بإشعار المهتمين وتظهر الغرفة الآن في الموقع وDiscord.`,
+    answer: `✅ أنشأت غرفة ${game.name} بنجاح: ${room.currentPlayers}/${room.maxPlayers}${needsVoice ? " مع Voice" : " بدون Voice"}. سيقوم 3Pal بإشعار المهتمين وتظهر الغرفة الآن في الموقع وDiscord.`,
     action: { type: "LFG_CREATED", roomId: room.id, gameSlug: room.gameSlug },
     suggestions: [{ roomId: room.id, label: `${room.gameIcon ?? "🎮"} فتح غرفة ${room.gameName}`, gameSlug: room.gameSlug }],
   };
@@ -480,10 +480,10 @@ function supportScope(message: string): "CASUAL" | "SITE" | "OUT_OF_SCOPE" {
 
 function casualAnswer(displayName: string, message: string) {
   const normalized = normalize(message);
-  if (normalized.includes("صباح الخير")) return `صباح النور يا ${displayName} ☀️ كيف أساعدك في Zark اليوم؟`;
-  if (normalized.includes("مساء الخير")) return `مساء النور يا ${displayName} 🌙 شو حاب تعمل في Zark؟`;
-  if (normalized.includes("كيف حالك") || normalized.includes("شو اخبارك") || normalized.includes("شلونك")) return `تمام يا ${displayName}، وجاهز أساعدك في غرف LFG وأوامر Zark 😊`;
-  return `أهلًا يا ${displayName} 👋 اسألني عن غرف LFG أو ألعاب وأوامر Zark.`;
+  if (normalized.includes("صباح الخير")) return `صباح النور يا ${displayName} ☀️ كيف أساعدك في 3Pal اليوم؟`;
+  if (normalized.includes("مساء الخير")) return `مساء النور يا ${displayName} 🌙 شو حاب تعمل في 3Pal؟`;
+  if (normalized.includes("كيف حالك") || normalized.includes("شو اخبارك") || normalized.includes("شلونك")) return `تمام يا ${displayName}، وجاهز أساعدك في غرف LFG وأوامر 3Pal 😊`;
+  return `أهلًا يا ${displayName} 👋 اسألني عن غرف LFG أو ألعاب وأوامر 3Pal.`;
 }
 
 function normalize(value: string) {

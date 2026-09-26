@@ -119,7 +119,7 @@ export async function startZarkRace(gameSlug?: string, options: { channelId?: st
   const enabledGames=await db.zarkGame.findMany({where:{enabled:true},select:{slug:true}});
   const modules = enabledGames.map(game=>raceGames.get(game.slug)).filter((game):game is RaceGame=>Boolean(game));
   const module = gameSlug ? raceGames.get(gameSlug) : modules[Math.floor(Math.random() * modules.length)];
-  if (!module) throw new Error("لعبة Zark غير موجودة");
+  if (!module) throw new Error("لعبة 3Pal غير موجودة");
   const game = await db.zarkGame.findUniqueOrThrow({ where: { slug: module.slug } });
   if (!game.enabled) throw new Error("اللعبة معطّلة حاليًا");
   const totalRounds = options.totalRounds ?? 1;
@@ -330,8 +330,8 @@ export async function answerZarkRace(matchId: string, input: { userId: string; d
     return { duplicate: false as const, rank, points, typoCount: evaluation.typoCount, elapsedMs, hintUsed };
   });
   if (!("capped" in result) && !result.duplicate) {
-    await awardLoyaltyPoints({ userId: input.userId, amount: 20, reason: "فوز في لعبة Zark", referenceKey: `zark-win:${matchId}:${input.userId}` });
-    await awardLoyaltyPoints({ userId: input.userId, amount: 15, reason: "مهمة يومية: فوز Zark", referenceKey: `mission:win:${dayKey()}:${input.userId}` });
+    await awardLoyaltyPoints({ userId: input.userId, amount: 20, reason: "فوز في لعبة 3Pal", referenceKey: `zark-win:${matchId}:${input.userId}` });
+    await awardLoyaltyPoints({ userId: input.userId, amount: 15, reason: "مهمة يومية: فوز 3Pal", referenceKey: `mission:win:${dayKey()}:${input.userId}` });
     publish({ type: "zark.match_answered", matchId, userId: input.userId, displayName: input.displayName, points: result.points, rank: result.rank });
     publish({ type: "leaderboard.updated" });
   }
@@ -455,7 +455,7 @@ async function zarkSeriesStandings(seriesId: string) {
   return [...totals.values()].sort((a, b) => b.wins - a.wins || b.points - a.points || a.displayName.localeCompare(b.displayName, "ar"));
 }
 
-function gameChannelBusy(gameName = "Zark", roundNumber?: number, totalRounds?: number) {
+function gameChannelBusy(gameName = "3Pal", roundNumber?: number, totalRounds?: number) {
   return Object.assign(new Error(`توجد لعبة ${gameName} شغالة في هذه القناة${roundNumber && totalRounds ? ` — الجولة ${roundNumber}/${totalRounds}` : ""}. انتظر حتى تنتهي المباراة.`), { statusCode: 409 });
 }
 

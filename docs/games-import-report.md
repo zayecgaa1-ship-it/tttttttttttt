@@ -1,4 +1,4 @@
-# تقرير دمج ألعاب Zark القديمة
+# تقرير دمج ألعاب 3Pal القديمة
 
 تم تحليل المجلد `D:\Users\Administrator\Desktop\games` ودمج بنوك البيانات القابلة للنقل داخل محرك `RaceGame` الحالي، مع إبقاء PostgreSQL وCentral API مسؤولين عن النتائج والنقاط.
 
@@ -25,7 +25,7 @@ node scripts/import-legacy-games.mjs "D:\Users\Administrator\Desktop\games"
 
 ## ما لم يُنسخ مباشرة
 
-ملفات Mafia والكراسي وXO وبقية ألعاب Multiplayer القديمة تعتمد على CommonJS وذاكرة العملية وMongoDB model باسم `GameStats`. نسخها كما هي سيخالف معمارية Zark الحالية وقد يفقد المباريات بعد Restart. بياناتها وأفكارها صالحة، لكن تنفيذها الصحيح يحتاج Game Session state محفوظًا في PostgreSQL، أحداث Redis موحدة، وعمليات مؤقتة Server-side. لذلك تم إبقاؤها لمرحلة محرك Multiplayer بدل إدخال كود غير مستقر.
+ملفات Mafia والكراسي وXO وبقية ألعاب Multiplayer القديمة تعتمد على CommonJS وذاكرة العملية وMongoDB model باسم `GameStats`. نسخها كما هي سيخالف معمارية 3Pal الحالية وقد يفقد المباريات بعد Restart. بياناتها وأفكارها صالحة، لكن تنفيذها الصحيح يحتاج Game Session state محفوظًا في PostgreSQL، أحداث Redis موحدة، وعمليات مؤقتة Server-side. لذلك تم إبقاؤها لمرحلة محرك Multiplayer بدل إدخال كود غير مستقر.
 
 ## الصور
 

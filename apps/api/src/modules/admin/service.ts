@@ -17,7 +17,7 @@ type GuildSettingsInput = Omit<GuildRuntimeSettings, "guildId" | "lfgChannelId" 
 export async function getGuildRuntimeSettings(): Promise<GuildRuntimeSettings> {
   const guildId = process.env.DISCORD_GUILD_ID ?? "default";
   const [identity, storedSettings] = await Promise.all([
-    db.botIdentity.upsert({ where: { id: 1 }, update: {}, create: { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل" } }),
+    db.botIdentity.upsert({ where: { id: 1 }, update: {}, create: { name: "3Pal Games", tagline: "3Pal Games — فريقك أقرب مما تتخيل" } }),
     db.guildSettings.upsert({
       where: { guildId },
       update: {},

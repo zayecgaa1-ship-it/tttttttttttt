@@ -1,4 +1,4 @@
-// يجهّز شعار 3Pal games داخل الموقع من أي صورة مصدر.
+// يجهّز شعار 3Pal Community داخل الموقع من أي صورة مصدر.
 //
 // الاستخدام:
 //   node scripts/import-3pal-logo.mjs "C:\Users\me\Downloads\3pal.png"
@@ -87,4 +87,4 @@ console.log(`المصدر: ${source} (${metadata.width}×${metadata.height} ${me
 console.log(`✅ ${path.relative(process.cwd(), logoPath)} — 1024×1024 — ${size(logoPath)}`);
 console.log(`✅ ${path.relative(process.cwd(), iconPath)} — 256×256 — ${size(iconPath)}`);
 console.log(`✅ ${path.relative(process.cwd(), ogPath)} — 1200×630 — ${size(ogPath)}`);
-console.log("تم. حدّث الصفحة (Ctrl+F5) لتظهر أيقونة 3Pal games في الموقع والفاتحة.");
+console.log("تم. حدّث الصفحة (Ctrl+F5) لتظهر أيقونة 3Pal Community في الموقع والفاتحة.");

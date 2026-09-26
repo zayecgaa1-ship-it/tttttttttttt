@@ -22,7 +22,7 @@ globalThis.fetch = (async (input) => {
 
 try {
   await db.user.upsert({ where: { id: userId }, update: { displayName: "Failover User" }, create: { id: userId, displayName: "Failover User" } });
-  const reply = await askSupport({ userId, displayName: "Failover User", message: "كيف أدخل غرفة LFG في موقع Zark؟" });
+  const reply = await askSupport({ userId, displayName: "Failover User", message: "كيف أدخل غرفة LFG في موقع 3Pal؟" });
   if (reply.mode !== "AI" || reply.provider !== "GROQ" || reply.providersTried?.join(",") !== "GEMINI,GROQ") throw new Error("AI provider failover assertion failed");
   const diagnosis = await diagnoseSupportAi(userId);
   if (!diagnosis.connected || diagnosis.provider !== "GROQ" || diagnosis.providers.length !== 2) throw new Error("AI diagnostics assertion failed");

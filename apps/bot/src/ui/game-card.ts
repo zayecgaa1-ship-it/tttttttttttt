@@ -83,7 +83,7 @@ function badgeMark(x: number, y: number) {
 
 export async function renderGameCard(input: GameCardInput) {
   const fontFace = fontFaceCss(input.fontPath);
-  const badge = input.badge ?? "3PAL GAMES";
+  const badge = input.badge ?? "3Pal Community";
   const lines = input.promptLines.slice(0, 4);
   const lineMarkup = lines
     .map((line, index) => `<text x="800" y="${GAME_CARD.promptStart + index * GAME_CARD.promptGap}" text-anchor="middle" class="prompt">${escapeXml(line)}</text>`)

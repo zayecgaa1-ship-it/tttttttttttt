@@ -8,14 +8,14 @@ export const VIP_PRICE = 2_500;
 export const loyaltyShop = [
   { key: "double-24h", name: "مضاعف الولاء ×2", description: "كل نقاط الولاء التي تكسبها تتضاعف لمدة 24 ساعة.", icon: "⚡", price: 450, kind: "TIMED" },
   { key: "lfg-priority-7d", name: "أولوية غرف LFG", description: "غرفك تظهر بشارة مميزة وفي مقدمة قائمة الغرف لمدة 7 أيام.", icon: "🚀", price: 700, kind: "TIMED" },
-  { key: "gold-badge", name: "شارة المؤسس الذهبية", description: "شارة دائمة تظهر بجانب اسمك في ملف Zark.", icon: "🏅", price: 1_000, kind: "PERMANENT" },
-  { key: "vip", name: "Zark VIP · 3 أيام", description: "رتبة VIP لمدة 3 أيام مع ×1.5 لنقاط الولاء وXP. كل شراء جديد يمدد المدة.", icon: "💎", price: VIP_PRICE, kind: "TIMED" },
+  { key: "gold-badge", name: "شارة المؤسس الذهبية", description: "شارة دائمة تظهر بجانب اسمك في ملف 3Pal.", icon: "🏅", price: 1_000, kind: "PERMANENT" },
+  { key: "vip", name: "3Pal VIP · 3 أيام", description: "رتبة VIP لمدة 3 أيام مع ×1.5 لنقاط الولاء وXP. كل شراء جديد يمدد المدة.", icon: "💎", price: VIP_PRICE, kind: "TIMED" },
 ] as const;
 export type LoyaltyRewardKey = typeof loyaltyShop[number]["key"];
 export const loyaltyTiers = [
-  { key: "member", name: "Zark Member", threshold: 0 },
-  { key: "loyal", name: "Zark Loyal", threshold: 500 },
-  { key: "elite", name: "Zark Elite", threshold: 1_500 },
+  { key: "member", name: "3Pal Member", threshold: 0 },
+  { key: "loyal", name: "3Pal Loyal", threshold: 500 },
+  { key: "elite", name: "3Pal Elite", threshold: 1_500 },
 ] as const;
 
 export function loyaltyTier(points: number) {
@@ -96,7 +96,7 @@ export async function weeklyLoyaltyLeaderboard() {
   const rows = await db.loyaltyTransaction.groupBy({ by: ["userId"], where: { amount: { gt: 0 }, createdAt: { gte: since } }, _sum: { amount: true }, orderBy: { _sum: { amount: "desc" } }, take: 10 });
   const users = await db.user.findMany({ where: { id: { in: rows.map((row) => row.userId) } }, select: { id: true, displayName: true, avatarUrl: true } });
   const byId = new Map(users.map((user) => [user.id, user]));
-  return rows.map((row, index) => ({ rank: index + 1, userId: row.userId, displayName: byId.get(row.userId)?.displayName ?? "لاعب Zark", avatarUrl: byId.get(row.userId)?.avatarUrl ?? undefined, points: row._sum.amount ?? 0 }));
+  return rows.map((row, index) => ({ rank: index + 1, userId: row.userId, displayName: byId.get(row.userId)?.displayName ?? "لاعب 3Pal", avatarUrl: byId.get(row.userId)?.avatarUrl ?? undefined, points: row._sum.amount ?? 0 }));
 }
 
 export async function startLoyaltyBoost(adminId: string, minutes = 60) {

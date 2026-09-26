@@ -125,7 +125,7 @@ export async function inviteToTeam(teamId: string, input: { userId: string; invi
     db.team.findUniqueOrThrow({ where: { id: teamId }, include: { _count: { select: { members: true } } } }),
     db.user.findUnique({ where: { id: input.invitedUserId }, select: { id: true, displayName: true, teamMembership: true } }),
   ]);
-  if (!invited) throw new Error("هذا العضو لم يستخدم Zark بعد");
+  if (!invited) throw new Error("هذا العضو لم يستخدم 3Pal بعد");
   if (invited.teamMembership) throw new Error("هذا العضو موجود في فريق آخر");
   if (team._count.members >= team.maxMembers) throw new Error("الفريق ممتلئ");
   const invite = await db.teamInvite.upsert({

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "Zark — منصة تنافسية لإحياء مجتمع Discord",
+  "description": "3Pal — منصة تنافسية لإحياء مجتمع Discord",
   "scripts": {
     "start": "npm run db:push:deploy && node scripts/start-services.mjs",
     "dev:api": "tsx apps/api/src/index.ts",

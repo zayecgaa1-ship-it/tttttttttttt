@@ -686,13 +686,14 @@ app.delete("/api/web-admin/reports/:kind/:id", async (request) => {
 });
 app.get("/api/state", async (request) => {
   await enforceRateLimit("public-state", request.ip, 120, 60);
-  const [lfgCatalog, identity, daily, currentLeaderboard, rooms, zarkGames] = await Promise.all([
+  const [lfgCatalog, identity, daily, currentLeaderboard, rooms, zarkGames, lfgInsights] = await Promise.all([
     getLfgCatalog(),
-    db.botIdentity.upsert({ where: { id: 1 }, update: {}, create: { name: "Zark LFG System", tagline: "Zark LFG System — فريقك أقرب مما تتخيل" } }),
+    db.botIdentity.upsert({ where: { id: 1 }, update: {}, create: { name: "3Pal Games", tagline: "3Pal Games — فريقك أقرب مما تتخيل" } }),
     getOrCreateDaily(),
     leaderboard(),
     listLfgRooms(),
     listZarkGames(),
+    getLfgInterestInsights(),
   ]);
   return {
     guildId: process.env.DISCORD_GUILD_ID,
@@ -703,6 +704,8 @@ app.get("/api/state", async (request) => {
     zarkGames,
     lfgCatalog,
     lfgGames: lfgCatalog.flatMap((category) => category.games),
+    // أعداد المهتمين ونسبة الاهتمام لكل لعبة — تُعرض في بطاقة "أشهر الألعاب".
+    lfgInsights,
   };
 });
 app.get("/api/leaderboard", async (request) => {
@@ -1058,7 +1061,7 @@ function safeEqual(left: string, right: string) {
 
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
 await app.listen({ port, host: "0.0.0.0" });
-console.log(`Zark API listening on http://localhost:${port}`);
+console.log(`3Pal API listening on http://localhost:${port}`);
 void processDueLfgRooms().catch((error) => app.log.error(error));
 void processAutoSmartRooms().catch((error) => app.log.error(error));
 void expireDueTrades().catch((error) => app.log.error(error));
@@ -1078,7 +1081,7 @@ let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  app.log.info({ signal }, "Shutting down Zark API");
+  app.log.info({ signal }, "Shutting down 3Pal API");
   clearInterval(roomLifecycleTimer);
   clearInterval(autoSmartRoomTimer);
   clearInterval(tradeExpiryTimer);

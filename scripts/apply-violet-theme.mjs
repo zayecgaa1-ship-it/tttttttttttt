@@ -1,4 +1,4 @@
-// سكربت تحويل ثيم 3PAL GAMES من الذهبي/الأحمر إلى البنفسجي المطابق للتصميم
+// سكربت تحويل ثيم 3Pal Community من الذهبي/الأحمر إلى البنفسجي المطابق للتصميم
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

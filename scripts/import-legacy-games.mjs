@@ -52,7 +52,7 @@ for (const [slug, entries] of Object.entries(bank)) {
   bank[slug] = entries.filter((entry) => entry.prompt && entry.answers.length);
 }
 
-const output = `// Generated from the user's legacy Zark game data. Re-run scripts/import-legacy-games.mjs to refresh.\nexport type ImportedRaceQuestion = { prompt: string; answers: string[]; mediaUrl?: string };\nexport const importedQuestionBank: Record<string, ImportedRaceQuestion[]> = ${JSON.stringify(bank, null, 2)};\n`;
+const output = `// Generated from the user's legacy 3Pal game data. Re-run scripts/import-legacy-games.mjs to refresh.\nexport type ImportedRaceQuestion = { prompt: string; answers: string[]; mediaUrl?: string };\nexport const importedQuestionBank: Record<string, ImportedRaceQuestion[]> = ${JSON.stringify(bank, null, 2)};\n`;
 const target = path.resolve("packages/games/src/imported-question-bank.ts");
 fs.writeFileSync(target, output, "utf8");
 console.log(JSON.stringify(Object.fromEntries(Object.entries(bank).map(([slug, entries]) => [slug, entries.length])), null, 2));

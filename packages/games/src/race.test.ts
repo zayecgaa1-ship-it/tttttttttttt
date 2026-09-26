@@ -71,7 +71,7 @@ test("catalogue counts real questions, including all restored games", () => {
   }
 });
 
-test("every Zark game gives exactly fifteen seconds to answer", () => {
+test("every 3Pal game gives exactly fifteen seconds to answer", () => {
   assert.equal(raceAnswerDurationMs, 15_000);
   for (const game of raceGames.values()) assert.equal(game.durationMs, 15_000, `${game.slug} must keep the shared fifteen-second answer window`);
 });

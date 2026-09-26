@@ -43,7 +43,7 @@ export async function registerDiscordAuth(app: FastifyInstance) {
     let roles: string[] = [];
     if (guildId) {
       const memberResponse = await fetch(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, { headers: { authorization: `Bearer ${token.access_token}` }, signal: AbortSignal.timeout(10_000) });
-      if (!memberResponse.ok) throw new HttpError("يجب أن تكون عضوًا في سيرفر Zark لاستخدام الموقع", 403);
+      if (!memberResponse.ok) throw new HttpError("يجب أن تكون عضوًا في سيرفر 3Pal لاستخدام الموقع", 403);
       const member = await memberResponse.json() as { roles?: string[] };
       roles = member.roles ?? [];
     }
@@ -82,7 +82,7 @@ export async function requireWebUser(request: FastifyRequest): Promise<WebUser> 
 
 export async function requireWebAdmin(request: FastifyRequest): Promise<WebUser> {
   const user = await requireWebUser(request);
-  if (!(await isCurrentWebAdmin(user))) throw new HttpError("هذه الصفحة متاحة لإدارة Zark فقط", 403);
+  if (!(await isCurrentWebAdmin(user))) throw new HttpError("هذه الصفحة متاحة لإدارة 3Pal فقط", 403);
   const guildId = process.env.DISCORD_GUILD_ID;
   if (guildId && await isSuspended(guildId, user.userId)) throw new HttpError("تم تعليق صلاحيات الإدارة لهذا الحساب من نظام الحماية", 403);
   return user;
@@ -90,7 +90,7 @@ export async function requireWebAdmin(request: FastifyRequest): Promise<WebUser>
 
 export async function requireWebOwner(request: FastifyRequest): Promise<WebUser> {
   const user = await requireWebUser(request);
-  if (!isOwnerId(user.userId)) throw new HttpError("صفحة الحماية متاحة لمالك Zark فقط", 403);
+  if (!isOwnerId(user.userId)) throw new HttpError("صفحة الحماية متاحة لمالك 3Pal فقط", 403);
   return user;
 }
 

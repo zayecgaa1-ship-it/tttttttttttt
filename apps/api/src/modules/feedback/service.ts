@@ -56,7 +56,7 @@ export async function reportPlayer(input: { reporterId: string; reporterName: st
   if (input.reporterId === input.reportedId) throw new Error("لا يمكنك الإبلاغ عن نفسك");
   const report = await serializable(async (tx) => {
     await tx.user.upsert({ where: { id: input.reporterId }, update: { displayName: input.reporterName }, create: { id: input.reporterId, displayName: input.reporterName } });
-    if (!(await tx.user.findUnique({ where: { id: input.reportedId }, select: { id: true } }))) throw new Error("اللاعب المُبلّغ عنه غير موجود في Zark");
+    if (!(await tx.user.findUnique({ where: { id: input.reportedId }, select: { id: true } }))) throw new Error("اللاعب المُبلّغ عنه غير موجود في 3Pal");
     const reportsToday = await tx.report.count({ where: { reporterId: input.reporterId, createdAt: { gte: startOfToday() } } });
     if (reportsToday >= 3) throw new Error("وصلت إلى الحد اليومي للبلاغات");
     if (input.roomId) {

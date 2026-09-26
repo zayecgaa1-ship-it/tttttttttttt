@@ -39,7 +39,7 @@ try {
   const deleted = await deleteGameQuestion(adminId, "flags", created.id);
   questionId = undefined;
   assert.equal(deleted.deleted, true);
-  console.log("Admin Zark game content smoke passed: list, add, edit, disable, and delete.");
+  console.log("Admin 3Pal game content smoke passed: list, add, edit, disable, and delete.");
 } finally {
   if (matchId) await db.zarkMatch.deleteMany({ where: { id: matchId } });
   if (questionId) await db.gameQuestion.deleteMany({ where: { id: questionId } });

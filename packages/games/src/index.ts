@@ -109,7 +109,7 @@ const fastType: RaceGame = {
   durationMs: 35_000,
   aliases: ["اسرع", "أسرع", "كتابة"],
   generate: (random) => {
-    const sentence = pick(["Zark يجمع اللاعبين بسرعة", "المنافسة تبدأ بخطوة واحدة", "فريقك ينتظرك الآن", "السرعة تصنع الفارق"], random);
+    const sentence = pick(["3Pal يجمع اللاعبين بسرعة", "المنافسة تبدأ بخطوة واحدة", "فريقك ينتظرك الآن", "السرعة تصنع الفارق"], random);
     return { prompt: `⌨️ اكتب بالضبط: **${sentence}**`, answers: [sentence] };
   },
 };
@@ -135,7 +135,7 @@ const wordOrder: RaceGame = {
   durationMs: 50_000,
   aliases: ["ترتيب", "جملة"],
   generate: (random) => {
-    const sentence = pick(["فريقك جاهز للعب الآن", "المنافسة تزيد حماس السيرفر", "Zark يجمع أفضل اللاعبين"], random);
+    const sentence = pick(["فريقك جاهز للعب الآن", "المنافسة تزيد حماس السيرفر", "3Pal يجمع أفضل اللاعبين"], random);
     const words = sentence.split(" ");
     const shuffled = [...words].sort(() => random() - 0.5);
     return { prompt: `🔤 رتب الكلمات: **${shuffled.join(" — ")}**`, answers: [sentence] };

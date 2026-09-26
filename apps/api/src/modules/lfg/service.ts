@@ -61,7 +61,7 @@ const catalog = [
   { slug: "among-us", name: "Among Us", icon: "🚀", category: "party", minPlayers: 4, maxPlayers: 15 },
   { slug: "fall-guys", name: "Fall Guys", icon: "🎉", category: "party", minPlayers: 2, maxPlayers: 8 },
 ].map((item) => ({ ...item, platforms: defaultPlatformsFor(item.slug) }));
-const autoOrganizer = { userId: "zark-auto-organizer", displayName: "Zark Organizer" };
+const autoOrganizer = { userId: "zark-auto-organizer", displayName: "3Pal Organizer" };
 
 let catalogSeedPromise: Promise<void> | undefined;
 
@@ -150,7 +150,7 @@ export async function getSmartRoomDashboard() {
 
 export async function getSmartRoomHistory() {
   const rooms = await db.lfgRoom.findMany({
-    where: { title: { startsWith: "تجمع Zark تلقائي" } },
+    where: { title: { startsWith: "تجمع 3Pal تلقائي" } },
     include: { lfgGame: { select: { name: true, icon: true } } },
     orderBy: { createdAt: "desc" }, take: 12,
   });
@@ -308,7 +308,7 @@ export async function smartMatchLfg(input: { userId: string; displayName: string
   const room = await createLfgRoom({
     ...input, gameSlug: game.slug, maxPlayers: targetPlayers,
     title: `تجمع ذكي • ${insight.interestPercent}% مهتمون`,
-    description: `رتّبه Zark حسب الاهتمام والتفرغ الآن: ${insight.availableNowCount} لاعب متاح.`,
+    description: `رتّبه 3Pal حسب الاهتمام والتفرغ الآن: ${insight.availableNowCount} لاعب متاح.`,
   });
   return { room, insight, joinedExisting: false, recommendation: { reason: `اخترنا ${game.name} حسب اهتماماتك ووجود ${insight.availableNowCount} لاعبين متاحين الآن.`, score: insight.availableNowCount * 4 + insight.interestPercent, teammates: 0 } };
 }
@@ -336,7 +336,7 @@ export async function processAutoSmartRooms(options: { force?: boolean } = {}) {
     if (playerCount < settings.autoRoomMinimumInterested) continue;
     const [existing, recentAutoRoom] = await Promise.all([
       db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, status: { in: ["SCHEDULED", "OPEN", "FULL", "ACTIVE"] } }, select: { id: true } }),
-      db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, title: { startsWith: "تجمع Zark تلقائي" }, createdAt: { gte: cooldownSince } }, select: { id: true } }),
+      db.lfgRoom.findFirst({ where: { lfgGameId: catalogGame.id, title: { startsWith: "تجمع 3Pal تلقائي" }, createdAt: { gte: cooldownSince } }, select: { id: true } }),
     ]);
     if (!existing && !recentAutoRoom) selected = { candidate: insight, game: catalogGame, playerCount };
     if (selected) break;
@@ -351,8 +351,8 @@ export async function processAutoSmartRooms(options: { force?: boolean } = {}) {
       maxPlayers: Math.min(game.maxPlayers, Math.max(settings.autoRoomMinimumInterested, playerCount)),
       durationMinutes: settings.defaultRoomDurationMinutes, status: "OPEN", source: "AUTO", needsVoice: true,
       expiresAt: null,
-      title: `تجمع Zark تلقائي • ${candidate.interestPercent}% مهتمون`,
-      description: `اختاره Zark تلقائيًا: ${playerCount} عضوًا مهتمًا باللعبة.`,
+      title: `تجمع 3Pal تلقائي • ${candidate.interestPercent}% مهتمون`,
+      description: `اختاره 3Pal تلقائيًا: ${playerCount} عضوًا مهتمًا باللعبة.`,
       roomEmoji: game.icon || "🎮", accentColor: "#e50914", autoDeleteAt: null,
     }, include: roomInclude,
   });

@@ -1,4 +1,4 @@
-# متغيرات Railway لمشروع Zark
+# متغيرات Railway لمشروع 3Pal
 
 ## المتغيرات المقترحة في شاشة Railway
 
@@ -8,7 +8,7 @@
 | `RAILWAY_PROJECT_ID` | لا تضفه يدويًا؛ Railway ينشئه تلقائيًا. |
 | `DISCORD_DAILY_CHANNEL_ID` | اختياري: ID قناة تحدي اليوم والإعلانات اليومية. اتركه فارغًا إن لم تنشئ القناة. |
 | `DISCORD_LFG_CATEGORY_ID` | اختياري: ID الـCategory التي ستحتوي غرف Text وVoice المؤقتة. يجب أن يكون Category ID وليس Channel ID. |
-| `DISCORD_PUBLIC_CHANNEL_ID` | اختياري: ID قناة الإعلانات العامة وZark Live. |
+| `DISCORD_PUBLIC_CHANNEL_ID` | اختياري: ID قناة الإعلانات العامة و3Pal Live. |
 | `INTERNAL_API_URL` | اتركه فارغًا ما دام البوت والـAPI في نفس Railway Service؛ النظام يستخدم `127.0.0.1` تلقائيًا. |
 | `OPENAI_API_KEY` | احذفه من Suggested Variables؛ النظام المجاني لا يستخدم OpenAI المدفوع. |
 | `OPENAI_MODEL` | احذفه من Suggested Variables. |
@@ -31,4 +31,4 @@ OPENROUTER_MODEL=openrouter/free
 
 لا تضع علامات اقتباس حول المفاتيح، ولا تضف مسافة قبل المفتاح أو بعده. بعد الحفظ أعد نشر الخدمة، ثم افتح لوحة الإدارة واضغط **فحص جميع مزودي AI**.
 
-ترتيب التحويل: Gemini ثم Groq ثم OpenRouter Free ثم مساعد Zark المحلي.
+ترتيب التحويل: Gemini ثم Groq ثم OpenRouter Free ثم مساعد 3Pal المحلي.

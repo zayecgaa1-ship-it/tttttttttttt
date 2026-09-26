@@ -51,7 +51,7 @@ try{
   await page.keyboard.press('Escape');assert.equal(await page.locator('#zark-tutorial-v4').count(),0);
 
   await page.goto('https://zark.local/');
-  await page.locator('#tutorial-help-fab').click();await page.locator('[data-full]').click();await title('مرحبًا في 3PAL GAMES');
+  await page.locator('#tutorial-help-fab').click();await page.locator('[data-full]').click();await title('مرحبًا في 3Pal Community');
   await page.locator('[data-next]').click();await title('التنقل');
   assert.equal(await page.locator('#mobile-more-drawer').isVisible(),true);
   assert.equal(await page.locator('#mobile-more-drawer section').getAttribute('data-tour-active'),'true');

@@ -32,18 +32,18 @@ const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.p
 try{
   await page.goto('https://zark.local/teams.html');
   await page.waitForSelector('#team-create-form');
-  await page.locator('#team-name').fill('Zark Legends');
+  await page.locator('#team-name').fill('3Pal Legends');
   await page.locator('#team-description').fill('فريق عربي للمنافسة');
-  await page.locator('#team-search').fill('Zark');
-  await page.waitForResponse(response=>response.url().includes('/api/teams?search=Zark'));
+  await page.locator('#team-search').fill('3Pal');
+  await page.waitForResponse(response=>response.url().includes('/api/teams?search=3Pal'));
   await page.waitForTimeout(100);
-  assert.equal(await page.locator('#team-name').inputValue(),'Zark Legends','search must preserve the team draft');
+  assert.equal(await page.locator('#team-name').inputValue(),'3Pal Legends','search must preserve the team draft');
   await page.evaluate(()=>window.testStream.onmessage({data:JSON.stringify({type:'lfg.updated'})}));
   await page.waitForTimeout(1200);
   assert.equal(await page.locator('#team-description').inputValue(),'فريق عربي للمنافسة','realtime must preserve unsaved fields');
   await page.locator('#team-create-form button[type=submit]').click();
   await page.waitForSelector('.team-dashboard');
-  assert.equal(createdBody.name,'Zark Legends');
+  assert.equal(createdBody.name,'3Pal Legends');
   assert.equal(await page.locator('.team-card').count(),1);
   assert.equal(await page.locator('.team-member-list article').count(),1);
   page.on('dialog',dialog=>dialog.accept());

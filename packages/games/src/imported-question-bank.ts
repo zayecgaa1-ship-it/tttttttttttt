@@ -1,4 +1,4 @@
-// Generated from the user's legacy Zark game data. Re-run scripts/import-legacy-games.mjs to refresh.
+// Generated from the user's legacy 3Pal game data. Re-run scripts/import-legacy-games.mjs to refresh.
 export type ImportedRaceQuestion = { prompt: string; answers: string[]; mediaUrl?: string };
 export const importedQuestionBank: Record<string, ImportedRaceQuestion[]> = {
   "translate": [
@@ -780,15 +780,6 @@ export const importedQuestionBank: Record<string, ImportedRaceQuestion[]> = {
       ]
     },
     {
-      "prompt": "🚩 لأي دولة هذا العلم؟ 🇬🇧",
-      "answers": [
-        "بريطانيا",
-        "انجلترا",
-        "uk",
-        "britain"
-      ]
-    },
-    {
       "prompt": "🚩 لأي دولة هذا العلم؟ 🇳🇱",
       "answers": [
         "هولندا",
@@ -1137,15 +1128,6 @@ export const importedQuestionBank: Record<string, ImportedRaceQuestion[]> = {
       "answers": [
         "منغوليا",
         "mongolia"
-      ]
-    },
-    {
-      "prompt": "🚩 لأي دولة هذا العلم؟ 🇺🇸",
-      "answers": [
-        "أمريكا",
-        "الولايات المتحدة",
-        "usa",
-        "america"
       ]
     },
     {

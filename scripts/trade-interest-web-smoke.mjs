@@ -6,7 +6,7 @@ const browser=await chromium.launch({channel:'msedge',headless:true});
 const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'});
 const actor={userId:'buyer',displayName:'المهتم'},owner={id:'seller',displayName:'صاحب العرض'};
 let interest=null,sends=0;
-const trade=()=>({code:'ZARK-1',itemName:'غرض تجريبي',owner,game:{name:'Minecraft',slug:'minecraft'},haveText:'غرض',wantText:'بديل',imageData:'/assets/zark-og.png',isOwner:false,status:interest?.status==='ACCEPTED'?'PENDING':'OPEN',interests:interest?[interest]:[]});
+const trade=()=>({code:'3PAL-1',itemName:'غرض تجريبي',owner,game:{name:'Minecraft',slug:'minecraft'},haveText:'غرض',wantText:'بديل',imageData:'/assets/zark-og.png',isOwner:false,status:interest?.status==='ACCEPTED'?'PENDING':'OPEN',interests:interest?[interest]:[]});
 await context.addInitScript(()=>{localStorage.setItem('zark-tutorial-v4',JSON.stringify({pausedVersion:4}));window.EventSource=class{close(){}}});
 await context.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url());
@@ -15,8 +15,8 @@ await context.route('**/*',async route=>{
     if(url.pathname==='/api/me')data={user:actor};
     else if(url.pathname==='/api/state')data={lfgGames:[]};
     else if(url.pathname==='/api/trades')data=[trade()];
-    else if(url.pathname==='/api/trades/ZARK-1')data=trade();
-    else if(url.pathname==='/api/me/trades/ZARK-1/interest'){
+    else if(url.pathname==='/api/trades/3PAL-1')data=trade();
+    else if(url.pathname==='/api/me/trades/3PAL-1/interest'){
       sends++;interest={id:'interest',userId:actor.userId,user:{id:actor.userId,displayName:actor.displayName},status:'PENDING'};data=interest;
     }
     else if(url.pathname==='/api/me/trades')data=[];
