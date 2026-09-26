@@ -2,7 +2,6 @@ export const ZARK_IDENTITY = {
   name: "Zark LFG System",
   tagline: process.env.ZARK_TAGLINE ?? "Zark LFG System — فريقك أقرب مما تتخيل",
 } as const;
-
 export type LiveRoom = {
   platform?: import('./lfg-platform.js').LfgPlatform;
   gamePlatforms?: import('./lfg-platform.js').LfgPlatform[];
@@ -49,7 +48,6 @@ export type LiveRoom = {
   listingMessageId?: string;
   members: Array<{ id: string; displayName: string; avatarUrl?: string; voiceActive: boolean; voiceSeconds: number }>;
 };
-
 export type DailyChallenge = {
   id: string;
   gameSlug: string;
@@ -59,7 +57,6 @@ export type DailyChallenge = {
   startedAt: string;
   endsAt: string;
 };
-
 export type ZarkGameSummary = {
   durationMs?: number;
   slug: string;
@@ -72,7 +69,6 @@ export type ZarkGameSummary = {
   aliases: string[];
   questionCount: number;
 };
-
 export type LfgGameSummary = {
   id: string;
   slug: string;
@@ -80,7 +76,6 @@ export type LfgGameSummary = {
   icon?: string;
   category?: string;
 };
-
 export type GuildRuntimeSettings = {
   guildId: string;
   botName: string;
@@ -126,7 +121,6 @@ export type GuildRuntimeSettings = {
   activityTrackingEnabled: boolean;
   availabilityLfgIntegration: boolean;
 };
-
 export type LeaderboardRow = {
   userId: string;
   displayName: string;
@@ -136,7 +130,6 @@ export type LeaderboardRow = {
   xp: number;
   wins: number;
 };
-
 export type ZarkEvent =
   | { type: "zark.match_started"; matchId: string; seriesId: string; gameSlug: string; channelId?: string; roundNumber: number; totalRounds: number }
   | { type: "zark.match_answered"; matchId: string; userId: string; displayName: string; points: number; rank: number }
@@ -177,7 +170,6 @@ export type ZarkEvent =
   | { type: "trade.report_updated"; tradeId: string; publicId: number; reportId: string; status: string }
   | { type: "broadcast.created"; broadcastId: string; adminId: string }
   | { type: "guild.settings_updated"; adminId: string; settings: GuildRuntimeSettings };
-
 export type DomainEventEnvelope = {
   eventId: string;
   eventType: ZarkEvent["type"];
@@ -187,6 +179,6 @@ export type DomainEventEnvelope = {
   actorId?: string;
   resourceId: string;
   payload: ZarkEvent;
+
 };
 
-export * from ./command-cooldown.js;

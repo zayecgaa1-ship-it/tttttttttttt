@@ -1402,7 +1402,7 @@ if (!token) {
           await apiSend('/api/security/actions','POST',{guildId:message.guildId,executorId:message.author.id,actionType:'UNKNOWN',reason,metadata:{kind:'PROFANITY',content:String(message.content??'').slice(0,4000),matched:hit.matched,deleted,channelId:message.channelId,messageId:message.id,displayName:message.author.username}}).catch(error=>console.error('Profanity audit failed',error));
           const embed=baseEmbed().setTitle(deleted?'🛡️ حُذفت مسبة':'⚠️ مسبة لم يتمكن البوت من حذفها').setDescription(reason).addFields({name:'المرسل',value:`${message.author.username} (${message.author.id})`},{name:'الروم',value:message.channelId},{name:'نص الرسالة',value:String(message.content??'').slice(0,1000)||'—'});
           const payload={embeds:[embed],allowedMentions:{parse:[] as never[]}};
-          if(moderationConfig?.profanityNotifyOwner)await client.users.send(ownerUserId,payload).catch(error=>console.error('Profanity owner DM failed',error));
+          if(moderationConfig?.profanityNotifyOwner&&ownerUserId)await client.users.send(ownerUserId,payload).catch(error=>console.error('Profanity owner DM failed',error));
           const logId=moderationConfig?.securityLogChannelId||runtimeSettings.reportChannelId;
           if(moderationConfig?.profanityLogEnabled&&logId){const log=await message.guild.channels.fetch(logId).catch(()=>null);if(log?.isTextBased()&&'send' in log)await log.send(payload).catch((error:unknown)=>console.error('Profanity log failed',error));}
         }finally{moderationInFlight.delete(message.id)}
@@ -2512,7 +2512,7 @@ if (!token) {
       .setDescription(`**Admin:** ${admin?.user.username ?? executorId}\n**Display Name:** ${admin?.displayName ?? "غير متاح"}\n**Discord ID:** \`${executorId}\`\n**Timeouts Last 60 Minutes:** **${result.counts?.timeouts ?? 0}**\n**Risk Level:** ${critical ? "CRITICAL" : "HIGH"}`)
       .addFields({ name: "آخر عمليتي Timeout", value: rows.slice(0, 1024) }, { name: "الحالة", value: result.suspend ? "⚠️ Admin Suspended Automatically" : "⚠️ Warning Only - No Suspension Applied" })
       .setFooter({ text: `${guild.name} · ${guild.id} · Latest audit ${entry.id}` }).setTimestamp();
-    await client.users.send(ownerUserId, { embeds: [embed] }).catch((error) => console.error("Timeout owner DM failed", error));
+    if (ownerUserId) await client.users.send(ownerUserId, { embeds: [embed] }).catch((error) => console.error("Timeout owner DM failed", error));
   }
 
   function auditActionType(action: number): SecurityActionType | undefined {
@@ -2555,7 +2555,7 @@ if (!token) {
         { name: "Bans / 60m", value: String(result.counts?.bans ?? 0), inline: true }, { name: "Timeouts / 60m", value: String(result.counts?.timeouts ?? 0), inline: true },
         { name: "رتب أزيلت", value: removed.length ? removed.join(", ").slice(0, 1024) : "لم يمكن إزالة رتبة؛ راجع ترتيب رتب البوت.", inline: false },
       ).setFooter({ text: `Guild: ${guild.name} · ${guild.id}` }).setTimestamp();
-    if (result.settings?.ownerDmAlertsEnabled !== false) await client.users.send(ownerUserId, { embeds: [details] }).catch((error) => console.error("Owner security DM failed", error));
+    if (result.settings?.ownerDmAlertsEnabled !== false && ownerUserId) await client.users.send(ownerUserId, { embeds: [details] }).catch((error) => console.error("Owner security DM failed", error));
     const channelId = result.settings?.securityLogChannelId;
     const channel = channelId ? await guild.channels.fetch(channelId).catch(() => undefined) : undefined;
     if (channel?.isTextBased()) await channel.send({ embeds: [details] }).catch(() => undefined);
