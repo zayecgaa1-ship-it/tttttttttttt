@@ -23,12 +23,12 @@ const token = process.env.DISCORD_TOKEN;
 const guildId = process.env.DISCORD_GUILD_ID;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const lfgListingChannelId = process.env.DISCORD_LFG_CHANNEL_ID;
-const tradeChannelId = process.env.TRADE_CHANNEL_ID?.trim() || "1544719421371850925";
+const tradeChannelId = process.env.TRADE_CHANNEL_ID?.trim();
 const adminRoleIds = (process.env.ADMIN_ROLE_IDS ?? "").split(",").map((role) => role.trim()).filter((role) => /^\d{17,20}$/.test(role));
-const ownerUserId = process.env.DISCORD_OWNER_ID?.trim() || "492368135144603658";
+const ownerUserId = process.env.DISCORD_OWNER_ID?.trim();
 const configuredHackAlertChannelId = process.env.DISCORD_HACK_ALERT_CHANNEL_ID?.trim();
 const hackAlertChannelName = "ممنوع-الارسال";
-const disboardBotId = process.env.DISBOARD_BOT_ID?.trim() || "302050872383242240";
+const disboardBotId = process.env.DISBOARD_BOT_ID?.trim();
 const cardBackgroundPath = path.resolve(process.cwd(), "apps/web/public/assets/3pal-game-card-bg.png");
 /** يرسم خلفية البطاقة بثيم 3PAL، وعند غياب الملف يستخدم خلفية مسطحة بديلة بدل الفشل. */
 function cardBackground() {
@@ -56,7 +56,7 @@ let runtimeSettings: GuildRuntimeSettings = {
   tagline: brand.tagline,
   lfgChannelId: lfgListingChannelId,
   lfgCategoryId: process.env.DISCORD_LFG_CATEGORY_ID,
-  reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID ?? "1467945220376363131",
+  reportChannelId: process.env.DISCORD_REPORT_CHANNEL_ID,
   websiteUrl: process.env.PUBLIC_SITE_URL ?? "https://zark-ps.com",
   dmNotificationsEnabled: true,
   quickMatchEnabled: true,
@@ -113,6 +113,11 @@ if (!token) {
   let moderationConfigAt=0;
   let moderationConfigRequest:Promise<void>|undefined;
   const roomByVoiceChannel = new Map<string, string>();
+  // ميوت المضيف يُطبّق على مستوى السيرفر ويبقى ساريًا حتى بعد مغادرة اللاعب للغرفة
+  // أو حذف قنواتها، لذا نتبع من ميّتناه لنرفعه تلقائيًا عند إنهاء مساحة الغرفة.
+  const roomMutedMembers = new Map<string, Set<string>>();
+  // حالة Among Us لكل غرفة: الموتى (يبقون ميوت) + هل الجولة جارية + كود الغرفة المعروض.
+  const amongUsRooms = new Map<string, { dead: Set<string>; taskPhase: boolean }>();
   const moderationAlertCooldown = new Map<string, number>();
   let securityReadiness: { checked: boolean; ready: boolean; missingPermissions: string[]; blockedRoles: Array<{ id: string; name: string }> } = { checked: false, ready: false, missingPermissions: [], blockedRoles: [] };
   let directMessagesQuarantined = false;
@@ -244,6 +249,8 @@ if (!token) {
         if (["memes","ميمز"].includes(interaction.commandName)) return await sendMeme(interaction);
         if (interaction.commandName === "weekly") return await weekly(interaction);
         if (interaction.commandName === "event-hour") return await eventHour(interaction);
+        if (["clear", "مسح"].includes(interaction.commandName)) return await clearMessages(interaction);
+        if (["clear-all", "مسح-الكل"].includes(interaction.commandName)) return await clearAllMessages(interaction);
         if (interaction.commandName === "pulse") return await pulse(interaction);
         if (interaction.commandName === "leaderboard") return await gameLeaderboard(interaction, interaction.options.getString("type") ?? "game");
         if (interaction.commandName === "help") return await help(interaction);
@@ -339,6 +346,25 @@ if (!token) {
   }
 
   async function handleSelect(interaction: any) {
+    if (interaction.customId.startsWith("lfg:amongus-dead:")) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const roomId = interaction.customId.split(":")[2];
+      const room = await apiGet<LiveRoom>(`/api/lfg/${roomId}`);
+      if (room.hostId !== interaction.user.id) return interaction.editReply({ content: "هذه أدوات مضيف الغرفة فقط." });
+      const targetId = interaction.values[0];
+      const state = amongUsRoomState(room.id);
+      const member = room.members.find((item) => item.id === targetId);
+      if (state.dead.has(targetId)) {
+        state.dead.delete(targetId);
+        await refreshRoomControlMessage(room);
+        return interaction.editReply({ content: `✅ عاد ${member?.displayName ?? "اللاعب"} للحياة — سيُفك ميوتُه في الاجتماع القادم.` });
+      }
+      state.dead.add(targetId);
+      const guild = interaction.guild ?? (guildId ? client.guilds.cache.get(guildId) : undefined);
+      if (guild) await setRoomVoiceMute(guild, room.id, targetId, true);
+      await refreshRoomControlMessage(room);
+      return interaction.editReply({ content: `💀 تم تسجيل موت ${member?.displayName ?? "اللاعب"} — سيبقى ميوت حتى نهاية الغرفة.` });
+    }
     if (interaction.customId.startsWith("lfg:host-mute:") || interaction.customId.startsWith("lfg:host-kick:")) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const [, action, roomId] = interaction.customId.split(":");
@@ -349,18 +375,51 @@ if (!token) {
       const member = await interaction.guild?.members.fetch(targetId).catch(() => null);
       if (!member) return interaction.editReply({ content: "لم أتمكن من العثور على اللاعب داخل السيرفر." });
       if (action === "host-mute") {
-        if (member.voice.channelId !== room.voiceChannelId) return interaction.editReply({ content: "اللاعب ليس داخل Voice هذه الغرفة الآن." });
-        const muted = !member.voice.serverMute;
-        await member.voice.setMute(muted, `Zark room host control: ${room.id}`);
-        return interaction.editReply({ content: muted ? `🔇 تم ميوت ${member}.` : `🔊 تم إلغاء ميوت ${member}.` });
+        // الميوت يبقى ملتصقًا حتى بعد ما اللاعب يخرج من الـVoice، لذلك الكاش ممكن يكون قديم.
+        // أولوية القرار: التتبع الداخلي، ثم حالة الديسكورد الحالية.
+        const trackedMuted = roomMutedMembers.get(room.id)?.has(targetId) ?? false;
+        const voiceState = interaction.guild?.voiceStates.cache.get(targetId);
+        const liveServerMute = voiceState?.serverMute ?? member.voice.serverMute ?? false;
+        const wasMuted = trackedMuted || liveServerMute;
+        // إلغاء الميوت مسموح من أي مكان: الميوت على مستوى السيرفر ويبقى ساريًا بعد مغادرة
+        // اللاعب لقناة الغرفة. أما فرض ميوت جديد فيتطلب وجوده داخل Voice الغرفة.
+        if (!wasMuted && member.voice.channelId !== room.voiceChannelId) return interaction.editReply({ content: "اللاعب ليس داخل Voice هذه الغرفة الآن." });
+        try {
+          await member.voice.setMute(!wasMuted, `Zark room host control: ${room.id}`);
+        } catch (error) {
+          console.error("host mute toggle failed", { roomId: room.id, targetId, wasMuted, error });
+          // لو فشل الميوت/إلغاء الميوت غالبًا بسبب صلاحيات أو رتبة أعلى — وضّح للمضيف السبب بدل رسالة نجاح كاذبة.
+          return interaction.editReply({ content: "❌ تعذّر تنفيذ الميوت — تأكد أن رتبة البوت أعلى من رتبة اللاعب وأن لديه صلاحية كتم الأعضاء." });
+        }
+        // تحقق فعلي من الحالة بعد التنفيذ: أحيانًا ديسكورد يرجع نجاحًا لكن الحالة لا تتغير
+        // (رتبة أعلى، انقطاع، أو سباق طلبات). لا نعرض "تم" إلا بعد التأكد.
+        let verified: boolean | null = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 400));
+          const fresh = await interaction.guild?.members.fetch(targetId).catch(() => null);
+          const state = fresh?.voice.serverMute ?? interaction.guild?.voiceStates.cache.get(targetId)?.serverMute;
+          if (typeof state === "boolean") { verified = state; if (state === !wasMuted) break; }
+        }
+        if (verified !== null && verified !== !wasMuted) {
+          console.error("host mute toggle not applied", { roomId: room.id, targetId, wasMuted, verified });
+          return interaction.editReply({ content: wasMuted
+            ? "❌ تعذّر إلغاء الميوت — اللاعب ما زال مكتومًا. جرّب إخراجه من الغرفة ثم إعادته، أو ألغِ الميوت يدويًا من ديسكورد."
+            : "❌ تعذّر تنفيذ الميوت — اللاعب ما زال غير مكتوم. تأكد من رتبة البوت وصلاحية كتم الأعضاء." });
+        }
+        const mutedSet = roomMutedMembers.get(room.id) ?? new Set<string>();
+        if (wasMuted) mutedSet.delete(targetId); else mutedSet.add(targetId);
+        if (mutedSet.size) roomMutedMembers.set(room.id, mutedSet); else roomMutedMembers.delete(room.id);
+        return interaction.editReply({ content: !wasMuted ? `🔇 تم ميوت ${member}.` : `🔊 تم إلغاء ميوت ${member}.` });
       }
       await apiSend<LiveRoom>(`/api/lfg/${roomId}/kick`, "POST", { actorId: interaction.user.id, userId: targetId });
+      if (member.voice.serverMute) await member.voice.setMute(false, `Zark room host kick: ${room.id}`).catch(() => undefined);
+      roomMutedMembers.get(roomId)?.delete(targetId);
       if (member.voice.channelId === room.voiceChannelId) await member.voice.disconnect(`Zark room host kick: ${room.id}`).catch(() => undefined);
       return interaction.editReply({ content: `🚪 تم إخراج ${member} من الغرفة والـVoice.` });
     }
     if (interaction.customId.startsWith("lfg:rating-player:")) {
       await interaction.deferUpdate();
-      const roomId = interaction.customId.split(":")[3];
+      const roomId = interaction.customId.split(":")[2];
       const ratedId = interaction.values[0];
       const room = await apiGet<LiveRoom>(`/api/lfg/${roomId}`);
       const player = room.members.find((member) => member.id === ratedId);
@@ -564,6 +623,7 @@ if (!token) {
     }
     if (parts[0] !== "lfg") return;
     if (parts[1] === "create" && parts[2] === "roblox") return showRobloxRoomModal(interaction, Number(parts[3]), Number(parts[4]), parts[5] === "voice", parts[6]);
+    if (parts[1] === "create" && parts[2] === "among-us") return showAmongUsRoomModal(interaction, Number(parts[3]), Number(parts[4]), parts[5] === "voice", parts[6]);
     if (parts[1] === "create") return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), parts[5] === "voice", undefined, undefined, undefined, undefined, parts[6]);
     if (parts[1] === "details") return showRoomDetailsModal(interaction, parts[2], Number(parts[3]), Number(parts[4]), parts[5]);
     if (parts[1] === "schedule") return showScheduledRoomModal(interaction, parts[2], Number(parts[3]), Number(parts[4]), parts[5]);
@@ -576,6 +636,23 @@ if (!token) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const room = await apiSend<LiveRoom>(`/api/lfg/${parts[2]}/leave`, "POST", { userId: interaction.user.id });
       return interaction.editReply({ content: `🚪 خرجت من غرفة **${room.gameName}**.` });
+    }
+    if (parts[1] === "amongus-tasks" || parts[1] === "amongus-meeting" || parts[1] === "amongus-code") {
+      const roomId = parts[2];
+      const room = await apiGet<LiveRoom>(`/api/lfg/${roomId}`);
+      if (room.gameSlug !== "among-us") return interaction.reply({ content: "هذه الأدوات لغرف Among Us فقط.", flags: MessageFlags.Ephemeral });
+      if (room.hostId !== interaction.user.id) return interaction.reply({ content: "هذه أدوات مضيف الغرفة فقط.", flags: MessageFlags.Ephemeral });
+      if (parts[1] === "amongus-code") {
+        const current = amongUsCodeFromRoom(room);
+        const codeInput = new TextInputBuilder().setCustomId("roomCode").setLabel("كود الغرفة").setPlaceholder("ABCDEF").setStyle(TextInputStyle.Short).setRequired(true).setMinLength(4).setMaxLength(12);
+        if (current) codeInput.setValue(current);
+        const modal = new ModalBuilder().setCustomId(`lfg:amongus-code:${roomId}`).setTitle("كود Among Us").addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(codeInput),
+        );
+        return interaction.showModal(modal);
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      return applyAmongUsPhase(interaction, room, parts[1] === "amongus-meeting");
     }
     if (parts[1] === "start" || parts[1] === "complete" || parts[1] === "close") {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -610,6 +687,23 @@ if (!token) {
       const gameMode = interaction.fields.getTextInputValue("gameMode").trim();
       const mapName = parts[2] === "roblox" ? interaction.fields.getTextInputValue("mapName").trim() : undefined;
       return createRoomFromInteraction(interaction, parts[2], Number(parts[3]), Number(parts[4]), true, description || undefined, gameMode || undefined, scheduledFor, mapName, parts[5]);
+    }
+    if (parts[1] === "amongus") {
+      const code = normalizeAmongUsCode(interaction.fields.getTextInputValue("roomCode"));
+      if (code.length < 4) throw new Error("كود Among Us قصير — الصق الكود الكامل من اللعبة (4 أحرف فأكثر).");
+      const gameMode = interaction.fields.getTextInputValue("gameMode").trim();
+      const description = interaction.fields.getTextInputValue("description").trim();
+      return createRoomFromInteraction(interaction, "among-us", Number(parts[2]), Number(parts[3]), parts[4] === "voice", description || undefined, gameMode || undefined, undefined, code, parts[5]);
+    }
+    if (parts[1] === "amongus-code") {
+      const roomId = parts[2];
+      const code = normalizeAmongUsCode(interaction.fields.getTextInputValue("roomCode"));
+      if (code.length < 4) throw new Error("كود Among Us قصير — الصق الكود الكامل من اللعبة (4 أحرف فأكثر).");
+      if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const room = await apiSend<LiveRoom>(`/api/lfg/${roomId}`, "PUT", { actorId: interaction.user.id, changes: { mapName: code } });
+      await syncRoomListing(room);
+      await refreshRoomControlMessage(room);
+      return interaction.editReply({ content: `🔑 تم تحديث كود الغرفة إلى **${code}**.` });
     }
     if (parts[1] === "roblox") {
       const mapName = interaction.fields.getTextInputValue("mapName").trim();
@@ -932,7 +1026,7 @@ if (!token) {
   }
 
   async function publishReportNotification(kind: "PLAYER" | "BUG", reportId: string, isReply: boolean) {
-    const channelId = runtimeSettings.reportChannelId || process.env.DISCORD_REPORT_CHANNEL_ID || "1467945220376363131";
+    const channelId = runtimeSettings.reportChannelId || process.env.DISCORD_REPORT_CHANNEL_ID;
     if (!channelId) return;
     const channel = await client.channels.fetch(channelId).catch((error) => {
       console.error(`Report channel ${channelId} unavailable`, error);
@@ -1165,6 +1259,7 @@ if (!token) {
 
   function roomControlComponents(room: LiveRoom) {
     const rows: Array<ActionRowBuilder<any>> = [roomButtons(room.id, room.gameSlug, room)];
+    if (room.gameSlug === "among-us") rows.push(...amongUsControlRows(room));
     const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`lfg:start:${room.id}`).setLabel("ابدأ اللعب").setEmoji("▶️").setStyle(ButtonStyle.Success).setDisabled(room.status === "ACTIVE"),
       new ButtonBuilder().setCustomId(`lfg:complete:${room.id}`).setLabel("إنهاء ناجح").setEmoji("✅").setStyle(ButtonStyle.Primary),
@@ -1173,7 +1268,9 @@ if (!token) {
     if (room.voiceChannelId && guildId) controls.addComponents(new ButtonBuilder().setLabel("دخول Voice").setEmoji("🎙️").setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guildId}/${room.voiceChannelId}`));
     rows.push(controls);
     const targets = room.members.filter((member) => member.id !== room.hostId).slice(0, 25);
-    if (targets.length) {
+    // ديسكورد يسمح بـ 5 صفوف فقط: غرف Among Us لديها صفّاها الخاصان (أزرار الطور + الموتى)
+    // لذلك نكتفي بقائمة الإخراج ونخفي الميوت الفردي العام (زر الاجتماع يغني عنه).
+    if (targets.length && room.gameSlug !== "among-us") {
       const options = targets.map((member) => ({ label: trimText(member.displayName, 100), value: member.id, emoji: member.voiceActive ? "🎙️" : "👤" }));
       rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:host-mute:${room.id}`).setPlaceholder("🔇 ميوت/إلغاء ميوت لاعب — للمضيف").addOptions(options)));
       rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:host-kick:${room.id}`).setPlaceholder("🚪 إخراج لاعب من الغرفة — للمضيف").addOptions(options)));
@@ -1181,8 +1278,38 @@ if (!token) {
     return rows;
   }
 
+  async function releaseRoomMutes(room: LiveRoom) {
+    if (!guildId) return;
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return;
+    const tracked = roomMutedMembers.get(room.id);
+    const candidateIds = new Set<string>(room.members.map((member) => member.id));
+    tracked?.forEach((id) => candidateIds.add(id));
+    if (!candidateIds.size) return;
+    for (const userId of candidateIds) {
+      const target = await guild.members.fetch(userId).catch(() => null);
+      if (target?.voice?.serverMute) await target.voice.setMute(false, `Zark room cleanup ${room.id}`).catch(() => undefined);
+    }
+    roomMutedMembers.delete(room.id);
+    amongUsRooms.delete(room.id);
+  }
+
+  async function refreshRoomControlMessage(room: LiveRoom) {
+    if (!room.textChannelId || !room.controlMessageId) return;
+    const channel = await client.channels.fetch(room.textChannelId).catch(() => null);
+    if (!channel?.isTextBased() || !("messages" in channel)) return;
+    const control = await channel.messages.fetch(room.controlMessageId).catch(() => null);
+    if (!control) return;
+    const fresh = await apiGet<LiveRoom>(`/api/lfg/${room.id}`).catch(() => room);
+    const payload = await roomMessagePayload(fresh, true);
+    await control.edit({ ...payload, attachments: [], components: roomControlComponents(fresh) }).catch(() => undefined);
+  }
+
   async function finalizeRoomSpace(room: LiveRoom) {
     if (room.voiceChannelId) roomByVoiceChannel.delete(room.voiceChannelId);
+    // رفع أي ميوت فرضه المضيف خلال الجلسة؛ ميوت السيرفر يبقى ساريًا بعد حذف القنوات
+    // ولا يستطيع اللاعب رفعه بنفسه، فبدون هذا يبقى ميوتًا للأبد.
+    await releaseRoomMutes(room);
     if (room.status === "CLOSED" && !room.startedAt && room.listingChannelId && room.listingMessageId) {
       const listing = await client.channels.fetch(room.listingChannelId).catch(() => null);
       if (listing?.isTextBased() && "messages" in listing) {
@@ -1658,6 +1785,90 @@ if (!token) {
     return interaction.reply({ embeds: [baseEmbed().setTitle("⚡ بدأت ساعة Zark").setDescription(`كل نقاط الولاء أصبحت **×${event.multiplier}** حتى <t:${Math.floor(new Date(event.until).getTime() / 1000)}:R>.\nشغّل /daily و/play وLFG لإشعال التفاعل!`)] });
   }
 
+  async function clearMessages(interaction: any) {
+    if (!interaction.inGuild() || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) throw new Error("هذا الأمر يتطلب صلاحية إدارة الرسائل (Manage Messages).");
+    const amount = interaction.options.getInteger("amount") ?? 100;
+    const targetUser = interaction.options.getUser("user");
+    const channel = interaction.channel;
+    if (!channel || !("bulkDelete" in channel)) throw new Error("لا يمكن استخدام هذا الأمر إلا داخل روم نصي.");
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    // Discord allows bulk deletion only for messages newer than two weeks;
+    // older ones must be deleted one by one.
+    const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60_000;
+    let deleted = 0;
+    let cursor: string | undefined;
+    for (let page = 0; page < 20 && deleted < amount; page += 1) {
+      const batch = await channel.messages.fetch({ limit: 100, ...(cursor ? { before: cursor } : {}) }).catch(() => null);
+      if (!batch?.size) break;
+      cursor = batch.last()?.id ?? cursor;
+      const candidates = targetUser
+        ? batch.filter((message: any) => message.author?.id === targetUser.id && message.deletable)
+        : batch.filter((message: any) => message.deletable);
+      if (!candidates.size) {
+        // With a user filter, keep paging to find their messages; otherwise the
+        // bot cannot delete anything here, so there is nothing more to do.
+        if (!targetUser) break;
+        continue;
+      }
+      const recent = [...candidates.filter((message: any) => message.createdTimestamp >= twoWeeksAgo).values()].slice(0, amount - deleted);
+      const stale = [...candidates.filter((message: any) => message.createdTimestamp < twoWeeksAgo).values()];
+      if (recent.length) {
+        if (recent.length === 1) {
+          if (await recent[0].delete().catch(() => null)) deleted += 1;
+        } else {
+          const result = await channel.bulkDelete(recent, true).catch((error: any) => { console.error("clear bulkDelete failed", error); return null; });
+          deleted += result?.size ?? 0;
+        }
+      }
+      for (const message of stale) {
+        if (deleted >= amount) break;
+        if (await message.delete().catch(() => null)) deleted += 1;
+      }
+    }
+    return interaction.editReply({ embeds: [baseEmbed().setTitle("🧹 تم مسح الرسائل").setDescription(`حذف **${deleted}** رسالة${targetUser ? ` من <@${targetUser.id}>` : ""} في <#${channel.id}>.${deleted < amount ? "\nتم حذف العدد المتاح فقط — لا توجد رسائل أخرى قابلة للحذف." : ""}`)] });
+  }
+
+  async function clearAllMessages(interaction: any) {
+    if (!interaction.inGuild() || !interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) throw new Error("هذا الأمر يتطلب صلاحية إدارة الرسائل (Manage Messages).");
+    const targetUser = interaction.options.getUser("user");
+    const channel = interaction.channel;
+    if (!channel || !("bulkDelete" in channel)) throw new Error("لا يمكن استخدام هذا الأمر إلا داخل روم نصي.");
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60_000;
+    let deleted = 0;
+    let scanned = 0;
+    let cursor: string | undefined;
+    // Page through the whole channel history. A hard cap keeps a very large
+    // channel from keeping the interaction busy beyond a reasonable bound.
+    for (let page = 0; page < 100; page += 1) {
+      const batch = await channel.messages.fetch({ limit: 100, ...(cursor ? { before: cursor } : {}) }).catch(() => null);
+      if (!batch?.size) break;
+      scanned += batch.size;
+      cursor = batch.last()?.id ?? cursor;
+      const candidates = targetUser
+        ? batch.filter((message: any) => message.author?.id === targetUser.id && message.deletable)
+        : batch.filter((message: any) => message.deletable);
+      if (!candidates.size) {
+        if (!scanned) break;
+        continue;
+      }
+      const recent = [...candidates.filter((message: any) => message.createdTimestamp >= twoWeeksAgo).values()];
+      const stale = [...candidates.filter((message: any) => message.createdTimestamp < twoWeeksAgo).values()];
+      if (recent.length) {
+        if (recent.length === 1) {
+          if (await recent[0].delete().catch(() => null)) deleted += 1;
+        } else {
+          const result = await channel.bulkDelete(recent, true).catch((error: any) => { console.error("clear-all bulkDelete failed", error); return null; });
+          deleted += result?.size ?? 0;
+        }
+      }
+      for (const message of stale) {
+        if (await message.delete().catch(() => null)) deleted += 1;
+      }
+    }
+    return interaction.editReply({ embeds: [baseEmbed().setTitle("🧹 تم مسح الروم").setDescription(`حذف **${deleted}** رسالة${targetUser ? ` من <@${targetUser.id}>` : ""} في <#${channel.id}>.${scanned ? `\nتم فحص **${scanned}** رسالة من سجل الروم.` : ""}`)] });
+  }
+
   async function pulse(interaction: any) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const [profileData, loyaltyData, availabilityData, rooms, insights] = await Promise.all([
@@ -1690,6 +1901,7 @@ if (!token) {
       { name: "🔎 نظام LFG", value: "`/lfg create` إنشاء تجمع\n`/lfg smart` تجمع ذكي حسب الاهتمام والتفرغ\n`/lfg rooms` قائمة الغرف + دخول\n`/lfg interests` الاهتمامات والإشعارات\n`/lfg profile` ملف LFG\n`/lfg top` أفضل اللاعبين" },
       { name: "👥 الفرق", value: "`/team create` إنشاء فريق\n`/team invite` دعوة لاعب\n`/team invitations` قبول أو رفض الدعوات\n`/team view` عرض التشكيلة والترتيب" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
+      { name: "🧹 تنظيم الرومات", value: "`/clear` أو `/مسح` لحذف حتى 100 رسالة من الروم دفعة واحدة، مع خيار حذف رسائل عضو محدد فقط.\n`/clear-all` أو `/مسح-الكل` لحذف **جميع** رسائل الروم. تتطلب صلاحية إدارة الرسائل." },
       { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
       { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.اختيارات` `.شعارات` `.انمي` `.صح` `.معلومات`" },
     );
@@ -1824,8 +2036,9 @@ if (!token) {
     return interaction.showModal(modal);
   }
 
-  function showRoomDetailsModal(interaction: any, gameSlug: string, count: number, durationMinutes: number, platform?: LfgPlatform) {
+   function showRoomDetailsModal(interaction: any, gameSlug: string, count: number, durationMinutes: number, platform?: LfgPlatform) {
     if (gameSlug === "roblox") return showRobloxRoomModal(interaction, count, durationMinutes, true, platform);
+    if (gameSlug === "among-us") return showAmongUsRoomModal(interaction, count, durationMinutes, true, platform);
     const modal = new ModalBuilder().setCustomId(`lfg:details:${gameSlug}:${count}:${durationMinutes}:${platform ?? ""}`).setTitle("تفاصيل غرفة LFG").addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("gameMode").setLabel("Game Mode — اختياري").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80)),
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("description").setLabel("وصف قصير — اختياري").setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500)),
@@ -1846,6 +2059,29 @@ if (!token) {
     return interaction.showModal(modal);
   }
 
+  function normalizeAmongUsCode(raw: string) {
+    return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  }
+
+  function amongUsCodeFromRoom(room: LiveRoom) {
+    return normalizeAmongUsCode(room.mapName ?? "");
+  }
+
+  function amongUsRoomState(roomId: string) {
+    let state = amongUsRooms.get(roomId);
+    if (!state) { state = { dead: new Set<string>(), taskPhase: false }; amongUsRooms.set(roomId, state); }
+    return state;
+  }
+
+  function showAmongUsRoomModal(interaction: any, count: number, durationMinutes: number, needsVoice: boolean, platform?: LfgPlatform) {
+    const modal = new ModalBuilder().setCustomId(`lfg:amongus:${count}:${durationMinutes}:${needsVoice ? "voice" : "novoice"}:${platform ?? ""}`).setTitle("غرفة Among Us").addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("roomCode").setLabel("كود الغرفة (ABCDEF)").setPlaceholder("ABCDEF").setStyle(TextInputStyle.Short).setRequired(true).setMinLength(4).setMaxLength(12)),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("gameMode").setLabel("الخريطة — اختياري").setPlaceholder("The Skeld").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80)),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("description").setLabel("ملاحظات — اختياري").setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(500)),
+    );
+    return interaction.showModal(modal);
+  }
+
   function showRobloxRoomModal(interaction: any, count: number, durationMinutes: number, needsVoice: boolean, platform?: LfgPlatform) {
     const modal = new ModalBuilder().setCustomId(`lfg:roblox:${count}:${durationMinutes}:${needsVoice ? "voice" : "novoice"}:${platform ?? ""}`).setTitle("تفاصيل Roblox").addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(new TextInputBuilder().setCustomId("mapName").setLabel("اسم الماب — مطلوب").setValue("Blox Fruits").setPlaceholder("Blox Fruits / Brookhaven / Adopt Me...").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(100)),
@@ -1855,12 +2091,67 @@ if (!token) {
     return interaction.showModal(modal);
   }
 
+  async function setRoomVoiceMute(guild: any, targetRoomId: string, userId: string, muted: boolean) {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return { applied: false as const, reason: "missing" as const };
+    if (!member.voice.channelId) return { applied: false as const, reason: "no-voice" as const };
+    try {
+      await member.voice.setMute(muted, `Zark Among Us ${targetRoomId}`);
+    } catch (error) {
+      console.error("among-us mute failed", { roomId: targetRoomId, userId, muted, error });
+      return { applied: false as const, reason: "forbidden" as const };
+    }
+    const tracked = roomMutedMembers.get(targetRoomId) ?? new Set<string>();
+    if (muted) tracked.add(userId); else tracked.delete(userId);
+    if (tracked.size) roomMutedMembers.set(targetRoomId, tracked); else roomMutedMembers.delete(targetRoomId);
+    return { applied: true as const, reason: "ok" as const };
+  }
+
+  async function applyAmongUsPhase(interaction: any, room: LiveRoom, meeting: boolean) {
+    const guild = interaction.guild ?? (guildId ? client.guilds.cache.get(guildId) : undefined);
+    if (!guild || !room.voiceChannelId) return interaction.editReply({ content: "❌ لا توجد قناة Voice مرتبطة بهذه الغرفة بعد." });
+    const state = amongUsRoomState(room.id);
+    state.taskPhase = !meeting;
+    const ordered = [...room.members.filter((member) => member.id !== room.hostId).map((member) => member.id), room.hostId];
+    let ok = 0; let failed = 0; let skipped = 0;
+    for (const userId of ordered) {
+      if (meeting && state.dead.has(userId)) { skipped += 1; continue; }
+      const result = await setRoomVoiceMute(guild, room.id, userId, !meeting);
+      if (result.applied) ok += 1; else if (result.reason === "forbidden") failed += 1; else skipped += 1;
+    }
+    await refreshRoomControlMessage(room);
+    const channel = room.textChannelId ? await client.channels.fetch(room.textChannelId).catch(() => null) : null;
+    if (channel?.isTextBased() && "send" in channel) {
+      await channel.send({ content: meeting ? "🔔 **اجتماع طارئ!** الأحياء يتكلمون الآن — الموتى 💀 التزموا الصمت." : "🔇 **الجولة بدأت!** الكل ميوت — بالتوفيق يا طاقم 🚀." }).catch(() => undefined);
+    }
+    if (failed > 0) return interaction.editReply({ content: `⚠️ تم جزئيًا (${ok} نجح / ${failed} فشل بسبب الرتب/الصلاحيات). ارفع رتبة البوت فوق رتب اللاعبين.` });
+    return interaction.editReply({ content: meeting ? `🔔 **اجتماع!** فك الميوت عن الأحياء (${ok}). الموتى 💀 يبقون ميوت.` : `🔇 **بدأت الجولة!** ميوت الكل (${ok}).` });
+  }
+
+  function amongUsControlRows(room: LiveRoom) {
+    const state = amongUsRooms.get(room.id);
+    const code = amongUsCodeFromRoom(room);
+    const deadCount = state?.dead.size ?? 0;
+    const rows: Array<ActionRowBuilder<any>> = [];
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`lfg:amongus-tasks:${room.id}`).setLabel(state?.taskPhase ? "🔇 الجولة جارية…" : "🚀 بدء الجولة (ميوت الكل)").setEmoji("🔇").setStyle(ButtonStyle.Danger).setDisabled(Boolean(state?.taskPhase)),
+      new ButtonBuilder().setCustomId(`lfg:amongus-meeting:${room.id}`).setLabel("🔔 اجتماع (فك ميوت الأحياء)").setEmoji("🔔").setStyle(ButtonStyle.Success).setDisabled(!state?.taskPhase),
+      new ButtonBuilder().setCustomId(`lfg:amongus-code:${room.id}`).setLabel(code ? `الكود: ${code}` : "إدخال الكود").setEmoji("🔑").setStyle(ButtonStyle.Primary),
+    ));
+    const candidates = room.members.filter((member) => member.id !== room.hostId).slice(0, 25);
+    if (candidates.length) {
+      const options = candidates.map((member) => ({ label: `${state?.dead.has(member.id) ? "💀 " : ""}${trimText(member.displayName, 96)}`, value: member.id, description: state?.dead.has(member.id) ? `ميت (${deadCount})` : undefined, emoji: state?.dead.has(member.id) ? "💀" : "👤" }));
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder().setCustomId(`lfg:amongus-dead:${room.id}`).setPlaceholder("💀 تحديد الميت — يبقى ميوت").addOptions(options)));
+    }
+    return rows;
+  }
+
   async function submitRating(interaction: any) {
     const target = interaction.options.getUser("user", true);
-    const roomId = interaction.options.getString("room", true);
+    const ratingRoomId = interaction.options.getString("room", true);
     const stars = interaction.options.getInteger("stars", true);
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await apiSend(`/api/lfg/${roomId}/ratings`, "POST", { raterId: interaction.user.id, raterName: displayName(interaction), ratedId: target.id, stars, tags: [] });
+    await apiSend(`/api/lfg/${ratingRoomId}/ratings`, "POST", { raterId: interaction.user.id, raterName: displayName(interaction), ratedId: target.id, stars, tags: [] });
     await interaction.editReply({ content: `⭐ تم تقييم ${target} بـ${stars}/5.` });
   }
 
@@ -2125,15 +2416,18 @@ if (!token) {
   }
 
   function roomEmbed(room: LiveRoom & { gamePlatforms?: LfgPlatform[] }, detailed = false) {
+    const isAmongUs = room.gameSlug === "among-us";
+    const code = isAmongUs ? amongUsCodeFromRoom(room) : "";
+    const deadIds = amongUsRooms.get(room.id)?.dead;
     const status = room.status === "SCHEDULED" ? "🕐 موعد مسجل" : room.status === "ACTIVE" ? "🔴 يلعبون الآن" : room.status === "COMPLETED" ? "✅ انتهت الجلسة" : room.status === "CLOSED" ? "⚫ أُغلقت" : room.status === "FULL" ? "🟠 مكتملة العدد" : "🟢 تجمع لاعبين";
-    const players = room.members.length ? room.members.map((member, index) => `${member.id === room.hostId ? "👑" : member.voiceActive ? "🎙️" : "•"} ${member.displayName}`).join("\n") : "لا يوجد لاعبون";
+    const players = room.members.length ? room.members.map((member) => `${member.id === room.hostId ? "👑" : deadIds?.has(member.id) ? "💀" : member.voiceActive ? "🎙️" : "•"} ${member.displayName}`).join("\n") : "لا يوجد لاعبون";
     const timing = room.scheduledFor && room.status === "SCHEDULED"
       ? `موعد التجمع <t:${Math.floor(new Date(room.scheduledFor).getTime() / 1000)}:F>`
       : room.startedAt ? `بدأ اللعب <t:${Math.floor(new Date(room.startedAt).getTime() / 1000)}:t>` : `بدأ التجمع <t:${Math.floor(new Date(room.createdAt).getTime() / 1000)}:t>`;
     const embed = baseEmbed()
       .setColor(Number.parseInt(room.accentColor.replace("#", ""), 16) || brand.color)
       .setTitle(`${room.roomEmoji ?? room.gameIcon ?? "🎮"} ${room.title ?? room.gameName} | LFG`)
-      .setDescription(`${status}\n${gamePlatformsLabel(room.gamePlatforms)}\n👑 **${room.hostName}** · 👥 **${room.currentPlayers}/${room.maxPlayers}**\n🕐 ${timing}${room.mapName ? `\n🗺️ **الماب:** ${room.mapName}` : ""}${room.gameMode ? `\n🎯 **النمط:** ${room.gameMode}` : ""}${room.description ? `\n${room.description}` : ""}`);
+      .setDescription(`${status}\n${gamePlatformsLabel(room.gamePlatforms)}\n👑 **${room.hostName}** · 👥 **${room.currentPlayers}/${room.maxPlayers}**\n🕐 ${timing}${code ? `\n🔑 **كود الغرفة: ${code}**` : isAmongUs ? "\n🔑 **الكود: لم يُدخل بعد**" : ""}${!isAmongUs && room.mapName ? `\n🗺️ **الماب:** ${room.mapName}` : ""}${room.gameMode ? `\n🎯 **النمط:** ${room.gameMode}` : ""}${deadIds?.size ? `\n💀 **الموتى (${deadIds.size}):** ابقوا ميوت` : ""}${room.description ? `\n${room.description}` : ""}`);
     if (room.hostPriority) embed.addFields({ name: "🚀 أولوية المتجر", value: "هذه الغرفة مميزة وتظهر أولًا ضمن غرف LFG." });
     if (detailed) embed.addFields({ name: "أعضاء الغرفة", value: players.slice(0, 1024) });
     return embed;
@@ -2388,6 +2682,32 @@ function buildCommands() {
     new SlashCommandBuilder().setName("weekly").setDescription("متصدرو نقاط الولاء خلال هذا الأسبوع"),
     new SlashCommandBuilder().setName("pulse").setDescription("لوحتك الشخصية: التفاعل والفرص المتاحة الآن"),
     new SlashCommandBuilder().setName("event-hour").setDescription("بدء فعالية نقاط مضاعفة — للإدارة").addIntegerOption((option) => option.setName("minutes").setDescription("المدة بالدقائق").setMinValue(15).setMaxValue(180)),
+    new SlashCommandBuilder()
+      .setName("clear")
+      .setDescription("حذف رسائل هذا الروم دفعة واحدة")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+      .setDMPermission(false)
+      .addIntegerOption((option) => option.setName("amount").setDescription("عدد الرسائل للحذف — من 1 إلى 100").setMinValue(1).setMaxValue(100).setRequired(true))
+      .addUserOption((option) => option.setName("user").setDescription("حذف رسائل هذا العضو فقط")),
+    new SlashCommandBuilder()
+      .setName("مسح")
+      .setDescription("حذف رسائل هذا الروم دفعة واحدة")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+      .setDMPermission(false)
+      .addIntegerOption((option) => option.setName("amount").setDescription("عدد الرسائل للحذف — من 1 إلى 100").setMinValue(1).setMaxValue(100).setRequired(true))
+      .addUserOption((option) => option.setName("user").setDescription("حذف رسائل هذا العضو فقط")),
+    new SlashCommandBuilder()
+      .setName("clear-all")
+      .setDescription("حذف جميع رسائل هذا الروم")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+      .setDMPermission(false)
+      .addUserOption((option) => option.setName("user").setDescription("حذف رسائل هذا العضو فقط")),
+    new SlashCommandBuilder()
+      .setName("مسح-الكل")
+      .setDescription("حذف جميع رسائل هذا الروم")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+      .setDMPermission(false)
+      .addUserOption((option) => option.setName("user").setDescription("حذف رسائل هذا العضو فقط")),
     new SlashCommandBuilder()
       .setName("play")
       .setDescription("ابدأ لعبة Zark داخل Discord")

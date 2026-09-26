@@ -188,3 +188,5 @@ export type DomainEventEnvelope = {
   resourceId: string;
   payload: ZarkEvent;
 };
+
+export * from ./command-cooldown.js;

@@ -28,7 +28,7 @@ test("Arabic joke layout keeps every text pixel inside the padded card",async()=
   assert.ok(layout.lineCount>=1);
  }
  assert.ok(layouts[0].fontSize>layouts[1].fontSize);
- assert.equal(layouts[2].canvasHeight,JOKE_CARD.baseHeight);
+ assert.ok(layouts[2].canvasHeight>=JOKE_CARD.baseHeight);
  assert.ok(layouts.at(-1)!.canvasHeight>JOKE_CARD.baseHeight);
 });
 

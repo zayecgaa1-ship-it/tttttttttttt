@@ -7,3 +7,6 @@ dist/
 /backups/
 /.opera-gx-cdp-profile/
 /artifacts/
+
+# Zaemit AI tool config (auto-generated)
+.mcp.json
