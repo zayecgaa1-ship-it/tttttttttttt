@@ -119,7 +119,7 @@ if (!token) {
   // حالة Among Us لكل غرفة: الموتى (يبقون ميوت) + هل الجولة جارية + كود الغرفة المعروض.
   const amongUsRooms = new Map<string, { dead: Set<string>; taskPhase: boolean }>();
   const moderationAlertCooldown = new Map<string, number>();
-  // يمنع تكرار رسالة التحذير في قناة "ممنوع الإرسال" مع كل رسالة يرسلها نفس الحساب.
+  // يمنع تكرار رسالة الخاص التحذيرية لكل عضو داخل نافذة زمنية (يبقى الحذف في كل مرة).
   const hackNoticeCooldown = new Map<string, number>();
   let securityReadiness: { checked: boolean; ready: boolean; missingPermissions: string[]; blockedRoles: Array<{ id: string; name: string }> } = { checked: false, ready: false, missingPermissions: [], blockedRoles: [] };
   let directMessagesQuarantined = false;
@@ -1437,24 +1437,31 @@ if (!token) {
         topic: "🛡️ ممنوع الإرسال هنا. أي رسالة من عضو تشغّل حماية الحساب وتُحذف رسائله الأخيرة احترازيًا.",
         reason: "3Pal compromised-account warning channel",
       });
-      await channel.send("🛡️ **تنبيه حماية:** لا ترسل أي رسالة هنا. إذا أرسل حسابٌ رسالة في هذه القناة، سيعتبره 3Pal احتمال اختراق ويحذف رسائله خلال آخر 10 دقائق ويبلغ الإدارة.").catch(() => undefined);
     }
     hackAlertChannelId = channel.id;
+    await ensureHackAlertRegistry(channel).catch((error) => console.error("Hack alert registry unavailable", error));
   }
 
-  // نافذة كتم التنبيه: رسالة القناة تظهر مرة واحدة لكل عضو خلال هذه المدة فقط،
-  // بينما يبقى حذف الرسائل احترازيًا في كل مرة. نمط map مطابق لـ moderationAlertCooldown.
-  const hackNoticeCooldownMs = 60 * 60_000;
-  const hackNoticeMaxEntries = 2_000;
+  // رسالة واحدة فقط داخل قناة «ممنوع-الارسال» للسيرفر كله: ما تنبعث رسالة جديدة مع كل
+  // مخالفة، بل تُعدَّل الرسالة نفسها فيزيد العدد ويُضاف إيموجي 🚫 لكل محاولة مرصودة.
+  // الأعداد تُقرأ من الرسالة نفسها عند الإقلاع، فلا تعود للصفر بعد كل إعادة تشغيل.
+  const hackAlertNoticeEmoji = "🚫";
+  const hackAlertNoticeMaxEmojis = 10;
+  const hackAlertAlertsField = "أعضاء رُصدت رسائلهم";
+  const hackAlertDeletedField = "رسائل حُذفت احترازيًا";
+  const hackAlertFooter = "سجل حماية 3Pal — لا ترسل أي رسالة هنا";
+  const hackAlertDmCooldownMs = 10 * 60_000;
+  const hackAlertDmMaxEntries = 2_000;
+  let hackAlertMessageId: string | undefined;
 
-  /** true عند أول تنبيه داخل النافذة (ويسجّل الوقت)، وfalse عند التكرار. */
-  function shouldSendHackNotice(message: any) {
+  /** true عند أول تنبيه خاص للعضو داخل النافذة (ويسجّل الوقت)، وfalse عند التكرار. */
+  function shouldWarnInPrivate(message: any) {
     const key = `${message.guildId ?? "dm"}:${message.author.id}`;
     const now = Date.now();
-    if (now - (hackNoticeCooldown.get(key) ?? 0) < hackNoticeCooldownMs) return false;
+    if (now - (hackNoticeCooldown.get(key) ?? 0) < hackAlertDmCooldownMs) return false;
     hackNoticeCooldown.set(key, now);
-    for (const [entryKey, sentAt] of hackNoticeCooldown) if (now - sentAt >= hackNoticeCooldownMs) hackNoticeCooldown.delete(entryKey);
-    while (hackNoticeCooldown.size > hackNoticeMaxEntries) {
+    for (const [entryKey, sentAt] of hackNoticeCooldown) if (now - sentAt >= hackAlertDmCooldownMs) hackNoticeCooldown.delete(entryKey);
+    while (hackNoticeCooldown.size > hackAlertDmMaxEntries) {
       const oldest = hackNoticeCooldown.keys().next();
       if (oldest.done) break;
       hackNoticeCooldown.delete(oldest.value);
@@ -1462,22 +1469,79 @@ if (!token) {
     return true;
   }
 
+  /** يستخرج الأعداد الحالية من رسالة السجل نفسها (تُستخدم كسجل دائم للعدّاد). */
+  function hackAlertCounters(registry: any) {
+    const fields: any[] = registry?.embeds?.[0]?.fields ?? [];
+    const read = (needle: string, index: number) => {
+      const field = fields.find((item: any) => String(item?.name ?? "").includes(needle)) ?? fields[index];
+      return Math.max(0, Number(String(field?.value ?? "").replace(/\D/g, "")) || 0);
+    };
+    return { alerts: read(hackAlertAlertsField, 0), deleted: read(hackAlertDeletedField, 1) };
+  }
+
+  function hackAlertRegistryEmbed(alerts: number, deleted: number, firstAt: number) {
+    const notices = alerts > 0
+      ? hackAlertNoticeEmoji.repeat(Math.min(alerts, hackAlertNoticeMaxEmojis)) + (alerts > hackAlertNoticeMaxEmojis ? ` ×${alerts}` : "")
+      : "لا محاولات بعد";
+    return new EmbedBuilder()
+      .setColor(brand.color)
+      .setAuthor({ name: brand.name })
+      .setTitle(`${hackAlertNoticeEmoji} ممنوع الإرسال في هذه القناة`)
+      .setDescription([
+        "هذه قناة حماية: **لا ترسل فيها أي رسالة إطلاقًا**.",
+        "أي رسالة تُرسل هنا تُعتبر احتمال اختراق للحساب: يحذف 3Pal رسائل صاحبها في آخر 10 دقائق، وينبّهه في الخاص، ويبلغ الإدارة.",
+        `هذه الرسالة واحدة للسيرفر كله ولا يتغيّر فيها سوى العدد — كل ${hackAlertNoticeEmoji} تعني محاولة رُصدت.`
+      ].join("\n"))
+      .addFields(
+        { name: `👥 ${hackAlertAlertsField}`, value: `\`${alerts}\``, inline: true },
+        { name: `🗑️ ${hackAlertDeletedField}`, value: `\`${deleted}\``, inline: true },
+        { name: `${hackAlertNoticeEmoji} المحاولات المرصودة`, value: notices, inline: false }
+      )
+      .setFooter({ text: hackAlertFooter })
+      .setTimestamp(new Date(firstAt));
+  }
+
+  /** يجد رسالة السجل الوحيدة (أو ينشئها) ويحذف أي رسائل مكرّرة بقيت من نسخ قديمة. */
+  async function ensureHackAlertRegistry(channel: any) {
+    if (!channel?.isTextBased?.() || !("send" in channel)) return null;
+    const isOurs = (item: any) => item?.author?.id === client.user?.id && String(item?.embeds?.[0]?.footer?.text ?? "").includes(hackAlertFooter);
+    let registry = hackAlertMessageId ? await channel.messages.fetch(hackAlertMessageId).catch(() => null) : null;
+    if (registry && !isOurs(registry)) registry = null;
+    const recent = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+    const ours = (recent ? [...recent.values()] : []).filter(isOurs).sort((a: any, b: any) => b.createdTimestamp - a.createdTimestamp);
+    if (!registry) registry = ours[0] ?? null;
+    for (const duplicate of ours) {
+      if (duplicate.id === registry?.id) continue;
+      await duplicate.delete().catch(() => undefined);
+    }
+    if (!registry) registry = await channel.send({ embeds: [hackAlertRegistryEmbed(0, 0, Date.now())] }).catch(() => null);
+    hackAlertMessageId = registry?.id;
+    return registry;
+  }
+
+  /** يزيد عدّاد الرسالة الواحدة بدل إرسال رسالة جديدة لكل مخالفة. */
+  async function registerHackAlert(channel: any, extraDeleted: number) {
+    try {
+      const registry = await ensureHackAlertRegistry(channel);
+      if (!registry) return;
+      const counters = hackAlertCounters(registry);
+      const firstAt = registry.createdTimestamp || Date.now();
+      await registry.edit({ embeds: [hackAlertRegistryEmbed(counters.alerts + 1, counters.deleted + extraDeleted, firstAt)] }).catch(() => undefined);
+    } catch (error) {
+      console.error("Hack alert registry update failed", error);
+    }
+  }
+
   async function handleHackAlertMessage(message: any) {
-    // الحذف والتنظيف يبقوان لكل رسالة؛ الكتم يمنع تكرار الرسائل أمام الأعضاء فقط.
-    const shouldNotify = shouldSendHackNotice(message);
+    // الحذف والتنظيف يبقوان لكل رسالة؛ أما في القناة فرسالة واحدة للسيرفر كله
+    // يتغيّر فيها العدد فقط، والخاص يذهب لكل عضو جرّب الإرسال فيها.
     await message.delete().catch(() => undefined);
     const deletedCount = await purgeRecentMessagesFromAuthor(message, 10 * 60_000);
-    if (!shouldNotify) return;
-    await warnPossiblyCompromisedMember(message, "إرسال رسالة في قناة الحماية الممنوع الإرسال فيها");
-    await sendModerationAlert(message, `اشتباه اختراق عبر قناة الحماية — حُذفت ${deletedCount} رسالة من آخر 10 دقائق`);
-    const alertEmbed = baseEmbed()
-      .setTitle("🛡️ رسالة الحماية")
-      .setDescription(
-        `تم تشغيل حماية الحساب واكتشاف نشاط مشبوه من <@${message.author.id}>.\n` +
-        `🗑️ **حذف الرسائل:** تم حذف **${deletedCount + 1}** رسالة احترازيًا من آخر 10 دقائق.\n` +
-        `⚠️ **تنبيه:** يمنع منعًا باتًا إرسال أي رسائل في هذه القناة لحماية السيرفر والأعضاء.`
-      );
-    await message.channel.send({ embeds: [alertEmbed] }).catch(() => undefined);
+    if (shouldWarnInPrivate(message)) {
+      await warnPossiblyCompromisedMember(message, "إرسال رسالة في قناة الحماية الممنوع الإرسال فيها");
+      await sendModerationAlert(message, `اشتباه اختراق عبر قناة الحماية — حُذفت ${deletedCount} رسالة من آخر 10 دقائق`);
+    }
+    await registerHackAlert(message.channel, deletedCount + 1);
   }
 
   async function purgeRecentMessagesFromAuthor(message: any, windowMs: number) {
