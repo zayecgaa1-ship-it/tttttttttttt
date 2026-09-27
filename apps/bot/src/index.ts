@@ -1470,7 +1470,14 @@ if (!token) {
     if (!shouldNotify) return;
     await warnPossiblyCompromisedMember(message, "إرسال رسالة في قناة الحماية الممنوع الإرسال فيها");
     await sendModerationAlert(message, `اشتباه اختراق عبر قناة الحماية — حُذفت ${deletedCount} رسالة من آخر 10 دقائق`);
-    await message.channel.send("🛡️ تم تشغيل حماية الحساب وحذف الرسائل الأخيرة احترازيًا. لا ترسل أي شيء في هذه القناة.").catch(() => undefined);
+    const alertEmbed = baseEmbed()
+      .setTitle("🛡️ رسالة الحماية")
+      .setDescription(
+        `تم تشغيل حماية الحساب واكتشاف نشاط مشبوه من <@${message.author.id}>.\n` +
+        `🗑️ **حذف الرسائل:** تم حذف **${deletedCount + 1}** رسالة احترازيًا من آخر 10 دقائق.\n` +
+        `⚠️ **تنبيه:** يمنع منعًا باتًا إرسال أي رسائل في هذه القناة لحماية السيرفر والأعضاء.`
+      );
+    await message.channel.send({ embeds: [alertEmbed] }).catch(() => undefined);
   }
 
   async function purgeRecentMessagesFromAuthor(message: any, windowMs: number) {
