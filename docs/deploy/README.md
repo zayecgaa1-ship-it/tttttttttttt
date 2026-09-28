@@ -47,6 +47,8 @@ npm run pack:site -- --api-url https://3pal-api.discloud.app
 
 ## ترتيب الإطلاق
 
+> **مستخدم جديد؟** ابدأ من [00-start-here.md](00-start-here.md) — فيه الخطة المختارة (كل شي مجاني: Vercel + Render + Discloud) والخطوات بالترتيب.
+
 1. Postgres + Redis مستضافان → [01-databases.md](01-databases.md)
 2. الـAPI على استضافة مستمرة → [04-api-hosting.md](04-api-hosting.md)
 3. الموقع على Vercel وربطه بعنوان الـAPI → [02-vercel-site.md](02-vercel-site.md)

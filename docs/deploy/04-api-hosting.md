@@ -4,25 +4,22 @@
 
 حزمة الـAPI: `npm run pack:api` → `deploy/3pal-api.zip` (تحتوي الموقع الثابت أيضًا، فيمكن للـAPI أن يخدم الموقع بنفسه إن أردت).
 
-## الخيار A: Discloud `TYPE=site`
+## الخيار A (الموصى به مبدئيًا): Render — خطة Free
 
-يشترط خطة Platinum فأعلى + نطاقًا فرعيًا، ويشترط الاستماع على المنفذ 8080.
+المستودع يحتوي `render.yaml` جاهزًا، فأسهل طريقة هي **Blueprint**:
 
-1. من لوحة Discloud: احجز نطاقًا فرعيًا (مثل `3pal-api`) → سيكون العنوان `https://3pal-api.discloud.app`.
-2. جهّز الحزمة: `npm run pack:api -- --env .env.deploy-api`.
-3. `Upload` → اختر `deploy/3pal-api.zip` → أضف متغيرات البيئة.
-4. تأكد أن `PORT=8080` داخل متغيرات الـAPI (الإعداد في `deploy/discloud/api/discloud.config` يضبط `TYPE` و`ID` و`MAIN`).
-5. Discloud يعرض السجلات وحالة التطبيق من اللوحة مباشرة.
+1. Render → `New` → `Blueprint` → اختر المستودع → سيتعرّف على الخدمة ويفتح لك حقول المتغيرات المعلَّمة `sync: false`.
+2. القيم الافتراضية في الملف:
 
-## الخيار B: Render (خطة Free)
+```text
+Build Command:  npm ci && npm run build
+Start Command:  node dist/apps/api/src/index.js
+Health Check:   /health
+Region:         frankfurt
+NODE_VERSION:   22
+```
 
-1. Render → `New` → `Web Service` → اربط المستودع.
-2. الإعدادات:
-   - **Environment:** Node
-   - **Build Command:** `npm ci && npm run build`
-   - **Start Command:** `node dist/apps/api/src/index.js`
-   - **Health Check Path:** `/health`
-3. متغيرات البيئة الأساسية:
+3. أضف المتغيرات (القائمة الجاهزة في [05-linking-env.md](05-linking-env.md)) وتأكد من:
 
 ```text
 DATABASE_URL=postgresql://...            # Neon
@@ -36,7 +33,19 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1       # يمنع تنزيل متصفحات ا
 PRISMA_HIDE_UPDATE_MESSAGE=1
 ```
 
-> الخطة المجانية في Render تُنيم الخدمة بعد ~15 دقيقة خمول. نبضة البوت كل 25 ثانية (`/api/bot/heartbeat`) تُبقي الخدمة صاحية عمليًا، لكن أضف خدمة `UptimeRobot` على `/health` كل 5 دقائق إن أردت ضمانًا إضافيًا.
+> ⚠️ لا تضبط `PORT` على Render — المنصة تمرّره تلقائيًا والكود يقرأه (`PORT` ثم `API_PORT` ثم 3000). الـ`PORT=8080` في `.env.deploy-api.example` مخصص لـDiscloud فقط.
+
+> الخطة المجانية تُنيم الخدمة بعد ~15 دقيقة بلا زيارات. نبضة البوت كل 25 ثانية (`/api/bot/heartbeat`) تُبقيها صاحية عمليًا، وأول زيارة بعد خمول تنتظر 30–60 ثانية. إن أزعجك ذلك لاحقًا: Render مدفوع (~7$)، أو Discloud Platinum.
+
+## الخيار B: Discloud `TYPE=site` (الأفضل لو عندك Platinum)
+
+يشترط خطة Platinum فأعلى + نطاقًا فرعيًا، ويشترط الاستماع على المنفذ 8080.
+
+1. من لوحة Discloud: احجز نطاقًا فرعيًا (مثل `3pal-api`) → سيكون العنوان `https://3pal-api.discloud.app`.
+2. جهّز الحزمة: `npm run pack:api -- --env .env.deploy-api`.
+3. `Upload` → اختر `deploy/3pal-api.zip` → أضف متغيرات البيئة.
+4. تأكد أن `PORT=8080` داخل متغيرات الـAPI (الإعداد في `deploy/discloud/api/discloud.config` يضبط `TYPE` و`ID` و`MAIN`).
+5. Discloud يعرض السجلات وحالة التطبيق من اللوحة مباشرة.
 
 ## الخيار C: Koyeb أو Fly.io
 

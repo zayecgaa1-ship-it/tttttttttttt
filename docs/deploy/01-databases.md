@@ -4,6 +4,16 @@
 
 ## 1) Postgres على Neon
 
+### الطريقة الأسهل (موصى بها): إنشاؤه من داخل Vercel
+
+1. Vercel → `Storage` (أو Marketplace) → **Neon** → `Create` → **Postgres** → المنطقة **Frankfurt** → `Create`.
+2. اضغط `Connect` (أو تبويب `.env`) وانسخ `DATABASE_URL` — تكون بالشكل `postgresql://...?sslmode=require`.
+3. نفس الشيء لـRedis: `Storage` → **Upstash** → `Create` → **Redis** → انسخ `REDIS_URL` (تبدأ بـ`rediss://`).
+
+الميزة: القاعدة "من استضافة الموقع" كما تريد، والمتغيرات جاهزة للنسخ، وبدون فتح حسابات إضافية.
+
+### الطريقة اليدوية (نفس النتيجة)
+
 1. أنشئ حسابًا على <https://neon.tech> ثم `New Project` (اختر أقرب منطقة لك).
 2. انسخ سلسلة الاتصال من `Connection string` بالشكل:
 

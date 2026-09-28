@@ -1,0 +1,75 @@
+# خطة Render للـAPI — الطريقة الأسهل: Render → New → Blueprint → اختر هذا المستودع.
+# Render يقرأ هذا الملف تلقائيًا من جذر المستودع، ثم يطلب منك قيم المتغيرات المُعلَّمة بـ sync: false.
+# ملاحظة: لا تضبط PORT هنا — Render يمرّر PORT تلقائيًا والكود يقرأه.
+services:
+  - type: web
+    name: 3pal-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/apps/api/src/index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: COOKIE_SAME_SITE
+        value: lax
+      - key: MAX_SSE_CLIENTS
+        value: "500"
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
+      - key: PRISMA_HIDE_UPDATE_MESSAGE
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: PUBLIC_SITE_URL
+        sync: false
+      - key: PUBLIC_SITE_ORIGINS
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_REDIRECT_URI
+        sync: false
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
+      - key: DISCORD_PUBLIC_CHANNEL_ID
+        sync: false
+      - key: DISCORD_DAILY_CHANNEL_ID
+        sync: false
+      - key: DISCORD_LFG_CHANNEL_ID
+        sync: false
+      - key: DISCORD_LFG_CATEGORY_ID
+        sync: false
+      - key: DISCORD_REPORT_CHANNEL_ID
+        sync: false
+      - key: TRADE_CHANNEL_ID
+        sync: false
+      - key: ADMIN_ROLE_IDS
+        sync: false
+      - key: DISCORD_OWNER_ID
+        sync: false
+      - key: ZARK_TAGLINE
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
