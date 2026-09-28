@@ -107,7 +107,10 @@ function zip(dir, name) {
   const zipPath = path.join(root, "deploy", `${name}.zip`);
   fs.rmSync(zipPath, { force: true });
   if (process.platform === "win32") {
-    execFileSync("powershell.exe", ["-NoProfile", "-Command", `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory('${dir}', '${zipPath}')`], { stdio: "inherit" });
+    // Windows: نستخدم bsdtar (مضمّن مع Win10+) بدل ZipFile::CreateFromDirectory،
+    // لأن الأخير يكتب فواصل `\` داخل أسماء المدخلات وهي تخالف معيار ZIP
+    // وتُفسد فك الضغط على لوحات Linux (Wispbyte/Discloud تستدعي `unzip`).
+    execFileSync("tar", ["-a", "-c", "-f", zipPath, "-C", dir, "."], { stdio: "inherit" });
   } else {
     execFileSync("zip", ["-rq", zipPath, "."], { cwd: dir, stdio: "inherit" });
   }
@@ -116,6 +119,8 @@ function zip(dir, name) {
 
 /** البوت لا يحتاج ملفات الفحص (`*.test.js`) ولا كود Prisma (`dist/packages/db`) وقت التشغيل. */
 const runtimeOnly = (file) => !file.endsWith(".test.js") && !file.startsWith(path.join(root, "dist/packages/db") + path.sep);
+/** الـAPI يحتاج `dist/packages/db` ولا Prisma، لكن ملفات الفحص لا داعي لرفعها. */
+const apiRuntimeOnly = (file) => !file.endsWith(".test.js");
 
 /** خطوات التشغيل على Wispbyte — لا يوجد SSH هناك: كل شي من لوحة التحكم. */
 function printHostNotes() {
@@ -147,8 +152,8 @@ function packBot() {
 function packApi() {
   const dir = stage("3pal-api");
   build();
-  copyDir(path.join(root, "dist/apps/api"), path.join(dir, "dist/apps/api"));
-  copyDir(path.join(root, "dist/packages"), path.join(dir, "dist/packages"));
+  copyDir(path.join(root, "dist/apps/api"), path.join(dir, "dist/apps/api"), apiRuntimeOnly);
+  copyDir(path.join(root, "dist/packages"), path.join(dir, "dist/packages"), apiRuntimeOnly);
   // الـAPI يخدم الموقع الثابت من apps/web/public عبر @fastify/static.
   copyDir(path.join(root, "apps/web/public"), path.join(dir, "apps/web/public"));
   copyFile(path.join(root, "packages/db/prisma/schema.prisma"), path.join(dir, "prisma/schema.prisma"));
