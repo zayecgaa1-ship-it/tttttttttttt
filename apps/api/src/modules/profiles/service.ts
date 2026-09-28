@@ -155,7 +155,12 @@ export async function syncVoicePresence(userIds: string[]) {
   return { active: userIds.length };
 }
 
-export async function getMentionAvailability(input: { userId: string; guildId: string; channelId: string }) {
+/** مفتاح الكولداون: كل عضو يحصل على بطاقة حالة كل هدف مرة واحدة في النافذة، لا مرة واحدة للسيرفر. */
+export function mentionStatusCooldownKey(input: { guildId: string; channelId: string; userId: string; requesterId?: string }) {
+  return `${input.guildId}:${input.channelId}:${input.requesterId ?? "unknown"}:${input.userId}`;
+}
+
+export async function getMentionAvailability(input: { userId: string; guildId: string; channelId: string; requesterId?: string }) {
   const settings = await getGuildRuntimeSettings();
   if (!settings.autoMentionStatusEnabled) return { allowed: false, reason: "disabled" as const };
   if (settings.mentionStatusExcludedIds.includes(input.channelId)) return { allowed: false, reason: "excluded-channel" as const };
@@ -163,7 +168,7 @@ export async function getMentionAvailability(input: { userId: string; guildId: s
   const user = await db.user.findUnique({ where: { id: input.userId }, include: { weeklyAvailability: { orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] } } });
   if (!user) return { allowed: false, reason: "not-configured" as const };
   if (!user.mentionStatusEnabled || !user.activityVisible || !user.showCurrentStatus) return { allowed: false, reason: "private" as const, displayName: user.displayName };
-  const claimed = await claimOnce("mention-status", `${input.guildId}:${input.channelId}:${input.userId}`, settings.mentionStatusCooldownMinutes * 60);
+  const claimed = await claimOnce("mention-status", mentionStatusCooldownKey(input), settings.mentionStatusCooldownMinutes * 60);
   if (!claimed) return { allowed: false, reason: "cooldown" as const };
   const snapshot = resolveAvailability({ timeZone: user.timezone, periods: user.weeklyAvailability as SchedulePeriod[], manualActivity: user.currentActivity, manualUntil: user.activityUntil, voiceActive: user.voiceActive, lastActiveAt: user.lastActiveAt, activeWindowMinutes: settings.activityActiveMinutes });
   const visiblePeriods = filterScheduleForPrivacy(user.weeklyAvailability as SchedulePeriod[], { showFreeTime: user.showFreeTime, showStudyTime: user.showStudyTime, showSleepTime: user.showSleepTime });

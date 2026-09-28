@@ -19,6 +19,7 @@
     "test:admin-games": "tsx scripts/admin-game-content-smoke.ts",
     "test:ai-failover": "tsx scripts/ai-failover-smoke.ts",
     "test:games": "tsx scripts/smoke-games-availability.ts",
+    "test:bot-api": "tsx scripts/bot-api-retry-smoke.ts",
     "test:loyalty": "node scripts/lfg-platform-db-isolated.mjs scripts/loyalty-shop-db-smoke.ts",
     "test:loyalty:web": "node scripts/loyalty-shop-web-smoke.mjs",
     "opera:gx:start": "node scripts/opera-gx-cdp.mjs start",
@@ -36,6 +37,7 @@
     "postinstall": "prisma generate --schema packages/db/prisma/schema.prisma"
   },
   "dependencies": {
+    "@fastify/compress": "^9.2.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.1",
     "@fastify/static": "^10.1.3",

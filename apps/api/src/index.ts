@@ -5,6 +5,7 @@ import fs from "node:fs";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import compress from "@fastify/compress";
 import cookie from "@fastify/cookie";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -48,6 +49,7 @@ await initEvents();
 await app.register(cookie);
 const siteOrigins = (process.env.PUBLIC_SITE_ORIGINS ?? "http://localhost:3000").split(",").map((origin) => origin.trim()).filter(Boolean);
 await app.register(cors, { origin: siteOrigins, credentials: true });
+await app.register(compress, { global: true, threshold: 1024 });
 app.addHook("onSend", async (_request, reply) => {
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Frame-Options", "DENY");
@@ -65,10 +67,21 @@ app.addHook("preHandler", async (request) => {
 });
 await app.register(fastifyStatic, {
   root: path.resolve(process.cwd(), "apps/web/public"),
+  maxAge: "1d",
+  immutable: false,
+  etag: true,
+  lastModified: true,
   setHeaders(response, filePath) {
-    // Retain assets locally and revalidate using ETag, instead of downloading
-    // every stylesheet and script again on every page navigation.
-    if (/\.(?:html|js|css)$/i.test(filePath)) response.header("cache-control", "no-cache, must-revalidate");
+    if (/\.html$/i.test(filePath)) {
+      response.header("cache-control", "no-cache, must-revalidate");
+      return;
+    }
+    if (/\.(?:js|css|png|jpg|jpeg|webp|gif|svg|woff2?|ttf|ico)$/i.test(filePath)) {
+      // Versioned URLs (?v=...) allow long immutable cache; ETag still validates.
+      response.header("cache-control", "public, max-age=31536000, immutable");
+      return;
+    }
+    response.header("cache-control", "public, max-age=86400");
   },
 });
 await registerDiscordAuth(app);
@@ -913,7 +926,8 @@ app.post("/api/users/:id/activity", { preHandler: requireServiceKey }, async (re
 app.post("/api/activity/voice/sync", { preHandler: requireServiceKey }, async (request) => syncVoicePresence(z.object({ userIds: z.array(z.string()).max(5000) }).parse(request.body).userIds));
 app.post("/api/users/:id/availability/mention", { preHandler: requireServiceKey }, async (request) => {
   const params = z.object({ id: z.string() }).parse(request.params);
-  const body = z.object({ guildId: z.string().min(1), channelId: z.string().min(1) }).parse(request.body);
+  // requesterId يربط الكولداون بالعضو الذي كتب المنشن، فيحصل كل طالب على بطاقته المستقلة داخل الروم.
+  const body = z.object({ guildId: z.string().min(1), channelId: z.string().min(1), requesterId: z.string().min(1).optional() }).parse(request.body);
   return getMentionAvailability({ userId: params.id, ...body });
 });
 app.get("/api/users/:id/team", { preHandler: requireServiceKey }, async (request) => getMyTeam(z.object({ id: z.string() }).parse(request.params).id));

@@ -10,3 +10,7 @@ dist/
 
 # Zaemit AI tool config (auto-generated)
 .mcp.json
+
+# ملفات تشغيل محلية (PIDs الخدمات + لقطات الفحوصات)
+_api.pid
+_bot.pid

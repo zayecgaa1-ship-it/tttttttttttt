@@ -40,6 +40,18 @@ function cardBackground() {
 const activeDailyChannels = new Map<string, ActiveDaily>();
 const activeRaceChannels = new Map<string, ActiveRace>();
 const recentHumorByUser = new Map<string, string[]>();
+// حد أعلى لسجل الفكاهة: بدونه تنمو الخريطة بمفتاح لكل عضو ولا تُحرَّر أبدًا خلال عمر البوت.
+const recentHumorKeyLimit = 20_000;
+/** يحفظ السجل مع إبقاء المفاتيح المستخدمة حديثًا ويحرّر الأقدم عند بلوغ الحد (إخلاء LRU). */
+function rememberHumor(key: string, next: string[]) {
+  recentHumorByUser.delete(key);
+  recentHumorByUser.set(key, next);
+  while (recentHumorByUser.size > recentHumorKeyLimit) {
+    const oldest = recentHumorByUser.keys().next().value;
+    if (oldest === undefined) break;
+    recentHumorByUser.delete(oldest);
+  }
+}
 const brand = { name: "3Pal Games", tagline: "3Pal Games — فريقك أقرب مما تتخيل", color: 0xe50914 };
 function gamePlatformsLabel(platforms?: LfgPlatform[]) { return (platforms?.length ? platforms : LFG_PLATFORMS).map((platform) => LFG_PLATFORM_LABELS[platform]).join(" · "); }
 
@@ -187,6 +199,13 @@ if (!token) {
     await restoreApprovedAdmins().catch((error) => console.error("Security restore bootstrap failed", error));
   });
   client.on(Events.Error, (error) => console.error("Discord client error", error));
+  // مراقبة جلسة البوابة: بدون هذه الأحداث يختفي أي انقطاع أو إعادة اتصال من السجلات تمامًا.
+  client.on(Events.Warn, (message) => console.warn("Discord client warning", message));
+  client.on(Events.ShardDisconnect, (event, shardId) => console.error(`Discord shard ${shardId} disconnected (code ${event.code}, reason: ${event.reason || "unknown"}); سيعيد الاتصال تلقائيًا.`));
+  client.on(Events.ShardReconnecting, (shardId) => console.warn(`Discord shard ${shardId} is reconnecting...`));
+  client.on(Events.ShardResume, (shardId, replayedEvents) => console.log(`Discord shard ${shardId} resumed after replaying ${replayedEvents} event(s).`));
+  client.on(Events.ShardError, (error, shardId) => console.error(`Discord shard ${shardId} error`, error));
+  client.on(Events.Invalidated, () => console.error("Discord session invalidated; البوت يحتاج إعادة تشغيل لتسجيل جلسة بوابة جديدة."));
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     if (oldState.member?.user.bot || newState.member?.user.bot || oldState.channelId === newState.channelId) return;
     try {
@@ -236,7 +255,7 @@ if (!token) {
           const key=`roast:${interaction.user.id}`;
           const recent=recentHumorByUser.get(key)??[];
           const roast=pickFresh(zarkRoasts,recent);
-          recentHumorByUser.set(key,[...recent.filter(id=>id!==roast.id),roast.id].slice(-(zarkRoasts.length-1)));
+          rememberHumor(key,[...recent.filter(id=>id!==roast.id),roast.id].slice(-(zarkRoasts.length-1)));
           return interaction.reply({content:`<@${interaction.user.id}>`,allowedMentions:{users:[interaction.user.id]},embeds:[baseEmbed().setTitle('🔥 3PAL NOOB').setDescription(roast.text).setFooter({text:'إنت طلبت القصف 😂'})]});
         }
         if (interaction.commandName === "setup") {
@@ -259,6 +278,7 @@ if (!token) {
         if (interaction.commandName === "help-plus") return await helpPlus(interaction);
         if (interaction.commandName === "dm-test") return await testDirectMessage(interaction);
         if (["availability", "وقت-فراغي"].includes(interaction.commandName)) return await availability(interaction);
+        if (["status", "حالة"].includes(interaction.commandName)) return await privateMemberStatus(interaction);
         if (interaction.commandName === "team") return await handleTeamCommand(interaction);
         if (interaction.commandName === "lfg") return await handleLfgCommand(interaction);
       }
@@ -266,6 +286,12 @@ if (!token) {
       if (interaction.isButton()) return await handleButton(interaction);
       if (interaction.isModalSubmit()) return await handleModal(interaction);
     } catch (error) {
+      const code = discordErrorCode(error);
+      // 10062 = انتهت مهلة التفاعل، 40060 = تم الرد على التفاعل مسبقًا؛ لا فائدة من محاولة الرد أو تسجيل خطأ صاخب.
+      if (code === "10062" || code === "40060") {
+        console.warn(`Interaction ${interaction.id} skipped (${code}); the request expired or was already answered.`);
+        return;
+      }
       console.error("interaction failed", error);
       if (interaction.isRepliable()) {
         const message = { content: `❌ ${error instanceof Error ? error.message : "حدث خطأ غير متوقع"}` };
@@ -331,7 +357,11 @@ if (!token) {
     }
   });
 
-  void client.login(token);
+  // فشل تسجيل الدخول كان يُسقط العملية بلا رسالة واضحة؛ الآن يُسجَّل السبب مع رمز خروج فاشل.
+  void client.login(token).catch((error) => {
+    console.error("Discord login failed — تحقق من DISCORD_TOKEN وصلاحيات الـintents المطلوبة.", error);
+    process.exitCode = 1;
+  });
 
   async function handleLfgCommand(interaction: any) {
     const subcommand = interaction.options.getSubcommand();
@@ -623,6 +653,8 @@ if (!token) {
       const saved = await apiSend<UserAvailability>(`/api/users/${interaction.user.id}/availability`, "PUT", { currentActivity: activity, activityUntil, activityNote: null, mentionPolicy: current.mentionPolicy });
       return interaction.editReply(availabilityPanelPayload(saved, true));
     }
+    // زر بطاقة المنشن (يبقى للرسائل القديمة): يُعرض الرد مخفيًا في نفس الروم بلا أي إشارة لكونه خاصًا.
+    if (parts[0] === "mention-status" && parts[1]) return await mentionStatusFromButton(interaction, parts[1]);
     if (parts[0] !== "lfg") return;
     if (parts[1] === "create" && parts[2] === "roblox") return showRobloxRoomModal(interaction, Number(parts[3]), Number(parts[4]), parts[5] === "voice", parts[6]);
     if (parts[1] === "create" && parts[2] === "among-us") return showAmongUsRoomModal(interaction, Number(parts[3]), Number(parts[4]), parts[5] === "voice", parts[6]);
@@ -1373,17 +1405,76 @@ if (!token) {
     if (claim.claimed) await sendBumpReminder(channel);
   }
 
+  // بطاقة حالة موحّدة تُستخدم في المنشن وفي `/status`، بلا أي جملة عن كونها «خاصة»؛
+  // المحتوى نفسه في كل المسارات، ورابط موقع 3Pal يظهر كزر أسفل البطاقة فقط بلا سطر نصي مكرر.
+  function mentionStatusEmbed(data: MentionAvailability) {
+    const snapshot = data.snapshot!;
+    const name = data.displayName ?? "العضو";
+    const current = snapshot.currentPeriod ? `⏱️ الفترة الحالية: ${minuteClock(snapshot.currentPeriod.startMinute)} → ${minuteClock(snapshot.currentPeriod.endMinute)}` : undefined;
+    const next = snapshot.nextFree && snapshot.activity !== "FREE" ? `🟢 وقت الفراغ القادم <t:${Math.floor(new Date(snapshot.nextFree.startsAt).getTime()/1000)}:R> (${minuteClock(snapshot.nextFree.period.startMinute)} → ${minuteClock(snapshot.nextFree.period.endMinute)})` : undefined;
+    const active = snapshot.activeNow ? "🕒 نشط الآن" : snapshot.lastActiveAt ? `🕒 آخر نشاط <t:${Math.floor(new Date(snapshot.lastActiveAt).getTime()/1000)}:R>` : undefined;
+    return baseEmbed()
+      .setTitle(`حالة ${name}`)
+      .setDescription([`${availabilityLabel(snapshot.activity)} **${name}**`, current, next, active].filter(Boolean).join("\n"));
+  }
+
+  function mentionStatusLinkRow() {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع 3Pal").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
+  }
+
+  // المنشن ينشر البطاقة نفسها تلقائيًا: بلا سطر «جاهزة…» وبلا زر لفتحها، ورابط موقع 3Pal يبقى زرًّا
+  // أسفل البطاقة فقط. تُحفظ بيانات آخر بطاقة في الذاكرة للرسائل القديمة التي ما زال فيها زر
+  // «اعرض بطاقة الحالة»، فتظهر لصاحب الضغط فورًا وبلا استهلاك كولداون جديد.
+  const mentionStatusCards = new Map<string, { targetId: string; data: MentionAvailability; expiresAt: number }>();
+  const mentionStatusCardTtlMs = 10 * 60 * 1000;
+
+  function rememberMentionStatusCard(messageId: string, requesterId: string, targetId: string, data: MentionAvailability) {
+    const now = Date.now();
+    for (const [key, value] of mentionStatusCards) if (value.expiresAt <= now) mentionStatusCards.delete(key);
+    mentionStatusCards.set(`${messageId}:${requesterId}`, { targetId, data, expiresAt: now + mentionStatusCardTtlMs });
+  }
+
+  /** سبب واحد متاح للجميع يتشاركه المنشن و`/status`، بلا أي ذكر لكون البطاقة خاصة أو مخفية. */
+  function mentionStatusReason(data: MentionAvailability) {
+    const name = data.displayName ?? "هذا العضو";
+    if (data.reason === "cooldown") return "عُرضت حالة هذا العضو قبل قليل — أعد المحاولة بعد انتهاء مدة الانتظار.";
+    if (data.reason === "private") return `**${name}** لا يشارك حالته الآن.`;
+    if (data.reason === "disabled") return "بطاقة حالة المنشن متوقفة حاليًا في السيرفر.";
+    if (data.reason === "excluded-channel") return "بطاقة حالة المنشن متوقفة في هذا الروم.";
+    if (data.reason === "channel-not-enabled") return "بطاقة حالة المنشن تعمل في رومات محددة — راجع إدارة السيرفر.";
+    if (data.reason === "not-configured") return `**${name}** لم يضبط أوقاته بعد.`;
+    return "حالة هذا العضو غير متاحة حاليًا.";
+  }
+
+  // زر «اعرض بطاقة الحالة» في الرسائل القديمة فقط: تظهر البطاقة مخفية في نفس الروم؛
+  // وأي عضو يمر بمسار `/status` نفسه فيخضع لإعدادات الخصوصية والكولداون.
+  async function mentionStatusFromButton(interaction: any, targetId: string) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const cached = mentionStatusCards.get(`${interaction.message?.id ?? ""}:${interaction.user.id}`);
+    if (cached?.targetId === targetId && cached.data.snapshot) return interaction.editReply({ embeds: [mentionStatusEmbed(cached.data)], components: [mentionStatusLinkRow()] });
+    const data = await apiSend<MentionAvailability>(`/api/users/${targetId}/availability/mention`, "POST", { guildId: interaction.guildId ?? "dm", channelId: interaction.channelId ?? "dm", requesterId: interaction.user.id });
+    if (!data.allowed || !data.snapshot) return interaction.editReply({ content: mentionStatusReason(data), embeds: [], components: [] });
+    rememberMentionStatusCard(interaction.message?.id ?? "", interaction.user.id, targetId, data);
+    return interaction.editReply({ embeds: [mentionStatusEmbed(data)], components: [mentionStatusLinkRow()] });
+  }
+
   async function replyWithMentionedMemberStatus(message: any) {
     const mentioned = message.mentions?.users?.find((user: any) => !user.bot);
     if (!mentioned) return;
     try {
-      const data = await apiSend<MentionAvailability>(`/api/users/${mentioned.id}/availability/mention`, "POST", { guildId: message.guildId ?? "dm", channelId: message.channelId });
-      if (!data.allowed || !data.snapshot) return;
-      const snapshot = data.snapshot;
-      const current = snapshot.currentPeriod ? `⏱️ الفترة: ${minuteClock(snapshot.currentPeriod.startMinute)} → ${minuteClock(snapshot.currentPeriod.endMinute)}` : undefined;
-      const next = snapshot.nextFree && snapshot.activity !== "FREE" ? `🟢 وقت الفراغ القادم <t:${Math.floor(new Date(snapshot.nextFree.startsAt).getTime()/1000)}:R> (${minuteClock(snapshot.nextFree.period.startMinute)} → ${minuteClock(snapshot.nextFree.period.endMinute)})` : undefined;
-      const active = snapshot.activeNow ? "🕒 نشط الآن" : snapshot.lastActiveAt ? `🕒 آخر نشاط <t:${Math.floor(new Date(snapshot.lastActiveAt).getTime()/1000)}:R>` : undefined;
-      await message.reply({ content: [`${availabilityLabel(snapshot.activity)} **${data.displayName}**`, current, next, active].filter(Boolean).join("\n"), allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] } });
+      const data = await apiSend<MentionAvailability>(`/api/users/${mentioned.id}/availability/mention`, "POST", { guildId: message.guildId ?? "dm", channelId: message.channelId, requesterId: message.author.id });
+      if (!data.allowed || !data.snapshot) {
+        if (data.reason === "cooldown") console.log(`Mention status for ${mentioned.id} skipped for ${message.author.id} (cooldown).`);
+        return;
+      }
+      // البطاقة تظهر تلقائيًا بمجرد منشن العضو: Discord لا يسمح بردّ مخفي (Ephemeral) على رسالة عادية،
+      // فالرد هنا عام في الروم، والخصوصية تحكمها إعدادات العضو والكولداون في الـAPI.
+      await message.reply({
+        embeds: [mentionStatusEmbed(data)],
+        components: [mentionStatusLinkRow()],
+        allowedMentions: { repliedUser: false, users: [], roles: [], parse: [] },
+      });
+      console.log(`Mention status card posted for ${mentioned.id} requested by ${message.author.id}.`);
     } catch (error) { console.error("Mention availability failed", error); }
   }
 
@@ -1787,7 +1878,7 @@ if (!token) {
     const recent=recentHumorByUser.get(historyKey)??[];
     const entry=pickFresh(arabicHumor,recent);
     const next=[entry.id,...recent.filter(id=>id!==entry.id)].slice(0,arabicHumor.length);
-    recentHumorByUser.set(historyKey,next);
+    rememberHumor(historyKey,next);
     return entry;
   }
 
@@ -1795,7 +1886,7 @@ if (!token) {
     const historyKey=`meme:${userId}`;
     const recent=recentHumorByUser.get(historyKey)??[];
     const item=pickFresh(prop2HateMemes,recent);
-    recentHumorByUser.set(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,prop2HateMemes.length));
+    rememberHumor(historyKey,[item.id,...recent.filter(id=>id!==item.id)].slice(0,prop2HateMemes.length));
     return item;
   }
 
@@ -1838,7 +1929,7 @@ if (!token) {
       sourceLabel="AHA-MEMES sample · مصدر احتياطي";
       const fallbackKey=`meme-fallback:${userId}`;
       const fallbackRecent=recentHumorByUser.get(fallbackKey)??[];
-      recentHumorByUser.set(fallbackKey,[fallback.id,...fallbackRecent.filter(id=>id!==fallback.id)].slice(0,trustedSourceMemes.length));
+      rememberHumor(fallbackKey,[fallback.id,...fallbackRecent.filter(id=>id!==fallback.id)].slice(0,trustedSourceMemes.length));
     }
     const embed=baseEmbed().setTitle("🤣 ميم عربي").setURL(sourceUrl).setImage(imageUrl).setFooter({text:`المصدر: ${sourceLabel} · حقوق الصور لأصحابها`});
     const payload:any={embeds:[embed],components:[new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId("fun:meme").setLabel("ميم ثاني").setEmoji("🤣").setStyle(ButtonStyle.Primary))]};
@@ -1998,7 +2089,7 @@ if (!token) {
       { name: "👥 الفرق", value: "`/team create` إنشاء فريق\n`/team invite` دعوة لاعب\n`/team invitations` قبول أو رفض الدعوات\n`/team view` عرض التشكيلة والترتيب" },
       { name: "⭐ التقييم والدعم", value: "`/lfg rate` تقييم لاعب بعد جلسة\n`/lfg report` إبلاغ عن لاعب\n`/lfg bug` إرسال مشكلة\nبعد اكتمال الغرفة يصلك تقييم تفاعلي بالخاص." },
       { name: "🧹 تنظيم الرومات", value: "`/clear` أو `/مسح` لحذف حتى 100 رسالة من الروم دفعة واحدة، مع خيار حذف رسائل عضو محدد فقط.\n`/clear-all` أو `/مسح-الكل` لحذف **جميع** رسائل الروم. تتطلب صلاحية إدارة الرسائل." },
-      { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة." },
+      { name: "🕐 حالتي", value: "`/وقت-فراغي` أو `/availability` لتغيير حالتك بضغطة واحدة.\n`/status` أو `/حالة @عضو` تعرض بطاقة حالة العضو مخفية لك بلا أي كلام عن كونها خاصة.\nمنشن العضو ينشر بطاقته تلقائيًا في الروم، وفيها زر رابط موقع 3Pal." },
       { name: "⌨️ أوامر الكتابة السريعة", value: "`.اعلام` `.ترجم` `.اسرع` `.اكمل` `.ترتيب` `.حساب` `.اختيارات` `.شعارات` `.انمي` `.صح` `.معلومات`" },
     );
     const website = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel("فتح موقع 3Pal").setEmoji("🌐").setStyle(ButtonStyle.Link).setURL(siteUrl()));
@@ -2036,6 +2127,17 @@ if (!token) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const current = await apiGet<UserAvailability>(`/api/users/${interaction.user.id}/availability`, true);
     return interaction.editReply(availabilityPanelPayload(current));
+  }
+
+  // نسخة الروم من بطاقة الحالة عبر `/status` أو `/حالة`: الرد مخفي (Ephemeral) بنفس شكل بطاقة
+  // المنشن، ويخضع لنفس إعدادات الخصوصية والكولداون.
+  async function privateMemberStatus(interaction: any) {
+    const target = interaction.options.getUser("user", true);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (target.bot) return interaction.editReply({ content: "لا يمكن عرض حالة بوت.", embeds: [], components: [] });
+    const data = await apiSend<MentionAvailability>(`/api/users/${target.id}/availability/mention`, "POST", { guildId: interaction.guildId ?? "dm", channelId: interaction.channelId ?? "dm", requesterId: interaction.user.id });
+    if (!data.allowed || !data.snapshot) return interaction.editReply({ content: mentionStatusReason({ ...data, displayName: data.displayName ?? target.username }), embeds: [], components: [] });
+    return interaction.editReply({ embeds: [mentionStatusEmbed(data)], components: [mentionStatusLinkRow()] });
   }
 
   async function lfgTop(interaction: any, metric: string) {
@@ -2759,7 +2861,24 @@ if (!token) {
     client.destroy();
   }
   process.once("SIGTERM", () => void shutdownBot("SIGTERM"));
+  // إغلاق نافذة الطرفية على ويندوز يصل كـSIGHUP (أو SIGBREAK)، وكان يختفي البوت بلا أي سطر يوضح السبب.
+  process.once("SIGHUP", () => void shutdownBot("SIGHUP — أُغلقت نافذة الطرفية"));
+  process.once("SIGBREAK", () => void shutdownBot("SIGBREAK"));
   process.once("SIGINT", () => void shutdownBot("SIGINT"));
+  // أي رفض وعد غير معالج أو استثناء خارج سياق معالج الأحداث يجب أن يظهر في السجلات بدل إسقاط البوت بصمت.
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled promise rejection in 3Pal bot", reason instanceof Error ? reason : new Error(String(reason)));
+  });
+  process.on("uncaughtException", (error) => {
+    console.error("Uncaught exception in 3Pal bot", error);
+  });
+  // فراغ حلقة الأحداث يعني أن اتصال البوابة والمؤقتات انتهت بلا خطأ ظاهر، فيخرج Node بصمت — نسجّل ذلك.
+  process.on("beforeExit", (code) => {
+    console.error(`3Pal bot has no pending work left (beforeExit, code ${code}); the gateway connection and timers ended.`);
+  });
+  process.on("exit", (code) => {
+    console.log(`3Pal bot process exited with code ${code}.`);
+  });
 }
 
 function buildCommands() {
@@ -2820,6 +2939,8 @@ function buildCommands() {
     new SlashCommandBuilder().setName("leaderboard").setDescription("متصدرو اليوم").addStringOption((option) => option.setName("type").setDescription("نوع النقاط").addChoices({ name: "ألعاب 3Pal", value: "game" }, { name: "تفاعل LFG", value: "engagement" })),
     availabilityCommand("availability"),
     availabilityCommand("وقت-فراغي"),
+    privateStatusCommand("status"),
+    privateStatusCommand("حالة"),
     new SlashCommandBuilder().setName("team").setDescription("إنشاء وإدارة فريق 3Pal")
       .addSubcommand(command=>command.setName("view").setDescription("عرض فريقك أو فريق لاعب").addUserOption(option=>option.setName("user").setDescription("اللاعب")))
       .addSubcommand(command=>command.setName("create").setDescription("إنشاء فريق جديد").addStringOption(option=>option.setName("name").setDescription("اسم الفريق").setRequired(true).setMinLength(2).setMaxLength(32)).addStringOption(option=>option.setName("description").setDescription("وصف مختصر").setMaxLength(240)))
@@ -2844,6 +2965,14 @@ function availabilityCommand(name: string) {
   return new SlashCommandBuilder().setName(name).setDescription("غيّر حالتك بضغطة واحدة");
 }
 
+function privateStatusCommand(name: string) {
+  return new SlashCommandBuilder()
+    .setName(name)
+    .setDescription("اعرض حالة عضو بشكل مخفي — يراه صاحب الأمر فقط")
+    .setDMPermission(false)
+    .addUserOption((option) => option.setName("user").setDescription("العضو المطلوب").setRequired(true));
+}
+
 type RaceAnswer = { correct: boolean; points: number; rank?: number; capped?: boolean; expired?: boolean; alreadyAnswered?: boolean; typoCount?: number; elapsedMs?: number; hintUsed?: boolean };
 type ZarkMatch = { id: string; seriesId: string; gameSlug: string; gameName: string; roundNumber: number; totalRounds: number; durationMs?: number; prompt: string; choices?: string[]; mediaUrl?: string; endsAt: string };
 type ActiveRace = { matchId: string; messageId: string; timeout: ReturnType<typeof setTimeout>; endsAtMs: number; choices: string[]; gameSlug: string; totalRounds: number; durationSeconds: number };
@@ -2852,7 +2981,7 @@ type ActiveDaily = { challengeId: string; messageId: string };
 type RaceStanding = { userId: string; displayName: string; points: number; wins: number };
 type RaceProgress = { completed: true; seriesId: string; totalRounds: number; standings: RaceStanding[] } | { completed: false; nextMatch: ZarkMatch; standings: RaceStanding[] };
 type UserAvailability = { currentActivity: "FREE" | "PLAYING" | "STUDYING" | "WORKING" | "BUSY" | "SLEEPING" | "AWAY"; activityUntil?: string; activityNote?: string; mentionPolicy: "EVERYONE" | "INTERESTED_ONLY" | "NOBODY"; weeklyAvailability: Array<{ id?: string; dayOfWeek: number; startMinute: number; endMinute: number; activity: string }> };
-type MentionAvailability = { allowed: boolean; displayName?: string; snapshot?: { activity: UserAvailability["currentActivity"]; activeNow: boolean; lastActiveAt?: string; currentPeriod?: { startMinute: number; endMinute: number }; nextFree?: { startsAt: string; period: { startMinute: number; endMinute: number } } } };
+type MentionAvailability = { allowed: boolean; reason?: string; displayName?: string; snapshot?: { activity: UserAvailability["currentActivity"]; activeNow: boolean; lastActiveAt?: string; currentPeriod?: { startMinute: number; endMinute: number }; nextFree?: { startsAt: string; period: { startMinute: number; endMinute: number } } } };
 type TeamView = { id:string; name:string; description?:string; accentColor:string; memberCount:number; maxMembers:number; score:number; totals:{xp:number;wins:number;sessions:number}; members:Array<{id:string;displayName:string;role:"OWNER"|"CAPTAIN"|"MEMBER"}> };
 type TeamInviteView = { id:string; expiresAt:string; team:{name:string}; inviter:{displayName:string} };
 type LfgInterestInsight = { gameSlug: string; gameName: string; gameIcon?: string; minPlayers: number; autoMinAvailable: number; maxPlayers: number; interestedCount: number; availableNowCount: number; interestPercent: number };
