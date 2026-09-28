@@ -6,7 +6,7 @@
 
 | المتغير | الـAPI | البوت | Vercel | الوصف |
 | --- | --- | --- | --- | --- |
-| `DATABASE_URL` | ✅ إلزامي | ⚪ اختياري | ❌ | سلسلة Postgres السحابية (Neon/Supabase). |
+| `DATABASE_URL` | ✅ إلزامي | ❌ (البوت لا يستخدم قاعدة البيانات) | ❌ | سلسلة Postgres السحابية (Neon/Supabase) — للـAPI فقط. |
 | `REDIS_URL` | ✅ إلزامي عمليًا | ✅ إلزامي عمليًا | ❌ | `rediss://` من Upstash؛ يجعل أحداث البوت تصل للموقع فورًا. |
 | `INTERNAL_API_KEY` | ✅ إلزامي | ✅ إلزامي | ❌ | سر طويل عشوائي، **نفس القيمة** في الطرفين (ترويسة `x-zark-service-key`). |
 | `INTERNAL_API_URL` | ❌ | ✅ إلزامي | ❌ | عنوان الـAPI العام الذي يخاطبه البوت. |
@@ -27,7 +27,7 @@
 | `NODE_ENV` | ✅ `production` | ⚪ | ❌ | يجعل كوكي الجلسة `Secure`. |
 | `COOKIE_SAME_SITE` | ⚪ | ❌ | ❌ | `lax` افتراضيًا؛ `none` فقط عند ربط الواجهة بالـAPI مباشرة بدون بروكسي. |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | ⚪ `1` | ❌ | ❌ | يمنع تنزيل متصفحات الفحص في الاستضافة. |
-| `PRISMA_HIDE_UPDATE_MESSAGE` | ⚪ `1` | ⚪ `1` | ❌ | تقليل ضجيج السجلات. |
+| `PRISMA_HIDE_UPDATE_MESSAGE` | ⚪ `1` | ❌ | ❌ | تقليل ضجيج السجلات (خاص بـPrisma في الـAPI). |
 
 ## كيف يترابطون فعليًا؟
 

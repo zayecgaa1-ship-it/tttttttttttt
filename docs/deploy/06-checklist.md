@@ -31,11 +31,11 @@ npm run pack:deploy    # يبني ويجهّز الحزم الثلاث
 
 ## د) البوت
 
-- [ ] حالة التطبيق في Discloud `Running` دون إعادة تشغيل متكرر.
+- [ ] السيرفر في Wispbyte `Running` بلا إعادة تشغيل متكررة (واستهلاك الذاكرة تحت 512MB).
 - [ ] `/api/status` → `"bot":{"online":true}`.
 - [ ] `@3Pal` في قناة عامة ينشر بطاقة الحالة تلقائيًا.
 - [ ] `/modo` أو `/lfg rooms` يعمل (يعني الوصول للـAPI والقنوات سليم).
-- [ ] سجل Discloud بلا `401` ولا `ECONNREFUSED`.
+- [ ] سجل Wispbyte بلا `401` ولا `ECONNREFUSED` ولا `Cannot find module`.
 
 ## هـ) البث المباشر
 

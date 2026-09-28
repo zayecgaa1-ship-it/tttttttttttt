@@ -185,7 +185,7 @@ node scripts/lfg-platform-db-isolated.mjs scripts/games-engine-db-smoke.ts
 
 في لعبة صح أو خطأ تُحفظ أول إجابة لكل لاعب ولكل سؤال، حتى لو كانت خاطئة. الضغط مجددًا أو إرسال الإجابة في الشات لا يمنح محاولة إضافية، ويمكن المشاركة مجددًا في السؤال التالي. يشمل النشر إضافة حقل `attemptedUserIds` بواسطة مسار `db:push:deploy` المعتاد. اختبار قاعدة البيانات المعزول: `node scripts/lfg-platform-db-isolated.mjs scripts/true-false-attempt-db-smoke.ts`.
 
-## النشر: موقع على Vercel + بوت على Discloud
+## النشر: موقع على Vercel + API على Render + بوت على Wispbyte
 
 المشروع مقسوم إلى ثلاث حزم مستقلة يجهّزها سكربت واحد، وترتبط ببعضها عبر متغيرات البيئة فقط:
 
@@ -200,7 +200,7 @@ npm run pack:api  -- --env .env.deploy-api
 | --- | --- |
 | `deploy/build/3pal-site/` | Vercel (ملفات ثابتة + `rewrites` + `config.js`) |
 | `deploy/3pal-api.zip` | استضافة مستمرة (Discloud `TYPE=site` أو Render/Koyeb) |
-| `deploy/3pal-bot.zip` | Discloud (`TYPE=bot`) |
+| `deploy/3pal-bot.zip` | Wispbyte (Node.js) أو Discloud (`TYPE=bot`) |
 
 - جدول متغيرات البيئة لكل طرف: [docs/deploy/05-linking-env.md](docs/deploy/05-linking-env.md)
 - قائمة التحقق قبل الإعلان: [docs/deploy/06-checklist.md](docs/deploy/06-checklist.md)

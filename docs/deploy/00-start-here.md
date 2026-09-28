@@ -5,7 +5,7 @@
 ```text
 الموقع + قاعدة البيانات + Redis  →  Vercel   (Neon + Upstash من داخل Vercel)
 الـAPI (المخ)                    →  Render   (مجاني، ونبضة البوت كل 25 ث تُبقيه صاحيًا)
-البوت                            →  Discloud (خطة مجانية)
+البوت                            →  Wispbyte (خطة مجانية: Node.js، ذاكرة 512MB)
 ```
 
 السبب باختصار: Vercel لا يستطيع تشغيل الـAPI (البث الحي + مؤقتات الغرف تحتاج عملية مستمرة)، وRender مجاني ويبقى يعمل ما دام البوت يرسل نبضته كل 25 ثانية. البيانات مع ذلك تبقى "من استضافة الموقع" كما أردت.
@@ -14,12 +14,12 @@
 
 | الخطوة | الحالة | التفاصيل |
 | --- | --- | --- |
-| 1. الحسابات | 🟡 ناقص Render + Discloud | Vercel جاهز أصلًا (لأن Neon/Upstash أُنشئا منه) |
+| 1. الحسابات | 🟡 ناقص Render + Wispbyte | Vercel جاهز أصلًا (لأن Neon/Upstash أُنشئا منه) |
 | 2. البيانات من Vercel | ✅ تم | Neon Postgres (Frankfurt) + Upstash Redis |
 | 3. الجداول ونقل البيانات | ✅ تم | 51 جدولًا • 42 لعبة • 19 مستخدمًا • 15 غرفة • 17 عضوًا • 9 تحديات |
 | 4. الـAPI على Render | ⏳ التالي | ملف `.env.deploy-api` جاهز بكل الأسرار |
 | 5. الموقع على Vercel | ⏳ | ينتظر عنوان الـAPI |
-| 6. البوت على Discloud | ⏳ | ملف `.env.deploy-bot` جاهز (ينتظر عنوان الـAPI النهائي) |
+| 6. البوت على Wispbyte | ⏳ | ملف `.env.deploy-bot` جاهز (ينتظر عنوان الـAPI النهائي) |
 | 7. الربط والتحقق | ⏳ | |
 
 > كل الأسرار موجودة محليًا في `.env.deploy-api` و`.env.deploy-bot` (مستثناة من Git) — لا تشاركها مع أحد.
@@ -33,7 +33,7 @@
 | --- | --- | --- |
 | Vercel | <https://vercel.com/signup> | Continue with GitHub |
 | Render | <https://render.com/register> | Continue with GitHub |
-| Discloud | <https://discloudbot.com> | دخول بحساب Discord |
+| Wispbyte | <https://wispbyte.com/client> | بريد إلكتروني أو Discord/Google/GitHub (خطة Free بدون بطاقة) |
 
 بعد هذا أرسل لي: "الحسابات جاهزة".
 
@@ -97,11 +97,15 @@ DISCORD_REDIRECT_URI=https://<vercel-domain>/auth/discord/callback
 
 > يمكنك وضع `https://*.vercel.app` في `PUBLIC_SITE_ORIGINS` من الآن (قبل معرفة الرابط النهائي): الـAPI يدعم النجمة، فيبقى الموقع يعمل حتى لو تغيّر نطاق Vercel أو نطاقات المعاينة. أضف نطاقك المخصص بالضبط لاحقًا.
 
-## الخطوة 6 — البوت على Discloud
+## الخطوة 6 — البوت على Wispbyte
 
-1. انسخ القالب: `Copy-Item .env.deploy-bot.example .env.deploy-bot` واملأ القيم (التوكن، معرّفات القنوات، `INTERNAL_API_URL=https://3pal-api.onrender.com`، و`INTERNAL_API_KEY` نفس قيمة Render).
-2. أنا أشغّل `npm run pack:bot` → ينتج `deploy/3pal-bot.zip`.
-3. Discloud → Applications → `Upload` → اختر الملف → انتظر حتى تظهر الحالة `Running`.
+1. أنا أُكمل `.env.deploy-bot` بعنوان Render ثم أشغّل `npm run pack:bot` → ينتج `deploy/3pal-bot.zip`.
+2. Wispbyte → `Create Server` → اختر خطة **Free** → Docker image = **Node.js** → `Submit`.
+3. من السيرفر: `Files` → `Upload` → اختر `deploy/3pal-bot.zip` → بعد اكتمال الرفع اضغط **Unarchive** في جذر السيرفر.
+4. `Startup` → اضبط `JS_FILE = dist/apps/bot/src/index.js` واترك أمر التشغيل **الافتراضي** (يثبّت الاعتماديات تلقائيًا لأن `package.json` موجود).
+5. `Console` → `Start` → يجب أن يظهر في السجل تسجيل دخول البوت.
+
+> لا يوجد SSH في الخطة المجانية، والمتغيرات مُضمّنة في `.env` داخل الحزمة فلا تحتاج كتابتها في اللوحة (إلا لتبديل قيمة سريعة). التفاصيل والأعطال الشائعة: [03-wispbyte-bot.md](03-wispbyte-bot.md).
 
 ## الخطوة 7 — الربط الأخير والتحقق
 
@@ -121,8 +125,8 @@ curl.exe -s https://3pal-api.onrender.com/api/status
 
 ## ما أحتاجه منك الآن (فقط هذا)
 
-1. تأكيد إنشاء الحسابات الثلاثة.
-2. قيمتان: `DATABASE_URL` و`REDIS_URL` من Vercel.
-3. معرّف السيرفر `DISCORD_GUILD_ID` (موجود أصلًا في `.env` عندك).
+1. إنشاء حساب Render وتطبيق `render.yaml` ثم إرسال رابط الخدمة (`https://...onrender.com`).
+2. إنشاء سيرفر Wispbyte (Free + Node.js) لرفع حزمة البوت عليه بعد أن أجهّزها بعنوان Render.
+3. إنشاء مشروع Vercel للموقع ثم إرسال النطاق النهائي لأضبطه في الـAPI.
 
 وكل ما بعده أرشّدك فيه خطوة بخطوة، والملفات كلها جاهزة في `docs/deploy/` للتفاصيل التقنية إن احتجت.

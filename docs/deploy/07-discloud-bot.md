@@ -1,4 +1,6 @@
-# 03 — نشر البوت على Discloud
+# 07 — نشر البوت على Discloud (بديل)
+
+> الوجهة المختارة للبوت حاليًا هي **Wispbyte** → [03-wispbyte-bot.md](03-wispbyte-bot.md). يبقى هذا الملف للرجوع إليه إن أردت Discloud.
 
 حزمة البوت مستقلة تمامًا: لا تحتوي الموقع ولا `apps/api`، ولا تشمل `playwright` (أداة فحص محلية فقط).
 
@@ -15,13 +17,14 @@ npm run pack:bot
 discloud.config        # إعدادات Discloud
 .discloudignore        # ما لا يُرفع
 .env                   # نسخة من .env.deploy-bot (تُنشأ أثناء التغليف)
-package.json           # اعتماديات التشغيل فقط: discord.js, redis, sharp, @prisma/client, dotenv, prisma
-prisma/schema.prisma   # لعمل prisma generate أثناء التثبيت (postinstall)
+package.json           # اعتماديات التشغيل فقط: discord.js, redis, sharp, dotenv, zod
 dist/apps/bot/**       # كود البوت مترجمًا
-dist/packages/**       # الحزم المشتركة (shared/games/fun/db)
+dist/packages/**       # الحزم المشتركة (shared/games/fun) — بدون db وبدون ملفات فحص
 apps/bot/src/fonts/NotoSansArabic.ttf          # تُقرأ من process.cwd()
 apps/web/public/assets/3pal-game-card-bg.png   # خلفية بطاقة الحالة
 ```
+
+لا Prisma في حزمة البوت: كل نداءاته للـAPI عبر HTTP، فلا يحتاج قاعدة البيانات ولا محرّك الاستعلامات (أخف وأقل ذاكرة — المهم على Wispbyte بذاكرة 512MB).
 
 `discloud.config` المضمّن:
 
@@ -50,7 +53,7 @@ START=npm run start
 | `INTERNAL_API_KEY` | نفس قيمة الـAPI | ترويسة `x-zark-service-key` للعمليات الداخلية. |
 | `PUBLIC_API_URL` | `https://<API-DOMAIN>` | تستخدمه الوظائف التي تحتاج عنوانًا عامًا. |
 | `REDIS_URL` | `rediss://...` (Upstash) | اشتراك البوت بأحداث `zark:events` القادمة من الـAPI. |
-| `DATABASE_URL` | سلسلة Postgres السحابية | نفس قاعدة الـAPI. |
+| `DATABASE_URL` | ❌ غير مطلوب | البوت لا يلمس قاعدة البيانات؛ كل عملياته عبر الـAPI. |
 | `DISCORD_TOKEN` | توكن البوت | الدخول. |
 | `DISCORD_GUILD_ID` | سيرفرك | كل عمليات السيرفر. |
 
@@ -71,7 +74,7 @@ START=npm run start
 ## 5) التحديثات
 
 - بعد أي تعديل على كود البوت/الحزم: `npm run pack:bot` ثم أعد رفع الـZIP الجديد من لوحة Discloud (`Restart`/`Update`).
-- عند تعديل `packages/db/prisma/schema.prisma`: شغّل `npm run db:push` على القاعدة السحابية أولًا، ثم أعد التغليف (الحزمة تحمل المخطط و`prisma generate` يعمل وقت التثبيت).
+- لا حاجة لإعادة تغليف البوت عند تعديل `packages/db/prisma/schema.prisma`: البوت لا يستخدم Prisma — المخطط يخصّ الـAPI وحده (`npm run db:push` على القاعدة السحابية).
 
 ## 6) عند الأعطال
 
@@ -82,4 +85,4 @@ START=npm run start
 | لا تحديث فوري في الموقع | `REDIS_URL` غير مضبوط في البوت أو في الـAPI. |
 | `Missing Access`/`Unknown Channel` | تأكد أن البوت في السيرفر الصحيح وأن معرّفات القنوات من نفس السيرفر. |
 
-> في حزمة البوت لا يوجد `tsx` ولا `typescript`: التشغيل يتم على `node dist/...` مباشرة، وهذا ما يجعل الإقلاع أسرع وأكثر ثباتًا على Discloud.
+> في حزمة البوت لا يوجد `tsx` ولا `typescript` ولا `prisma`: التشغيل يتم على `node dist/...` مباشرة، وهذا ما يجعل الإقلاع أسرع وأكثر ثباتًا على استضافة البوت.

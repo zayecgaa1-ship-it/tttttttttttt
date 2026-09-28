@@ -1,4 +1,4 @@
-# نشر 3PAL — موقع على Vercel + بوت على Discloud
+# نشر 3PAL — موقع على Vercel + API على Render + بوت على Wispbyte
 
 تم تقصيم المشروع إلى ثلاث حزم مستقلة يبنيها سكربت واحد، وترتبط ببعضها عبر متغيرات البيئة فقط.
 
@@ -13,8 +13,8 @@
        │ /api /auth /trade /health
        ▼               ▼
 ┌───────────────────────────────┐      ┌──────────────────────────────┐
-│ API (Fastify) — استضافة مستمرة │◄─────┤ Discloud: البوت (TYPE=bot)    │
-│ منفذ 8080 + Prisma + Redis     │      │ discord.js يعمل 24/7          │
+│ API (Fastify) — استضافة مستمرة │◄─────┤ Wispbyte: البوت (Node.js)     │
+│ Render + Prisma + Redis        │      │ discord.js يعمل 24/7          │
 └──────┬───────────────┬────────┘      └──────────────────────────────┘
        │               │
   Postgres (Neon)   Redis (Upstash)
@@ -22,7 +22,7 @@
 
 - **الموقع (Vercel):** ملفات ثابتة فقط — بدون بناء ولا اعتماديات.
 - **الـAPI:** خدمة Fastify مستمرة (Prisma + Redis + صور `sharp` + مؤقتات دورة حياة الغرف + بث SSE).
-- **البوت (Discloud):** discord.js يعمل 24/7 ويخاطب الـAPI في كل عملية (بطاقة الحالة، الغرف، LFG، الحماية...).
+- **البوت (Wispbyte):** discord.js يعمل 24/7 ويخاطب الـAPI في كل عملية (بطاقة الحالة، الغرف، LFG، الحماية...)، ونفس الحزمة تعمل على Discloud إن أردت البديل.
 - **الربط:** كل طرف يعرف الآخر بمتغيرات بيئة فقط: `PUBLIC_SITE_ORIGINS` (CORS)، `INTERNAL_API_URL` + `INTERNAL_API_KEY` (البوت ← الـAPI)، `DISCORD_REDIRECT_URI` (تسجيل الدخول)، وعنوان الـAPI داخل `config.js` (الموقع ← البث المباشر).
 
 ## لماذا الـAPI ليس على Vercel؟
@@ -33,7 +33,7 @@ Vercel لا يصلح لهذه الخدمة: بروكسي Vercel لا يمرّر 
 
 | الحزمة | الأمر | مكان النشر | المحتوى |
 | --- | --- | --- | --- |
-| `deploy/3pal-bot.zip` | `npm run pack:bot` | Discloud (`TYPE=bot`) | `dist/apps/bot` + `dist/packages` + الخط العربي + خلفية البطاقة + `schema.prisma` |
+| `deploy/3pal-bot.zip` | `npm run pack:bot` | Wispbyte (Node.js) أو Discloud (`TYPE=bot`) | `dist/apps/bot` + `dist/packages` (بلا `db` وملفات الفحص) + الخط العربي + خلفية البطاقة + `.env` |
 | `deploy/3pal-api.zip` | `npm run pack:api` | Discloud (`TYPE=site`) أو Render/Koyeb | `dist/apps/api` + `dist/packages` + الموقع الثابت + `schema.prisma` |
 | `deploy/build/3pal-site/` | `npm run pack:site` | Vercel | ملفات الموقع + `config.js` + `vercel.json` مضبوط على عنوان الـAPI |
 | الثلاثة معًا | `npm run pack:deploy` | — | — |
@@ -47,12 +47,12 @@ npm run pack:site -- --api-url https://3pal-api.discloud.app
 
 ## ترتيب الإطلاق
 
-> **مستخدم جديد؟** ابدأ من [00-start-here.md](00-start-here.md) — فيه الخطة المختارة (كل شي مجاني: Vercel + Render + Discloud) والخطوات بالترتيب.
+> **مستخدم جديد؟** ابدأ من [00-start-here.md](00-start-here.md) — فيه الخطة المختارة (كل شي مجاني: Vercel + Render + Wispbyte) والخطوات بالترتيب.
 
 1. Postgres + Redis مستضافان → [01-databases.md](01-databases.md)
 2. الـAPI على استضافة مستمرة → [04-api-hosting.md](04-api-hosting.md)
 3. الموقع على Vercel وربطه بعنوان الـAPI → [02-vercel-site.md](02-vercel-site.md)
-4. البوت على Discloud وربطه بعنوان الـAPI → [03-discloud-bot.md](03-discloud-bot.md)
+4. البوت على Wispbyte وربطه بعنوان الـAPI → [03-wispbyte-bot.md](03-wispbyte-bot.md) (البديل: [07-discloud-bot.md](07-discloud-bot.md))
 5. جدول متغيرات الربط لكل طرف → [05-linking-env.md](05-linking-env.md)
 6. تحقق نهائي قبل الإعلان → [06-checklist.md](06-checklist.md)
 
