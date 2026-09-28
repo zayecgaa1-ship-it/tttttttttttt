@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+/**
+ * تجهيز حزم النشر للتقصيم الثلاثي: موقع Vercel + بوت Discloud + API مستمر.
+ *
+ * أمثلة:
+ *   npm run pack:bot
+ *   npm run pack:api  -- --env .env.deploy-api
+ *   npm run pack:site -- --api-url https://3pal-api.discloud.app
+ *   npm run pack:deploy
+ *
+ * النواتج:
+ *   deploy/build/3pal-bot/ + deploy/3pal-bot.zip   (Discloud TYPE=bot)
+ *   deploy/build/3pal-api/ + deploy/3pal-api.zip   (Discloud TYPE=site)
+ *   deploy/build/3pal-site/                        (مشروع Vercel جاهز للرفع)
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { execFileSync, execSync } from "node:child_process";
+
+const root = process.cwd();
+const argv = process.argv.slice(2);
+const flag = (name) => {
+  const index = argv.indexOf(name);
+  return index === -1 ? undefined : argv[index + 1];
+};
+const positional = argv.filter((item, index) => !item.startsWith("--") && !(index > 0 && argv[index - 1].startsWith("--")));
+const target = (positional[0] ?? "all").toLowerCase();
+const apiUrl = (flag("--api-url") ?? "https://3pal-api.discloud.app").replace(/\/+$/, "");
+const buildRoot = path.join(root, "deploy", "build");
+const rootPackage = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
+/** الاعتماديات التي يحتاجها كل تطبيق وقت التشغيل فقط (بدون أدوات التطوير والفحوصات). */
+const BOT_DEPS = ["discord.js", "redis", "sharp", "@prisma/client", "dotenv", "prisma"];
+const API_DEPS = ["fastify", "@fastify/compress", "@fastify/cookie", "@fastify/cors", "@fastify/static", "@prisma/client", "dotenv", "jose", "redis", "sharp", "zod", "prisma"];
+
+function stage(name) {
+  const dir = path.join(buildRoot, name);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function copyFile(from, to) {
+  if (!fs.existsSync(from)) throw new Error(`مسار مفقود: ${path.relative(root, from)}`);
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
+}
+
+function copyDir(from, to, filter) {
+  if (!fs.existsSync(from)) throw new Error(`مسار مفقود: ${path.relative(root, from)}`);
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name);
+    const destination = path.join(to, entry.name);
+    if (entry.isDirectory()) copyDir(source, destination, filter);
+    else if (!filter || filter(source)) copyFile(source, destination);
+  }
+}
+
+/** تشغيل أمر مع طباعة مخرجه مباشرة. نستخدم execSync لتفادي تحذير Node عند تمرير وسائط مع shell. */
+function run(command, args, options = {}) {
+  console.log(`> ${command} ${args.join(" ")}`);
+  execSync([command, ...args].join(" "), { cwd: root, stdio: "inherit", ...options });
+}
+
+function build() {
+  run("npm", ["run", "build"]);
+  for (const entry of ["dist/apps/bot/src/index.js", "dist/apps/api/src/index.js", "dist/packages/db/src/client.js"]) {
+    if (!fs.existsSync(path.join(root, entry))) throw new Error(`فشل البناء: ${entry} غير موجود`);
+  }
+}
+
+function writeRuntimePackage(dir, name, deps, entry) {
+  const dependencies = Object.fromEntries(deps.map((dependency) => [dependency, rootPackage.dependencies[dependency] ?? "*"]));
+  const manifest = {
+    name,
+    private: true,
+    type: "module",
+    version: rootPackage.version ?? "0.1.0",
+    scripts: {
+      start: `node ${entry}`,
+      postinstall: "prisma generate --schema prisma/schema.prisma",
+    },
+    dependencies,
+  };
+  fs.writeFileSync(path.join(dir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+function copyEnv(dir, fallbackName) {
+  const provided = flag("--env");
+  const source = provided ? path.resolve(root, provided) : path.join(root, fallbackName);
+  if (!fs.existsSync(source)) {
+    console.warn(`تنبيه: لم يُعثر على ملف بيئة (${provided ?? fallbackName}) — اضبط المتغيرات من لوحة Discloud.`);
+    return;
+  }
+  copyFile(source, path.join(dir, ".env"));
+  console.log(`أُضيف ملف البيئة: ${path.relative(root, source)}`);
+}
+
+function zip(dir, name) {
+  const zipPath = path.join(root, "deploy", `${name}.zip`);
+  fs.rmSync(zipPath, { force: true });
+  if (process.platform === "win32") {
+    execFileSync("powershell.exe", ["-NoProfile", "-Command", `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory('${dir}', '${zipPath}')`], { stdio: "inherit" });
+  } else {
+    execFileSync("zip", ["-rq", zipPath, "."], { cwd: dir, stdio: "inherit" });
+  }
+  console.log(`حزمة جاهزة: ${path.relative(root, zipPath)}`);
+}
+
+function packBot() {
+  const dir = stage("3pal-bot");
+  build();
+  copyDir(path.join(root, "dist/apps/bot"), path.join(dir, "dist/apps/bot"));
+  copyDir(path.join(root, "dist/packages"), path.join(dir, "dist/packages"));
+  // ملفات تُقرأ من process.cwd() وقت التشغيل: خط عربي + خلفية بطاقة اللعبة.
+  copyDir(path.join(root, "apps/bot/src/fonts"), path.join(dir, "apps/bot/src/fonts"));
+  copyFile(path.join(root, "apps/web/public/assets/3pal-game-card-bg.png"), path.join(dir, "apps/web/public/assets/3pal-game-card-bg.png"));
+  copyFile(path.join(root, "packages/db/prisma/schema.prisma"), path.join(dir, "prisma/schema.prisma"));
+  copyDir(path.join(root, "deploy/discloud/bot"), dir);
+  writeRuntimePackage(dir, "3pal-bot", BOT_DEPS, "dist/apps/bot/src/index.js");
+  copyEnv(dir, ".env.deploy-bot");
+  zip(dir, "3pal-bot");
+}
+
+function packApi() {
+  const dir = stage("3pal-api");
+  build();
+  copyDir(path.join(root, "dist/apps/api"), path.join(dir, "dist/apps/api"));
+  copyDir(path.join(root, "dist/packages"), path.join(dir, "dist/packages"));
+  // الـAPI يخدم الموقع الثابت من apps/web/public عبر @fastify/static.
+  copyDir(path.join(root, "apps/web/public"), path.join(dir, "apps/web/public"));
+  copyFile(path.join(root, "packages/db/prisma/schema.prisma"), path.join(dir, "prisma/schema.prisma"));
+  copyDir(path.join(root, "deploy/discloud/api"), dir);
+  writeRuntimePackage(dir, "3pal-api", API_DEPS, "dist/apps/api/src/index.js");
+  copyEnv(dir, ".env.deploy-api");
+  zip(dir, "3pal-api");
+}
+
+function packSite() {
+  const dir = stage("3pal-site");
+  copyDir(path.join(root, "apps/web/public"), dir);
+  // الواجهة الخلفية تُخدَم عبر بروكسي Vercel (نفس الأصل ⇒ الكوكيز تبقى first-party)،
+  // والبث المباشر SSE يذهب مباشرة إلى أصل الـAPI لأن بروكسي Vercel لا يمرر text/event-stream.
+  fs.writeFileSync(path.join(dir, "config.js"), `window.__3PAL_API_BASE__ = "";\nwindow.__3PAL_STREAM_BASE__ = "${apiUrl}";\n`, "utf8");
+  const vercelConfig = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
+  // نهجر أي نطاق موجود في vercel.json إلى عنوان الـAPI الحقيقي (في rewrites وفي ترويسة connect-src).
+  const sourceOrigin = new URL(vercelConfig.rewrites[0].destination).origin;
+  vercelConfig.outputDirectory = ".";
+  vercelConfig.rewrites = vercelConfig.rewrites.map((rule) => ({ ...rule, destination: rule.destination.replace(sourceOrigin, apiUrl) }));
+  vercelConfig.headers = vercelConfig.headers.map((rule) => ({
+    ...rule,
+    headers: rule.headers.map((header) => ({ ...header, value: header.value.replaceAll(sourceOrigin, apiUrl) })),
+  }));
+  fs.writeFileSync(path.join(dir, "vercel.json"), `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8");
+  console.log(`مشروع Vercel جاهز في ${path.relative(root, dir)}`);
+  console.log(`ارفع الموقع بالأمر: npx vercel --prod --cwd "${dir}"  (أو اربط المجلد بمشروع Vercel من لوحة التحكم)`);
+}
+
+const actions = {
+  bot: packBot,
+  api: packApi,
+  site: packSite,
+  all: () => {
+    packBot();
+    packApi();
+    packSite();
+  },
+};
+
+const action = actions[target];
+if (!action) {
+  console.error("استخدم: node scripts/pack-deploy.mjs [bot|api|site|all] [--api-url https://...] [--env .env.deploy-bot]");
+  process.exit(1);
+}
+action();
+

@@ -1,0 +1,13 @@
+# ملفات لا يحتاجها تشغيل البوت على Discloud (صيغة .gitignore نفسها)
+*.log
+*.pid
+.git/
+.github/
+node_modules/
+.opera-gx-cdp-profile/
+artifacts/
+docs/
+deploy/
+scripts/
+apps/api/
+# ملاحظة مهمة: لا نتجاهل .env — أسرار التشغيل تُرفع مع المشروع أو تُضبط من لوحة Discloud.

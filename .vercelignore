@@ -1,0 +1,21 @@
+# ملفات لا يحتاجها نشر الموقع على Vercel (تُستثنى من الرفع لتسريعه)
+node_modules
+dist
+.opera-gx-cdp-profile
+artifacts
+docs
+deploy
+scripts
+imeeggg
+apps/api
+apps/bot
+packages
+*.log
+*.pid
+*.md
+zark_database_backup.sql
+Dockerfile
+docker-compose.yml
+nixpacks.toml
+.env
+.env.*

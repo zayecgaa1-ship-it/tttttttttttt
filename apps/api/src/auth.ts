@@ -137,6 +137,20 @@ function required(name: string) {
   return value;
 }
 
+/**
+ * إعدادات كوكي الجلسة.
+ * - sameSite=lax (الافتراضي): يكفي عندما يخدم الـAPI الموقع نفسه أو عند العبور عبر بروكسي واحد (Vercel rewrites).
+ * - COOKIE_SAME_SITE=none: مطلوب فقط عندما تكون الواجهة على نطاق والـAPI على نطاق آخر مباشرةً؛
+ *   وفي هذه الحالة نفرض secure=true تلقائيًا لأن المتصفحات ترفض none بدون HTTPS.
+ */
 function cookieOptions(maxAge: number) {
-  return { path: "/", httpOnly: true, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production", maxAge };
+  const sameSite = (process.env.COOKIE_SAME_SITE ?? "lax").trim().toLowerCase();
+  const resolved = sameSite === "none" || sameSite === "strict" ? sameSite : "lax";
+  return {
+    path: "/",
+    httpOnly: true,
+    sameSite: resolved as "lax" | "strict" | "none",
+    secure: process.env.NODE_ENV === "production" || resolved === "none",
+    maxAge,
+  };
 }

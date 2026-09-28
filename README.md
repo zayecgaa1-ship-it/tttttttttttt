@@ -184,3 +184,27 @@ node scripts/lfg-platform-db-isolated.mjs scripts/games-engine-db-smoke.ts
 استخدم `/setup` داخل روم Discord لنشر لوحة دائمة لاختيار اللعبة أو نسختها والإشعارات. لا توجد خطوة منفصلة لاختيار الجهاز: تظهر مثلًا **Minecraft — كل الأجهزة** و**GTA V — كمبيوتر/بلايستيشن** و**PUBG Mobile/PUBG Steam**. نشر اللوحة يحتاج صلاحية **إدارة السيرفر**؛ يستطيع كل لاعب فتح إعداداته الخاصة من الزر دون تغيير لوحة الآخرين.
 
 في لعبة صح أو خطأ تُحفظ أول إجابة لكل لاعب ولكل سؤال، حتى لو كانت خاطئة. الضغط مجددًا أو إرسال الإجابة في الشات لا يمنح محاولة إضافية، ويمكن المشاركة مجددًا في السؤال التالي. يشمل النشر إضافة حقل `attemptedUserIds` بواسطة مسار `db:push:deploy` المعتاد. اختبار قاعدة البيانات المعزول: `node scripts/lfg-platform-db-isolated.mjs scripts/true-false-attempt-db-smoke.ts`.
+
+## النشر: موقع على Vercel + بوت على Discloud
+
+المشروع مقسوم إلى ثلاث حزم مستقلة يجهّزها سكربت واحد، وترتبط ببعضها عبر متغيرات البيئة فقط:
+
+```bash
+npm run pack:deploy                          # الموقع + الـAPI + البوت معًا
+npm run pack:site -- --api-url https://<API-DOMAIN>
+npm run pack:bot                             # يستخدم .env.deploy-bot إن وُجد
+npm run pack:api  -- --env .env.deploy-api
+```
+
+| الناتج | مكان النشر |
+| --- | --- |
+| `deploy/build/3pal-site/` | Vercel (ملفات ثابتة + `rewrites` + `config.js`) |
+| `deploy/3pal-api.zip` | استضافة مستمرة (Discloud `TYPE=site` أو Render/Koyeb) |
+| `deploy/3pal-bot.zip` | Discloud (`TYPE=bot`) |
+
+- جدول متغيرات البيئة لكل طرف: [docs/deploy/05-linking-env.md](docs/deploy/05-linking-env.md)
+- قائمة التحقق قبل الإعلان: [docs/deploy/06-checklist.md](docs/deploy/06-checklist.md)
+- الدليل الكامل خطوة بخطوة: [docs/deploy/README.md](docs/deploy/README.md)
+
+> البث المباشر `/api/stream` يُوجَّه مباشرة إلى الـAPI من `apps/web/public/config.js` لأن بروكسي Vercel لا يمرّر `text/event-stream`، وبقية الطلبات (`/api/*`, `/auth/*`, `/trade/*`) تمر عبر `rewrites` بنفس الأصل لتبقى كوكيز الجلسة سليمة.
+

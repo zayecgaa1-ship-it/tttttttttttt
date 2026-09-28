@@ -122,7 +122,9 @@ async function boot() {
   await renderPage();
   await tutorialManager.autoStart();
 
-  const stream = new EventSource('/api/stream');
+  // بروكسي Vercel لا يمرر text/event-stream، لذلك يمكن توجيه البث مباشرة إلى الـAPI عبر __3PAL_STREAM_BASE__.
+  const streamBase = window.__3PAL_STREAM_BASE__ || window.__3PAL_API_BASE__ || '';
+  const stream = new EventSource(`${streamBase}/api/stream`);
   let timer,refreshRunning=false,refreshPending=false;
   const refresh=async()=>{
     if(document.hidden||$('zark-tutorial-v4'))return;
@@ -1246,7 +1248,9 @@ function formatFileSize(bytes){return bytes>=1_000_000?`${(bytes/1_000_000).toFi
 
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
 async function api(path,options={}){
-  const response=await fetch(path,{method:options.method||'GET',credentials:'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined,keepalive:Boolean(options.keepalive)});
+  // عندما تكون الواجهة مستضافة على نطاق آخر (Vercel) نحوّل الطلبات إلى أصل الـAPI مع إرسال كوكيز الجلسة.
+  const apiBase=window.__3PAL_API_BASE__||'';
+  const response=await fetch(`${apiBase}${path}`,{method:options.method||'GET',credentials:apiBase?'include':'same-origin',headers:options.body?{'content-type':'application/json'}:undefined,body:options.body?JSON.stringify(options.body):undefined,keepalive:Boolean(options.keepalive)});
   const text=await response.text();let body;
   try{body=text?JSON.parse(text):undefined}catch{}
   if(!response.ok)throw new Error(typeof body?.error==='string'?body.error:`تعذر تنفيذ الطلب (${response.status})`);

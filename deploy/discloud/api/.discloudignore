@@ -1,0 +1,14 @@
+# ملفات لا يحتاجها تشغيل الـAPI على Discloud (صيغة .gitignore نفسها)
+*.log
+*.pid
+.git/
+.github/
+node_modules/
+.opera-gx-cdp-profile/
+artifacts/
+docs/
+deploy/
+scripts/
+apps/bot/
+packages/db/prisma/safe-zark-series.sql
+# ملاحظة مهمة: لا نتجاهل .env ولا apps/web/public لأن الـAPI يخدم الموقع الثابت أيضًا.

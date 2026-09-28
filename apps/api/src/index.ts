@@ -1042,10 +1042,28 @@ app.post("/api/bot/bump-reminder/completed", { preHandler: requireServiceKey }, 
 app.get("/api/stream", async (request, reply) => {
   if (!hasEventCapacity()) return reply.status(503).send({ error: "خدمة التحديث المباشر ممتلئة مؤقتًا؛ سيعيد الموقع المحاولة تلقائيًا" });
   reply.hijack();
-  reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+  reply.raw.writeHead(200, eventStreamHeaders(request.headers.origin));
   reply.raw.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
   subscribe(reply.raw);
 });
+
+/**
+ * بعد reply.hijack() لا تُطبَّق ترويسات Fastify تلقائيًا، لذلك نضيف ترويسات CORS يدويًا
+ * حتى يفتح الموقع المستضاف على نطاق آخر (Vercel) بث SSE مباشرًا من الـAPI.
+ */
+function eventStreamHeaders(origin: string | undefined) {
+  const headers: Record<string, string> = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  };
+  if (origin && siteOrigins.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers.Vary = "Origin";
+  }
+  return headers;
+}
 
 app.setErrorHandler((error, _request, reply) => {
   app.log.error(error);
