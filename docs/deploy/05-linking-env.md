@@ -12,7 +12,7 @@
 | `INTERNAL_API_URL` | ❌ | ✅ إلزامي | ❌ | عنوان الـAPI العام الذي يخاطبه البوت. |
 | `PUBLIC_API_URL` | ⚪ | ⚪ | ❌ | عنوان الـAPI العام (روابط عامة). |
 | `PUBLIC_SITE_URL` | ✅ | ⚪ | ❌ | نطاق الموقع، يُستخدم في المشاركات والروابط. |
-| `PUBLIC_SITE_ORIGINS` | ✅ إلزامي | ❌ | ❌ | قائمة أصول الموقع مفصولة بفواصل (CORS + فحص الأصل + CORS للبث). |
+| `PUBLIC_SITE_ORIGINS` | ✅ إلزامي | ❌ | ❌ | قائمة أصول الموقع مفصولة بفواصل (CORS + فحص الأصل + CORS للبث). تدعم النجمة مثل `https://*.vercel.app` لتغطية نطاقات Vercel المتغيرة. |
 | `DISCORD_REDIRECT_URI` | ✅ إلزامي | ❌ | ❌ | `https://<site-domain>/auth/discord/callback` ويجب أن يطابق Discord Portal. |
 | `SESSION_SECRET` | ✅ إلزامي | ❌ | ❌ | ≥ 32 حرفًا عشوائيًا (توقيع جلسات Discord). |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | ✅ إلزامي | ❌ | ❌ | من Discord Developer Portal (تسجيل الدخول بالموقع). |

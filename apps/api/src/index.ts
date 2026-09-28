@@ -47,8 +47,19 @@ const roomUpdateSchema = z.object({
 });
 await initEvents();
 await app.register(cookie);
-const siteOrigins = (process.env.PUBLIC_SITE_ORIGINS ?? "http://localhost:3000").split(",").map((origin) => origin.trim()).filter(Boolean);
-await app.register(cors, { origin: siteOrigins, credentials: true });
+/**
+ * الأصول المسموح بها للطلبات المتقاطعة. تدعم النجمة لتغطية النطاقات المتغيرة:
+ *   PUBLIC_SITE_ORIGINS="https://3pal.example,https://*.vercel.app,http://localhost:3000"
+ * النجمة تعني "أي جزء من المضيف دون نقاط أو شرطات مائلة" (لا تسمح بنطاق آخر تمامًا).
+ */
+const siteOriginPatterns = (process.env.PUBLIC_SITE_ORIGINS ?? "http://localhost:3000").split(",").map((origin) => origin.trim()).filter(Boolean);
+const exactSiteOrigins = siteOriginPatterns.filter((origin) => !origin.includes("*"));
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const wildcardSiteOrigins = siteOriginPatterns
+  .filter((origin) => origin.includes("*"))
+  .map((pattern) => new RegExp(`^${pattern.split("*").map(escapeRegex).join("[^./]+")}$`));
+const isAllowedSiteOrigin = (origin: string) => exactSiteOrigins.includes(origin) || wildcardSiteOrigins.some((pattern) => pattern.test(origin));
+await app.register(cors, { origin: (origin, callback) => callback(null, !origin || isAllowedSiteOrigin(origin)), credentials: true });
 await app.register(compress, { global: true, threshold: 1024 });
 app.addHook("onSend", async (_request, reply) => {
   reply.header("X-Content-Type-Options", "nosniff");
@@ -63,7 +74,7 @@ app.addHook("preHandler", async (request) => {
   const origin = request.headers.origin;
   if (!origin) return;
   const sameHost = (() => { try { return new URL(origin).host === request.headers.host; } catch { return false; } })();
-  if (!sameHost && !siteOrigins.includes(origin)) throw new HttpError("تعذر التحقق من مصدر الطلب", 403);
+  if (!sameHost && !isAllowedSiteOrigin(origin)) throw new HttpError("تعذر التحقق من مصدر الطلب", 403);
 });
 await app.register(fastifyStatic, {
   root: path.resolve(process.cwd(), "apps/web/public"),
@@ -1058,7 +1069,7 @@ function eventStreamHeaders(origin: string | undefined) {
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
   };
-  if (origin && siteOrigins.includes(origin)) {
+  if (origin && isAllowedSiteOrigin(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers.Vary = "Origin";
   }

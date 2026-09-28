@@ -87,10 +87,12 @@ npm run pack:site -- --api-url https://3pal-api.onrender.com
 4. أرسل لي رابط Vercel النهائي لأضبطه في الـAPI:
 
 ```text
-PUBLIC_SITE_ORIGINS=https://<vercel-domain>,https://<your-domain>
+PUBLIC_SITE_ORIGINS=https://<vercel-domain>,https://<your-domain>,https://*.vercel.app
 PUBLIC_SITE_URL=https://<your-domain>
 DISCORD_REDIRECT_URI=https://<vercel-domain>/auth/discord/callback
 ```
+
+> يمكنك وضع `https://*.vercel.app` في `PUBLIC_SITE_ORIGINS` من الآن (قبل معرفة الرابط النهائي): الـAPI يدعم النجمة، فيبقى الموقع يعمل حتى لو تغيّر نطاق Vercel أو نطاقات المعاينة. أضف نطاقك المخصص بالضبط لاحقًا.
 
 ## الخطوة 6 — البوت على Discloud
 

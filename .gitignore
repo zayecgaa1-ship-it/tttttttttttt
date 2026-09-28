@@ -18,5 +18,8 @@ _bot.pid
 # Ù…Ø®Ø±Ø¬Ø§Øª ØªØ¬Ù‡ÙŠØ² Ø§Ù„Ù†Ø´Ø± ÙˆØ­Ø²Ù…Ù‡
 /deploy/build/
 /deploy/*.zip
+/deploy/3pal-bot/
+/deploy/3pal-api/
+/deploy/3pal-site/
 .env.deploy*
 !.env.deploy*.example
