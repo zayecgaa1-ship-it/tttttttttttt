@@ -110,7 +110,10 @@ function zip(dir, name) {
     // Windows: نستخدم bsdtar (مضمّن مع Win10+) بدل ZipFile::CreateFromDirectory،
     // لأن الأخير يكتب فواصل `\` داخل أسماء المدخلات وهي تخالف معيار ZIP
     // وتُفسد فك الضغط على لوحات Linux (Wispbyte/Discloud تستدعي `unzip`).
-    execFileSync("tar", ["-a", "-c", "-f", zipPath, "-C", dir, "."], { stdio: "inherit" });
+    // نمرّر أسماء الملفات العليا بدل `.` حتى لا يُخزَّن مدخل جذر `./` — بعض أدوات فك الضغط
+    // تبني `الوجهة\.` منه وتتعثّر بـ"الملف موجود بالفعل".
+    const entries = fs.readdirSync(dir);
+    execFileSync("tar", ["-a", "-c", "-f", zipPath, "-C", dir, ...entries], { stdio: "inherit" });
   } else {
     execFileSync("zip", ["-rq", zipPath, "."], { cwd: dir, stdio: "inherit" });
   }
